@@ -111,6 +111,17 @@ node_modules/.bin/tsc --noEmit
 npm run lint
 ```
 
+### 桌面应用
+
+桌面壳使用 Tauri 2，并在应用生命周期内管理仅监听 `127.0.0.1` 的 Pi Web 服务。开发桌面壳前需安装 Rust 和 Tauri CLI：
+
+```bash
+cargo install tauri-cli --version 2.8.4 --locked
+npm run desktop:dev
+```
+
+生产安装包携带 Node 和 Next standalone 服务，最终用户不需要安装 Node 或 npm。平台构建命令为 `npm run desktop:build:mac`、`npm run desktop:build:windows` 和 `npm run desktop:build:linux`。生产构建会写入 `.next/`，不要在日常 Web 开发过程中运行。
+
 日常开发时不要运行 `next build` 或 `npm run build`。它们会写入 `.next/`，可能干扰开发服务器；仅在发布流程中执行构建。
 
 贡献者文档：[国际化](./docs/i18n.md)和[发布流程](./docs/release.md)。

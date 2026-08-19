@@ -1913,6 +1913,28 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               transition: "border-color 0.15s, background 0.15s, box-shadow 0.15s",
             } as React.CSSProperties}
           >
+          <span
+            aria-hidden="true"
+            style={{
+              alignSelf: "flex-start",
+              backgroundColor: "var(--text)",
+              WebkitMaskImage: "url('/icons/pi-input-mark.png')",
+              maskImage: "url('/icons/pi-input-mark.png')",
+              WebkitMaskPosition: "center",
+              maskPosition: "center",
+              WebkitMaskRepeat: "no-repeat",
+              maskRepeat: "no-repeat",
+              WebkitMaskSize: "contain",
+              maskSize: "contain",
+              flexShrink: 0,
+              width: 28,
+              height: 24,
+              marginTop: 1,
+              pointerEvents: "none",
+              userSelect: "none",
+              WebkitUserSelect: "none",
+            }}
+          />
           <textarea
             ref={textareaRef}
             value={value}

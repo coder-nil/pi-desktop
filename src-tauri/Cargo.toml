@@ -1,0 +1,18 @@
+[package]
+name = "pi-web-desktop"
+version = "0.8.9"
+description = "Desktop shell for Pi Agents"
+authors = ["Pi Agents contributors"]
+edition = "2021"
+license = "MIT"
+
+[lib]
+name = "pi_web_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.0.0", features = [] }
+
+[dependencies]
+libc = "0.2"
+tauri = { version = "2.0.0", features = [] }

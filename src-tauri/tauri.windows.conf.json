@@ -1,0 +1,8 @@
+{
+  "bundle": {
+    "resources": {
+      "../desktop-dist/server/": "server/",
+      "../desktop-dist/node.exe": "node.exe"
+    }
+  }
+}

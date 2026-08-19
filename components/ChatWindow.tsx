@@ -679,18 +679,20 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                 fontFamily: "var(--font-mono)",
               }}
             >
-              <div style={{ display: "flex", alignItems: "baseline", gap: isMobile ? 7 : 10, minWidth: 0, flex: 1, lineHeight: 1.4, overflow: "hidden" }}>
-                <span style={{ fontSize: 28, fontWeight: 700, letterSpacing: 0, color: "var(--text)", flexShrink: 0, whiteSpace: "nowrap" }}>π</span>
-                <span style={{ fontSize: 22, color: "var(--text)", fontWeight: 700, letterSpacing: 0, flexShrink: 0, whiteSpace: "nowrap" }}>Pi Web</span>
+              <div style={{ display: "flex", alignItems: "flex-end", gap: isMobile ? 8 : 12, minWidth: 0, flex: 1, lineHeight: 1, overflow: "hidden" }}>
+                <span style={{ display: "inline-flex", alignItems: "flex-end", gap: 4, flexShrink: 0, whiteSpace: "nowrap" }}>
+                  <span style={{ fontSize: 22, color: "var(--text)", fontWeight: 700, letterSpacing: 0 }}>Pi</span>
+                  <span style={{ paddingBottom: 1, fontSize: 10, color: "var(--text-muted)", fontWeight: 500 }}>
+                    v{process.env.NEXT_PUBLIC_PI_VERSION ?? "0.0.0"}
+                  </span>
+                </span>
+                <span style={{ display: "inline-flex", alignItems: "flex-end", gap: 4, flexShrink: 0, whiteSpace: "nowrap" }}>
+                  <span style={{ fontSize: 22, color: "var(--text)", fontWeight: 700, letterSpacing: 0 }}>UI</span>
+                  <span style={{ paddingBottom: 1, fontSize: 10, color: "var(--text-muted)", fontWeight: 500 }}>
+                    v{process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0"}
+                  </span>
+                </span>
                 <NewSessionUpdateLink label={(version) => t("appUpdate.releaseNotes", { version })} />
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2, flexShrink: 0 }}>
-                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
-                  web <span style={{ color: "var(--text)" }}>v{process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0"}</span>
-                </span>
-                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
-                  pi <span style={{ color: "var(--text)" }}>v{process.env.NEXT_PUBLIC_PI_VERSION ?? "0.0.0"}</span>
-                </span>
               </div>
             </div>
             {chatInputElement}

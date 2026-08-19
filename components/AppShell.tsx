@@ -892,7 +892,7 @@ export function AppShell() {
 
   const activeFileTab = fileTabs.find((tab) => tab.id === activeFileTabId) ?? null;
   const activeCwdName = activeCwd ? getFileName(activeCwd) || activeCwd : null;
-  const windowTitle = activeCwdName ? `${activeCwdName} - Pi Web` : "Pi Web";
+  const windowTitle = activeCwdName ? `${activeCwdName} - Pi Agents` : "Pi Agents";
 
   useEffect(() => {
     const syncWindowTitle = () => {
@@ -1384,15 +1384,18 @@ export function AppShell() {
 
     const tooltipParts: string[] = [];
     if (tokens) {
-      tooltipParts.push(`in: ${tokens.input.toLocaleString(locale)}`);
-      tooltipParts.push(`out: ${tokens.output.toLocaleString(locale)}`);
-      tooltipParts.push(`cache read: ${tokens.cacheRead.toLocaleString(locale)}`);
-      tooltipParts.push(`cache write: ${tokens.cacheWrite.toLocaleString(locale)}`);
-      if (cost > 0) tooltipParts.push(`cost: $${cost.toFixed(4)}`);
+      tooltipParts.push(`${translate("session.tooltipInput")}: ${tokens.input.toLocaleString(locale)}`);
+      tooltipParts.push(`${translate("session.tooltipOutput")}: ${tokens.output.toLocaleString(locale)}`);
+      tooltipParts.push(`${translate("session.tooltipCacheRead")}: ${tokens.cacheRead.toLocaleString(locale)}`);
+      tooltipParts.push(`${translate("session.tooltipCacheWrite")}: ${tokens.cacheWrite.toLocaleString(locale)}`);
+      if (cost > 0) tooltipParts.push(`${translate("session.tooltipCost")}: $${cost.toFixed(4)}`);
     }
     if (contextUsage?.contextWindow) {
       const percent = contextUsage.percent;
-      tooltipParts.push(`context: ${percent !== null ? percent.toFixed(1) + "%" : "unknown"} of ${contextUsage.contextWindow.toLocaleString()} tokens`);
+      tooltipParts.push(translate("session.tooltipContext", {
+        percent: percent !== null ? `${percent.toFixed(1)}%` : translate("i18n.unknown"),
+        tokens: contextUsage.contextWindow.toLocaleString(locale),
+      }));
     }
     const tooltip = tooltipParts.join("  |  ");
     const covered = mobile && mobileToolbarMoreOpen;
@@ -1907,14 +1910,14 @@ export function AppShell() {
                 }}>
                   {sessionStats ? (() => {
                     const formatDuration = (ms: number) => {
-                      if (ms <= 0) return "0s";
+                      if (ms <= 0) return translate("session.durationSeconds", { count: 0 });
                       const totalSec = Math.floor(ms / 1000);
                       const h = Math.floor(totalSec / 3600);
                       const m = Math.floor((totalSec % 3600) / 60);
                       const s = totalSec % 60;
-                      if (h > 0) return `${h}h ${m}m`;
-                      if (m > 0) return `${m}m ${s}s`;
-                      return `${s}s`;
+                      if (h > 0) return translate("session.durationHours", { hours: h, minutes: m });
+                      if (m > 0) return translate("session.durationMinutes", { minutes: m, seconds: s });
+                      return translate("session.durationSeconds", { count: s });
                     };
                     const totalActiveMs = sessionStats.totalActiveMs ?? 0;
                     const sessionRows = [
@@ -1941,7 +1944,7 @@ export function AppShell() {
                     const formatCompact = (n: number) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(0)}k` : String(n);
                     const extraTokenRows = [
                        ...(sessionStats.cost > 0 ? [[translate("session.cost"), `$${sessionStats.cost.toFixed(4)}`]] : []),
-                       ...(ctx?.contextWindow ? [[translate("session.context"), `${ctx.percent !== null ? `${ctx.percent.toFixed(1)}%` : "?"} / ${formatCompact(ctx.contextWindow)}`]] : []),
+                       ...(ctx?.contextWindow ? [[translate("session.context"), `${ctx.percent !== null ? `${ctx.percent.toFixed(1)}%` : translate("i18n.unknown")} / ${formatCompact(ctx.contextWindow)}`]] : []),
                        // Cache hit rate = cache reads / (input + cache writes + cache reads) — the denominator covers all input-class tokens.
                        ...(sessionStats.tokens.cacheRead + sessionStats.tokens.cacheWrite > 0 && sessionStats.tokens.cacheRead + sessionStats.tokens.cacheWrite + sessionStats.tokens.input > 0
                          ? [[translate("session.cacheHitRate"), `${(sessionStats.tokens.cacheRead / (sessionStats.tokens.cacheRead + sessionStats.tokens.cacheWrite + sessionStats.tokens.input) * 100).toFixed(1)}%`]]
