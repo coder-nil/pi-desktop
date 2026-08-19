@@ -3,6 +3,7 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "@/hooks/useI18n";
+import { DEFAULT_CWD } from "@/lib/default-cwd";
 
 interface DirectoryEntry {
   name: string;
@@ -50,16 +51,17 @@ function isWindowsDriveRoot(directory: string): boolean {
 interface Props {
   onCancel: () => void;
   onSelect: (path: string) => void;
+  initialPath?: string;
   busy?: boolean;
   error?: string | null;
 }
 
-export function DirectoryPicker({ onCancel, onSelect, busy = false, error }: Props) {
+export function DirectoryPicker({ onCancel, onSelect, initialPath = DEFAULT_CWD, busy = false, error }: Props) {
   const { t } = useI18n();
   const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null);
-  const [currentPath, setCurrentPath] = useState("");
+  const [currentPath, setCurrentPath] = useState(initialPath);
   const [parentDirectory, setParentDirectory] = useState<string | null>(null);
-  const [pathInput, setPathInput] = useState("");
+  const [pathInput, setPathInput] = useState(initialPath);
   const [directories, setDirectories] = useState<DirectoryEntry[]>([]);
   const [drives, setDrives] = useState<DirectoryEntry[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -85,8 +87,8 @@ export function DirectoryPicker({ onCancel, onSelect, busy = false, error }: Pro
 
   useEffect(() => {
     setPortalTarget(document.body);
-    void navigateTo();
-  }, [navigateTo]);
+    void navigateTo(initialPath);
+  }, [initialPath, navigateTo]);
 
   const handlePathSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();

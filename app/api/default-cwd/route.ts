@@ -1,15 +1,13 @@
 import { NextResponse } from "next/server";
 import { mkdirSync } from "fs";
-import { homedir } from "os";
-import { join } from "path";
 import { allowFileRoot } from "@/lib/file-access";
+import { DEFAULT_CWD } from "@/lib/default-cwd";
 
 // POST /api/default-cwd
-// Creates ~/pi-cwd-<YYYYMMDD> if it doesn't exist and returns the path.
+// Ensures the configured default directory exists and returns the path.
 export async function POST() {
   try {
-    const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
-    const dir = join(homedir(), `pi-cwd-${date}`);
+    const dir = DEFAULT_CWD;
     mkdirSync(dir, { recursive: true });
     allowFileRoot(dir);
     return NextResponse.json({ cwd: dir });

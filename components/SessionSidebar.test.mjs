@@ -68,3 +68,11 @@ test("does not expose disk-backed actions for transient sessions", () => {
   assert.match(sessionItemSource, /if \(session\.transient\) return;/);
   assert.match(sessionItemSource, /\{hovered && !session\.transient && \(/);
 });
+
+test("keeps successfully added projects in removable local history", () => {
+  assert.match(source, /setProjectHistory\(addProjectHistory\(data\.projectRoot\)\)/);
+  assert.match(source, /visibleProjectHistory\.map\(\(path, index\) =>/);
+  assert.match(source, /handleRemoveProjectHistory\(\s*path,/);
+  assert.match(source, /project\.key === selectedProject\?\.key/);
+  assert.match(source, /visibleProjects\[index \+ 1\]\?\.root/);
+});

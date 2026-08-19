@@ -178,6 +178,29 @@ export async function listWorktrees(cwd: string): Promise<WorktreeInfo[]> {
   return worktrees;
 }
 
+/** Lists local branch names only. Remote-tracking branches are intentionally
+ * excluded because a worktree can only be created from a local ref directly. */
+export async function listLocalBranches(cwd: string): Promise<string[]> {
+  const out = await git(cwd, ["for-each-ref", "--format=%(refname:short)", "refs/heads"]);
+  return [...new Set(out.split("\n").map((branch) => branch.trim()).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b));
+}
+
+/** Switches an existing checkout to an existing local branch. Git refuses the
+ * operation when the checkout has conflicting uncommitted changes. */
+export async function checkoutBranch(cwd: string, branch: string): Promise<string> {
+  const trimmed = branch.trim();
+  if (!trimmed) throw new Error("Branch name is required");
+  await git(cwd, ["rev-parse", "--verify", `refs/heads/${trimmed}`]);
+  try {
+    await git(cwd, ["checkout", "--quiet", trimmed]);
+  } catch (error) {
+    throw new Error(extractGitError(error));
+  }
+  invalidateProjectCache();
+  return trimmed;
+}
+
 function findWorktreeByPath(worktrees: readonly WorktreeInfo[], candidate: string): WorktreeInfo | undefined {
   return worktrees.find((worktree) => samePath(worktree.path, candidate));
 }

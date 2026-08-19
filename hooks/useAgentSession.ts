@@ -244,6 +244,11 @@ export interface AttachedImage {
   previewUrl: string;
 }
 
+type RetryablePrompt = {
+  message: string;
+  images?: AttachedImage[];
+};
+
 type SelectedModel = { provider: string; modelId: string };
 type ModelEntry = { id: string; name: string; provider: string };
 type ModelsResponse = {
@@ -290,6 +295,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [toolPreset, setToolPreset] = useState<ToolPreset>("default");
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevelOption>("auto");
   const [retryInfo, setRetryInfo] = useState<{ attempt: number; maxAttempts: number; errorMessage?: string } | null>(null);
+  const [promptFailure, setPromptFailure] = useState<string | null>(null);
   const [contextUsage, setContextUsage] = useState<{ percent: number | null; contextWindow: number; tokens: number | null } | null>(null);
   const [systemPrompt, setSystemPrompt] = useState<string | null>(null);
   const [forkingEntryId, setForkingEntryId] = useState<string | null>(null);
@@ -339,6 +345,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const newSessionModelOverrideRef = useRef<SelectedModel | null>(null);
   const thinkingLevelOverrideRef = useRef<Exclude<ThinkingLevelOption, "auto"> | null>(null);
   const promptRunIdRef = useRef(0);
+  const retryablePromptRef = useRef<RetryablePrompt | null>(null);
+  const retrySessionKeyRef = useRef(session?.id ?? newSessionDraftKey);
   const optimisticUserMessageKeyRef = useRef<string | null>(null);
   const modelSwitchPendingRef = useRef(false);
   const draftKeyAliasesRef = useRef(new Map<string, string>());
@@ -1100,7 +1108,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         }
         break;
       case "prompt_error":
-        addNotice({ type: "error", message: (event.errorMessage as string | undefined) ?? "Command failed" });
+        {
+          const errorMessage = (event.errorMessage as string | undefined) ?? "Command failed";
+          addNotice({ type: "error", message: errorMessage });
+          if (rpcPromptPendingRef.current && retryablePromptRef.current) {
+            setPromptFailure(errorMessage);
+          }
+        }
         break;
       case "extension_error":
         addNotice({
@@ -1272,6 +1286,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
 
     const promptRunId = promptRunIdRef.current + 1;
+    setPromptFailure(null);
+    retryablePromptRef.current = {
+      message,
+      images: images?.map(({ data, mimeType }) => ({ data, mimeType, previewUrl: "" })),
+    };
     cancelEventStreamGrace();
     rpcPromptPendingRef.current = true;
 
@@ -1368,6 +1387,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       dispatch({ type: "end" });
     }
   }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, cancelEventStreamGrace, closeEvents, composerDraftKey, reconcileAgentState, restoreSubmission]);
+
+  const handleRetryPrompt = useCallback(() => {
+    const prompt = retryablePromptRef.current;
+    if (!prompt || agentRunningRef.current || bashRunningRef.current) return;
+    void handleSend(prompt.message, prompt.images);
+  }, [handleSend]);
 
   const executeBash = useCallback(async (command: string, excludeFromContext: boolean) => {
     if (agentRunningRef.current || bashRunningRef.current) return;
@@ -1785,6 +1810,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   // Load session on mount
   useEffect(() => {
     sessionHookMountedRef.current = true;
+    setPromptFailure(null);
+    retryablePromptRef.current = null;
     if (session) {
       sessionIdRef.current = session.id;
       loadSession(session.id, true, true).then((agentState) => {
@@ -1839,6 +1866,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    const sessionKey = session?.id ?? newSessionDraftKey;
+    if (retrySessionKeyRef.current === sessionKey) return;
+    retrySessionKeyRef.current = sessionKey;
+    setPromptFailure(null);
+    retryablePromptRef.current = null;
+  }, [session?.id, newSessionDraftKey]);
 
   useEffect(() => {
     onSystemPromptChange?.(systemPrompt);
@@ -1923,7 +1958,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     // State
     data, loading, error, activeLeafId, messages, entryIds, streamState,
     agentRunning, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, newSessionModel, toolPreset, thinkingLevel,
-    retryInfo, contextUsage, systemPrompt, forkingEntryId,
+    retryInfo, promptFailure, contextUsage, systemPrompt, forkingEntryId,
     isCompacting, compactError, compactResult, currentModel, displayModel, modelSwitching, sessionStats,
     slashCommands, slashCommandsLoading, queuedMessages,
     notices: noticeState.visible, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput,
@@ -1935,7 +1970,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     sessionIdRef, messagesEndRef, scrollContainerRef,
     lastUserMsgRef, pendingScrollToUserRef, initialScrollDoneRef,
     // Actions
-    handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
+    handleSend, handleRetryPrompt, handleAbort, handleFork, handleNavigate, handleModelChange,
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
     handleRecallQueue,
     handleBuiltinSlashCommand,

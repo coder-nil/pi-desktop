@@ -221,7 +221,22 @@ test("post-accept prompt errors do not duplicate the user submission", () => {
   );
 
   assert.match(promptErrorSource, /addNotice/);
+  assert.match(promptErrorSource, /setPromptFailure/);
   assert.doesNotMatch(promptErrorSource, /restoreSubmission/);
+});
+
+test("a failed prompt can be explicitly retried without restoring it to the draft", () => {
+  const retrySource = source.slice(
+    source.indexOf("  const handleRetryPrompt = useCallback"),
+    source.indexOf("  const executeBash = useCallback"),
+  );
+
+  assert.match(source, /const retryablePromptRef = useRef<RetryablePrompt \| null>\(null\)/);
+  assert.match(source, /retryablePromptRef\.current = \{[\s\S]*?message,[\s\S]*?images:/);
+  assert.match(retrySource, /void handleSend\(prompt\.message, prompt\.images\)/);
+  assert.doesNotMatch(retrySource, /restoreSubmission/);
+  assert.match(chatWindowSource, /promptFailure=\{promptFailure\}/);
+  assert.match(chatInputSource, /promptFailure && onRetryPrompt/);
 });
 
 test("delegates event stream readiness and hides an empty agent phase", () => {

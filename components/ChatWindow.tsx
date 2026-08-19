@@ -278,7 +278,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
   const {
     loading, error, messages, entryIds, streamState,
     agentRunning, bashRunning, pendingBash, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, toolPreset, thinkingLevel,
-    retryInfo, contextUsage, forkingEntryId,
+    retryInfo, promptFailure, contextUsage, forkingEntryId,
     isCompacting, compactError, compactResult, displayModel: displayModelValue, modelSwitching, sessionStats,
     slashCommands, slashCommandsLoading, queuedMessages,
     notices, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput,
@@ -287,7 +287,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     isNew,
     sessionIdRef, messagesEndRef, scrollContainerRef,
     lastUserMsgRef, promptAnchorActive,
-    handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
+    handleSend, handleRetryPrompt, handleAbort, handleFork, handleNavigate, handleModelChange,
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
     handleRecallQueue,
     handleBuiltinSlashCommand,
@@ -560,6 +560,8 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
       availableThinkingLevels={availableThinkingLevels}
       thinkingLevelMap={currentThinkingLevelMap}
       retryInfo={retryInfo}
+      promptFailure={promptFailure}
+      onRetryPrompt={handleRetryPrompt}
       queuedMessages={queuedMessages}
       inputHistory={inputHistory}
       onRecallQueue={handleRecallQueue}
