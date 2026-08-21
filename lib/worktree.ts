@@ -186,6 +186,14 @@ export async function listLocalBranches(cwd: string): Promise<string[]> {
     .sort((a, b) => a.localeCompare(b));
 }
 
+/** Lists remote-tracking branches for display. `origin/HEAD` is a symbolic
+ * pointer, not a branch a user can meaningfully select. */
+export async function listRemoteBranches(cwd: string): Promise<string[]> {
+  const out = await git(cwd, ["for-each-ref", "--format=%(refname:short)", "refs/remotes"]);
+  return [...new Set(out.split("\n").map((branch) => branch.trim()).filter((branch) => branch && !branch.endsWith("/HEAD")))]
+    .sort((a, b) => a.localeCompare(b));
+}
+
 /** Switches an existing checkout to an existing local branch. Git refuses the
  * operation when the checkout has conflicting uncommitted changes. */
 export async function checkoutBranch(cwd: string, branch: string): Promise<string> {

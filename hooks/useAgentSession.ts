@@ -351,6 +351,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const modelSwitchPendingRef = useRef(false);
   const draftKeyAliasesRef = useRef(new Map<string, string>());
   const sessionHookMountedRef = useRef(true);
+  const checkpointIdRef = useRef<string | null>(null);
 
   sessionPropIdRef.current = session?.id ?? null;
   sessionRunningRef.current = Boolean(sessionRunning);
@@ -1097,7 +1098,20 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           if (!promptWasPending && !firstNotification) break;
 
           const sid = sessionIdRef.current;
-          if (sid) void loadSession(sid);
+          if (sid) {
+            void loadSession(sid);
+            const checkpointId = checkpointIdRef.current;
+            checkpointIdRef.current = null;
+            if (checkpointId) {
+              void fetch(`/api/sessions/${encodeURIComponent(sid)}/context`).then((r) => r.ok ? r.json() : null).then((context) => {
+                const ids = context?.context?.entryIds as string[] | undefined;
+                const messages = context?.context?.messages as Array<{ role?: string }> | undefined;
+                let userIndex = -1;
+                for (let i = (messages?.length ?? 0) - 1; i >= 0; i--) { if (messages?.[i]?.role === "user") { userIndex = i; break; } }
+                return fetch("/api/checkpoints", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "finalize", sessionId: sid, checkpointId, entryId: userIndex >= 0 ? ids?.[userIndex] : ids?.at(-1) }) });
+              }).catch(() => {});
+            }
+          }
           // An extension-injected agent may already have started before the
           // command's prompt_done. Keep that active stage visible and let its
           // agent_settled event perform the next completion transition.
@@ -1315,6 +1329,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const piImages = images?.map((img) => ({ type: "image" as const, data: img.data, mimeType: img.mimeType }));
     let sentSessionId: string | null = null;
     let promptRequestStarted = false;
+    checkpointIdRef.current = null;
 
     try {
       if (isNew && newSessionCwd) {
@@ -1324,6 +1339,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
         if (!sid) throw new Error("Unable to create a session for the prompt");
         sentSessionId = sid;
+        try {
+          const checkpoint = await fetch("/api/checkpoints", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "create", sessionId: sid, cwd: newSessionCwd }) }).then((r) => r.ok ? r.json() : null);
+          checkpointIdRef.current = checkpoint?.id ?? null;
+        } catch { /* checkpointing is best effort and must not block a prompt */ }
         if (selectedModel) {
           setPendingModel(selectedModel);
           if (existingSid) {
@@ -1340,6 +1359,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         promoteNewSession(1, message);
       } else if (session) {
         sentSessionId = session.id;
+        try {
+          const checkpoint = await fetch("/api/checkpoints", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "create", sessionId: session.id, cwd: session.cwd }) }).then((r) => r.ok ? r.json() : null);
+          checkpointIdRef.current = checkpoint?.id ?? null;
+        } catch { /* checkpointing is best effort */ }
         await ensureEventsConnected(session.id);
         promptRequestStarted = true;
         await sendAgentCommand(session.id, {

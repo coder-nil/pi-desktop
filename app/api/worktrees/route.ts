@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { existsSync } from "fs";
-import { addWorktree, checkoutBranch, findCurrentWorktreePath, listLocalBranches, listWorktrees, removeWorktree, resolveProject } from "@/lib/worktree";
+import { addWorktree, checkoutBranch, findCurrentWorktreePath, listLocalBranches, listRemoteBranches, listWorktrees, removeWorktree, resolveProject } from "@/lib/worktree";
 import { allowFileRoot, getAllowedFileRoots, isExistingFilePathAllowed, isFilePathAllowed } from "@/lib/file-access";
 import { projectIdentityKey } from "@/lib/project-identity";
 
@@ -14,7 +14,7 @@ async function checkCwdAllowed(cwd: string): Promise<NextResponse | null> {
   return null;
 }
 
-// GET /api/worktrees?cwd=  →  { projectRoot, projectKey, isGit, isTopLevel, currentWorktreePath, worktrees, branches }
+// GET /api/worktrees?cwd=  →  { projectRoot, projectKey, isGit, isTopLevel, currentWorktreePath, worktrees, branches, remoteBranches }
 export async function GET(req: Request) {
   try {
     const cwd = new URL(req.url).searchParams.get("cwd");
@@ -27,13 +27,18 @@ export async function GET(req: Request) {
     const project = await resolveProject(cwd);
     let worktrees: Awaited<ReturnType<typeof listWorktrees>> = [];
     let branches: string[] = [];
+    let remoteBranches: string[] = [];
     let currentWorktreePath: string | null = null;
     let isGit = true;
     try {
       // For a removed-worktree cwd (session of a deleted worktree), fall back
       // to the inferred project root so the switcher still shows the project.
-      worktrees = await listWorktrees(existsSync(cwd) ? cwd : project.projectRoot);
-      branches = await listLocalBranches(existsSync(cwd) ? cwd : project.projectRoot);
+      const repositoryCwd = existsSync(cwd) ? cwd : project.projectRoot;
+      [worktrees, branches, remoteBranches] = await Promise.all([
+        listWorktrees(repositoryCwd),
+        listLocalBranches(repositoryCwd),
+        listRemoteBranches(repositoryCwd),
+      ]);
       currentWorktreePath = findCurrentWorktreePath(worktrees, cwd);
     } catch {
       isGit = false;
@@ -50,6 +55,7 @@ export async function GET(req: Request) {
       currentWorktreePath,
       worktrees,
       branches,
+      remoteBranches,
     });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });

@@ -1456,7 +1456,7 @@ function TextFileViewer({
                     return <CodeBlock code={raw.replace(/\n$/, "")} lang={lang} />;
                   }
                   return (
-                    <code className={className} {...props}>
+                    <code className={["markdown-inline-code", className].filter(Boolean).join(" ")} {...props}>
                       {children}
                     </code>
                   );

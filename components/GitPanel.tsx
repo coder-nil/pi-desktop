@@ -1,0 +1,158 @@
+"use client";
+
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { useI18n } from "@/hooks/useI18n";
+
+type GitFileStatus = {
+  filePath: string;
+  status: "modified" | "added" | "deleted" | "renamed" | "untracked" | "conflict";
+  code: string;
+  indexStatus: string;
+  worktreeStatus: string;
+};
+
+type GitSummary = {
+  isGitRepository: boolean;
+  repositoryRoot: string | null;
+  branch: string | null;
+  upstream: string | null;
+  ahead: number;
+  behind: number;
+  remote: string | null;
+  operation: "merge" | "rebase" | "cherry-pick" | "revert" | null;
+  branches: string[];
+  changes: { files: GitFileStatus[]; additions: number; deletions: number };
+};
+
+type Action = "stage" | "unstage" | "discard" | "commit" | "fetch" | "pull" | "push" | "merge" | "continue" | "abort" | "summarize";
+
+const STATUS_COLOR: Record<GitFileStatus["status"], string> = {
+  modified: "#d6a84b", added: "#4ade80", deleted: "#f87171", renamed: "#60a5fa", untracked: "#4ade80", conflict: "#f87171",
+};
+
+function fileName(filePath: string): string {
+  return filePath.split(/[\\/]/).pop() ?? filePath;
+}
+
+export function GitPanel({ cwd, sessionId, onClose, onChanged }: { cwd: string; sessionId: string | null; onClose: () => void; onChanged: () => void }) {
+  const { t } = useI18n();
+  const [summary, setSummary] = useState<GitSummary | null>(null);
+  const [message, setMessage] = useState("");
+  const [mergeBranch, setMergeBranch] = useState("");
+  const [pullRebase, setPullRebase] = useState(false);
+  const [busy, setBusy] = useState<Action | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    const res = await fetch(`/api/git?${new URLSearchParams({ cwd }).toString()}`);
+    const data = await res.json() as GitSummary & { error?: string };
+    if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
+    setSummary(data);
+  }, [cwd]);
+
+  useEffect(() => { void refresh().catch((reason: unknown) => setError(reason instanceof Error ? reason.message : String(reason))); }, [refresh]);
+
+  const run = useCallback(async (action: Action, extra: Record<string, unknown> = {}) => {
+    setBusy(action);
+    setError(null);
+    try {
+      const res = await fetch("/api/git", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cwd, action, ...extra }) });
+      const data = await res.json() as GitSummary & { error?: string };
+      if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
+      setSummary(data);
+      if (action === "commit") setMessage("");
+      if (action === "merge") setMergeBranch("");
+      onChanged();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+      void refresh().catch(() => undefined);
+    } finally {
+      setBusy(null);
+    }
+  }, [cwd, onChanged, refresh]);
+
+  const summarizeCommitMessage = useCallback(async () => {
+    if (!sessionId) return;
+    setBusy("summarize");
+    setError(null);
+    try {
+      const res = await fetch("/api/git/commit-message", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cwd, sessionId }),
+      });
+      const data = await res.json() as { message?: string; error?: string };
+      if (!res.ok || data.error || !data.message) throw new Error(data.error ?? `HTTP ${res.status}`);
+      setMessage(data.message);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setBusy(null);
+    }
+  }, [cwd, sessionId]);
+
+  const staged = summary?.changes.files.filter((file) => file.indexStatus !== " " && file.indexStatus !== "?") ?? [];
+  const unstaged = summary?.changes.files.filter((file) => file.worktreeStatus !== " " || file.indexStatus === "?") ?? [];
+  const conflictCount = summary?.changes.files.filter((file) => file.status === "conflict").length ?? 0;
+  const mergeBranches = summary?.branches.filter((branch) => branch !== summary.branch) ?? [];
+  const disabled = busy !== null;
+
+  return (
+    <div role="presentation" onClick={(event) => { if (!disabled && event.currentTarget === event.target) onClose(); }} style={{ position: "fixed", inset: 0, zIndex: 1100, display: "flex", justifyContent: "flex-end", background: "rgba(0,0,0,.34)" }}>
+      <section role="dialog" aria-modal="true" aria-label={t("common.git")} style={{ width: 460, maxWidth: "100vw", height: "100%", display: "flex", flexDirection: "column", background: "var(--bg)", borderLeft: "1px solid var(--border)", boxShadow: "-14px 0 32px rgba(0,0,0,.16)" }}>
+        <header style={{ height: 52, padding: "0 14px", display: "flex", alignItems: "center", gap: 10, borderBottom: "1px solid var(--border)", background: "var(--bg-panel)" }}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="3" /><circle cx="18" cy="18" r="3" /><path d="M6 9v6a3 3 0 0 0 3 3h6" /><path d="M18 15V9a3 3 0 0 0-3-3H9" /></svg>
+          <strong style={{ fontSize: 14 }}>{t("common.git")}</strong>
+          <span style={{ minWidth: 0, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--text-muted)", fontFamily: "var(--font-mono)", fontSize: 11 }}>{summary?.repositoryRoot ?? cwd}</span>
+          <button type="button" onClick={() => void refresh().catch((reason: unknown) => setError(reason instanceof Error ? reason.message : String(reason)))} disabled={disabled} title={t("git.refreshStatus")} aria-label={t("git.refreshStatus")} style={iconButtonStyle} onMouseEnter={(event) => { if (!disabled) event.currentTarget.style.background = "var(--bg-hover)"; }} onMouseLeave={(event) => { event.currentTarget.style.background = "transparent"; }}><span aria-hidden="true">↻</span></button>
+          <button type="button" onClick={onClose} disabled={disabled} title={t("git.close")} aria-label={t("git.close")} style={iconButtonStyle} onMouseEnter={(event) => { if (!disabled) event.currentTarget.style.background = "var(--bg-hover)"; }} onMouseLeave={(event) => { event.currentTarget.style.background = "transparent"; }}><span aria-hidden="true">×</span></button>
+        </header>
+        <main style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: 14 }}>
+          {error && <div role="alert" style={{ marginBottom: 12, padding: "8px 10px", border: "1px solid rgba(248,113,113,.45)", background: "rgba(248,113,113,.08)", color: "#ef4444", fontSize: 12, lineHeight: 1.45, overflowWrap: "anywhere" }}>{error}</div>}
+          {!summary && !error && <div style={{ color: "var(--text-muted)", fontSize: 12 }}>{t("git.loadingRepository")}</div>}
+          {summary && !summary.isGitRepository && <div style={{ color: "var(--text-muted)", fontSize: 12 }}>{t("git.notRepository")}</div>}
+          {summary?.isGitRepository && <>
+            <div style={summaryStyle}>
+              <span style={{ color: "var(--text-muted)", fontSize: 11 }}>{t("git.branch")}</span><strong style={{ fontFamily: "var(--font-mono)", fontSize: 12 }}>{summary.branch ?? t("git.detachedHead")}</strong>
+              <span style={{ color: "var(--text-muted)", fontSize: 11 }}>{t("git.sync")}</span><span style={{ fontFamily: "var(--font-mono)", fontSize: 12 }}>{summary.upstream ? `↑${summary.ahead} ↓${summary.behind}` : t("git.noUpstream")}</span>
+            </div>
+            {summary.operation && <div style={{ marginTop: 10, padding: "9px 10px", border: "1px solid rgba(214,168,75,.5)", background: "rgba(214,168,75,.10)", color: "var(--text)", fontSize: 12 }}>{t("git.operationInProgress", { operation: t(`git.operation.${summary.operation}`) })}{conflictCount ? ` ${t("git.operationConflicts", { count: conflictCount })}` : ""}<div style={{ display: "flex", gap: 6, marginTop: 8 }}><ActionButton label={t("git.continue")} busy={busy} action="continue" onClick={() => void run("continue")} /><ActionButton label={t("git.abort")} busy={busy} action="abort" danger onClick={() => void run("abort")} /></div></div>}
+            <div style={sectionStyle}><SectionTitle title={t("git.changesSummary", { additions: summary.changes.additions, deletions: summary.changes.deletions })} /><FileList files={unstaged} empty={t("git.noUnstagedChanges")} busy={busy} onStage={(filePath) => void run("stage", { paths: [filePath] })} onDiscard={(file) => { if (file.status !== "untracked" && window.confirm(t("git.discardFileConfirm", { file: fileName(file.filePath) }))) void run("discard", { paths: [file.filePath] }); }} /></div>
+            <div style={sectionStyle}><SectionTitle title={t("git.stagedSummary", { count: staged.length })} /><FileList files={staged} empty={t("git.nothingStaged")} busy={busy} onUnstage={(filePath) => void run("unstage", { paths: [filePath] })} /></div>
+            <div style={sectionStyle}><SectionTitle title={t("git.commit")} /><textarea value={message} onChange={(event) => setMessage(event.target.value)} placeholder={t("git.commitMessage")} disabled={disabled} rows={3} style={{ width: "100%", resize: "vertical", padding: 8, border: "1px solid var(--border)", borderRadius: 5, background: "var(--bg)", color: "var(--text)", fontFamily: "inherit", fontSize: 12 }} /><div style={{ marginTop: 7, display: "flex", justifyContent: "flex-end", gap: 6 }}><ActionButton label={t("git.summarizeCommit")} action="summarize" busy={busy} disabled={!sessionId || staged.length === 0 || conflictCount > 0} title={!sessionId ? t("git.summarizeCommitUnavailable") : t("git.summarizeCommitTitle")} onClick={() => void summarizeCommitMessage()} /><ActionButton label={t("git.commitStaged")} action="commit" busy={busy} disabled={!message.trim() || staged.length === 0 || conflictCount > 0} onClick={() => void run("commit", { message })} /></div></div>
+            <div style={sectionStyle}><SectionTitle title={t("git.remote")} /><div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}><ActionButton label={t("git.fetch")} action="fetch" busy={busy} onClick={() => void run("fetch")} /><ActionButton label={t(pullRebase ? "git.pullRebase" : "git.pullMerge")} action="pull" busy={busy} onClick={() => void run("pull", { rebase: pullRebase })} /><ActionButton label={t("git.push")} action="push" busy={busy} onClick={() => void run("push")} /><label style={{ display: "flex", alignItems: "center", gap: 5, color: "var(--text-muted)", fontSize: 11 }}><input type="checkbox" checked={pullRebase} onChange={(event) => setPullRebase(event.target.checked)} disabled={disabled} /> {t("git.rebaseWhenPulling")}</label></div></div>
+            <div style={sectionStyle}><SectionTitle title={t("git.mergeBranch")} /><div style={{ display: "flex", gap: 6 }}><MergeBranchPicker branches={mergeBranches} value={mergeBranch} disabled={disabled} onChange={setMergeBranch} /><ActionButton label={t("git.merge")} action="merge" busy={busy} disabled={!mergeBranch || mergeBranches.length === 0} onClick={() => void run("merge", { branch: mergeBranch })} /></div></div>
+          </>}
+        </main>
+      </section>
+    </div>
+  );
+}
+
+const iconButtonStyle: CSSProperties = { width: 28, height: 28, padding: 0, border: "none", borderRadius: 5, background: "transparent", color: "var(--text-muted)", cursor: "pointer", fontSize: 18, lineHeight: 1, transition: "background .12s, color .12s" };
+const sectionStyle: CSSProperties = { marginTop: 18, paddingTop: 14, borderTop: "1px solid var(--border)" };
+const summaryStyle: CSSProperties = { display: "grid", gridTemplateColumns: "58px minmax(0, 1fr)", rowGap: 7, alignItems: "center", padding: "10px", background: "var(--bg-panel)", border: "1px solid var(--border)", borderRadius: 6 };
+function SectionTitle({ title }: { title: string }) { return <div style={{ marginBottom: 8, color: "var(--text-muted)", fontSize: 11, fontWeight: 700, letterSpacing: ".04em", textTransform: "uppercase" }}>{title}</div>; }
+function ActionButton({ label, action, busy, disabled, danger, title, onClick }: { label: string; action: Action; busy: Action | null; disabled?: boolean; danger?: boolean; title?: string; onClick: () => void }) { const { t } = useI18n(); const pending = busy === action; const inactive = Boolean(busy) || disabled; const hoverBackground = danger ? "rgba(248,113,113,.12)" : "var(--bg-hover)"; return <button type="button" title={title} onClick={onClick} disabled={inactive} onMouseEnter={(event) => { if (!inactive) event.currentTarget.style.background = hoverBackground; }} onMouseLeave={(event) => { event.currentTarget.style.background = "transparent"; }} style={{ height: 30, padding: "0 10px", border: "none", borderRadius: 5, background: "transparent", color: danger ? "#ef4444" : "var(--text)", cursor: inactive ? "not-allowed" : "pointer", opacity: inactive ? .58 : 1, fontSize: 11, fontWeight: 600, transition: "background .12s" }}>{pending ? t("git.working") : label}</button>; }
+function FileList({ files, empty, busy, onStage, onUnstage, onDiscard }: { files: GitFileStatus[]; empty: string; busy: Action | null; onStage?: (filePath: string) => void; onUnstage?: (filePath: string) => void; onDiscard?: (file: GitFileStatus) => void }) { const { t } = useI18n(); if (!files.length) return <div style={{ color: "var(--text-dim)", fontSize: 12 }}>{empty}</div>; return <div style={{ border: "1px solid var(--border)", borderRadius: 6, overflow: "hidden" }}>{files.map((file) => <div key={`${file.filePath}:${file.indexStatus}:${file.worktreeStatus}`} style={{ minHeight: 35, padding: "5px 7px", display: "flex", alignItems: "center", gap: 7, borderBottom: "1px solid var(--border)" }}><span style={{ width: 14, color: STATUS_COLOR[file.status], fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 700 }}>{file.code}</span><span title={file.filePath} style={{ minWidth: 0, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: "var(--font-mono)", fontSize: 11 }}>{fileName(file.filePath)}</span>{onStage && <ActionButton label={t("git.stage")} action="stage" busy={busy} onClick={() => onStage(file.filePath)} />}{onUnstage && <ActionButton label={t("git.unstage")} action="unstage" busy={busy} onClick={() => onUnstage(file.filePath)} />}{onDiscard && file.status !== "untracked" && <ActionButton label={t("git.discard")} action="discard" busy={busy} danger onClick={() => onDiscard(file)} />}</div>)}</div>; }
+
+function MergeBranchPicker({ branches, value, disabled, onChange }: { branches: string[]; value: string; disabled: boolean; onChange: (branch: string) => void }) {
+  const { t } = useI18n();
+  const [open, setOpen] = useState(false);
+  const pickerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const close = (event: MouseEvent) => { if (!pickerRef.current?.contains(event.target as Node)) setOpen(false); };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, []);
+  const inactive = disabled || branches.length === 0;
+  return (
+    <div ref={pickerRef} style={{ position: "relative", minWidth: 0, flex: 1 }}>
+      <button type="button" role="combobox" aria-expanded={open} aria-haspopup="listbox" disabled={inactive} onClick={() => setOpen((current) => !current)} onKeyDown={(event) => { if (event.key === "Escape") setOpen(false); }} style={{ width: "100%", height: 30, display: "flex", alignItems: "center", gap: 7, padding: "0 8px", border: "none", borderRadius: 5, background: open ? "var(--bg-hover)" : "var(--bg-panel)", color: value ? "var(--text)" : "var(--text-dim)", cursor: inactive ? "not-allowed" : "pointer", opacity: inactive ? .58 : 1, fontFamily: "var(--font-mono)", fontSize: 12, textAlign: "left" }} onMouseEnter={(event) => { if (!inactive && !open) event.currentTarget.style.background = "var(--bg-hover)"; }} onMouseLeave={(event) => { if (!open) event.currentTarget.style.background = "var(--bg-panel)"; }}>
+        <span style={{ minWidth: 0, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{value || t("git.selectBranch")}</span>
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0, transform: open ? "rotate(180deg)" : "none", transition: "transform .12s" }}><polyline points="2 3.5 5 6.5 8 3.5" /></svg>
+      </button>
+      {open && <div role="listbox" aria-label={t("git.selectBranch")} style={{ position: "absolute", right: 0, bottom: "calc(100% + 4px)", left: 0, zIndex: 2, maxHeight: 192, overflowY: "auto", padding: 4, border: "1px solid var(--border)", borderRadius: 6, background: "var(--bg-panel)", boxShadow: "0 6px 18px rgba(0,0,0,.16)" }}>{branches.map((branch) => <button key={branch} type="button" role="option" aria-selected={branch === value} onClick={() => { onChange(branch); setOpen(false); }} style={{ width: "100%", height: 28, padding: "0 8px", border: "none", borderRadius: 4, background: branch === value ? "var(--bg-hover)" : "transparent", color: "var(--text)", cursor: "pointer", fontFamily: "var(--font-mono)", fontSize: 12, textAlign: "left" }} onMouseEnter={(event) => { event.currentTarget.style.background = "var(--bg-hover)"; }} onMouseLeave={(event) => { event.currentTarget.style.background = branch === value ? "var(--bg-hover)" : "transparent"; }}>{branch}</button>)}</div>}
+    </div>
+  );
+}

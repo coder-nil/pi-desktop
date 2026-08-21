@@ -344,10 +344,16 @@ pre, code {
   min-width: 0;
   max-width: 100%;
   overflow-x: hidden;
+  /* Keep the reading surface on one predictable type scale. */
+  font-family: inherit;
   font-size: 14px;
-  line-height: 1.7;
+  line-height: 1.65;
   color: var(--text);
   word-break: break-word;
+}
+.markdown-body :where(p, li, blockquote, th, td) {
+  font-size: inherit;
+  line-height: inherit;
 }
 .markdown-body p { margin: 0 0 8px; }
 .markdown-body p:last-child { margin-bottom: 0; }
@@ -359,9 +365,9 @@ pre, code {
   line-height: 1.35;
   letter-spacing: 0;
 }
-.markdown-body h1 { font-size: 1.16em; }
-.markdown-body h2 { font-size: 1.08em; }
-.markdown-body h3 { font-size: 0.98em; color: color-mix(in srgb, var(--text) 88%, var(--text-muted)); }
+.markdown-body h1 { font-size: 1.25em; }
+.markdown-body h2 { font-size: 1.12em; }
+.markdown-body h3 { font-size: 1em; color: color-mix(in srgb, var(--text) 88%, var(--text-muted)); }
 .markdown-body ul, .markdown-body ol {
   padding-left: 22px;
   margin: 5px 0 8px;
@@ -401,7 +407,8 @@ pre, code {
   padding: 1px 5px;
   color: var(--text);
   font-family: var(--font-mono);
-  font-size: 0.92em;
+  font-size: 0.9em;
+  line-height: 1.35;
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border) 70%, transparent);
 }
 .markdown-body .contains-task-list {
@@ -463,7 +470,8 @@ pre, code {
   border-collapse: separate;
   border-spacing: 0;
   min-width: 100%;
-  font-size: 13px;
+  font-size: 0.93em;
+  line-height: 1.5;
 }
 .markdown-body th, .markdown-body td {
   border: 0;
@@ -606,7 +614,8 @@ pre, code {
   background: var(--bg-panel);
   border-bottom: 1px solid var(--border);
   color: var(--text-dim);
-  font-size: 11px;
+  font-size: 12px;
+  line-height: 1.3;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -630,7 +639,7 @@ pre, code {
   color: var(--text-muted);
   cursor: pointer;
   font: inherit;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.25;
 }
 .markdown-code-action:hover:not(:disabled) {
@@ -1030,11 +1039,15 @@ pre, code {
   }
 }
 
-/* File viewer markdown preview — larger headings */
-.markdown-file-preview h1 { font-size: 1.8em; }
-.markdown-file-preview h2 { font-size: 1.4em; }
-.markdown-file-preview h3 { font-size: 1.15em; }
-.markdown-file-preview p { margin: 0 0 12px; }
+/* File viewer markdown preview uses the same body scale as chat markdown. */
+.markdown-file-preview {
+  font-size: 14px;
+  line-height: 1.65;
+}
+.markdown-file-preview h1 { font-size: 1.55em; }
+.markdown-file-preview h2 { font-size: 1.25em; }
+.markdown-file-preview h3 { font-size: 1.08em; }
+.markdown-file-preview p { margin: 0 0 10px; }
 .markdown-file-preview pre {
   background: var(--bg-panel);
   border: 1px solid var(--border);
@@ -1045,14 +1058,15 @@ pre, code {
   font-size: 13px;
   margin: 12px 0;
 }
-.markdown-file-preview code {
+.markdown-file-preview .markdown-inline-code {
   font-family: var(--font-mono);
   font-size: 0.9em;
+  line-height: 1.35;
   background: var(--bg-panel);
   padding: 1px 5px;
   border-radius: 3px;
 }
-.markdown-file-preview pre code {
+.markdown-file-preview pre .markdown-inline-code {
   background: none;
   padding: 0;
 }
