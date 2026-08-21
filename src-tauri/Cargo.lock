@@ -2213,6 +2213,7 @@ name = "pi-web-desktop"
 version = "0.8.9"
 dependencies = [
  "libc",
+ "serde_json",
  "tauri",
  "tauri-build",
 ]

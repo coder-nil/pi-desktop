@@ -37,6 +37,6 @@ test("all active-session transitions share one persistence effect", () => {
 test("workspace restoration remains inside the cross-project branch", () => {
   assert.match(
     callbackBody("handleCwdChange", "handleSelectSession"),
-    /if \(currentProject !== newProject\) \{[\s\S]*?restoreWorkspaceContext\(newProject\);[\s\S]*?\}/,
+    /if \(currentProject !== newProject\) \{[\s\S]*?restoreWorkspaceContext\(\s*newProject,\s*isInitialProjectAdoption \? \(\) => setInitialWorkspaceRestoreDone\(true\) : undefined,\s*\);[\s\S]*?\}/,
   );
 });

@@ -2,9 +2,19 @@
 
 import { useEffect } from "react";
 
+declare global {
+  interface Window {
+    __PI_WEB_API_ORIGIN__?: string;
+  }
+}
+
 export function PwaRegistration() {
   useEffect(() => {
-    if (process.env.NODE_ENV !== "production" || !("serviceWorker" in navigator)) {
+    if (
+      process.env.NODE_ENV !== "production"
+      || window.__PI_WEB_API_ORIGIN__
+      || !("serviceWorker" in navigator)
+    ) {
       return;
     }
 

@@ -394,6 +394,9 @@ export function AppShell() {
   const activeProjectKeyRef = useRef<string | null>(null);
   // True once the initial ?session= URL param has been resolved (or confirmed absent)
   const [initialSessionRestored, setInitialSessionRestored] = useState<boolean>(() => !initialSessionId);
+  const [sidebarInitialLoadDone, setSidebarInitialLoadDone] = useState(false);
+  const [sidebarHasInitialProject, setSidebarHasInitialProject] = useState(false);
+  const [initialWorkspaceRestoreDone, setInitialWorkspaceRestoreDone] = useState(false);
   // Suppresses sessionKey bump in handleCwdChange during the initial URL restore
   const suppressCwdBumpRef = useRef(false);
   // Guards the async workspace restore so a slow response from an earlier
@@ -457,10 +460,13 @@ export function AppShell() {
   // from handleCwdChange once the outgoing context has been reset. The session
   // is looked up against the live list so a deleted or drifted session falls
   // back to the default welcome page instead of erroring.
-  const restoreWorkspaceContext = useCallback((projectKey: string) => {
+  const restoreWorkspaceContext = useCallback((projectKey: string, onSettled?: () => void) => {
     const token = ++workspaceRestoreTokenRef.current;
     const lastOpenSessionId = getLastOpenSession(projectKey);
-    if (!lastOpenSessionId) return;
+    if (!lastOpenSessionId) {
+      onSettled?.();
+      return;
+    }
     void fetch("/api/sessions")
       .then((r) => (r.ok ? (r.json() as Promise<{ sessions: SessionInfo[] }>) : null))
       .then((d) => {
@@ -490,6 +496,9 @@ export function AppShell() {
       })
       .catch(() => {
         // Network hiccup: keep the remembered session for a later retry.
+      })
+      .finally(() => {
+        if (token === workspaceRestoreTokenRef.current) onSettled?.();
       });
   }, [router]);
 
@@ -499,6 +508,7 @@ export function AppShell() {
     projectKey?: string | null,
   ) => {
     invalidateWorkspaceRestore();
+    const isInitialProjectAdoption = activeProjectKeyRef.current === null;
     const currentFreshCwd = newSessionCwd ?? activeCwd;
     setActiveCwd(cwd);
     // Skip if cwd is null (initial mount).
@@ -512,11 +522,15 @@ export function AppShell() {
     // remounting the just-created or restored chat.
     if (suppressCwdBumpRef.current) {
       suppressCwdBumpRef.current = false;
+      if (isInitialProjectAdoption) setInitialWorkspaceRestoreDone(true);
       return;
     }
     // The server may hydrate a normalized key after a custom cwd is already
     // active. Updating identity for the exact same cwd is not a user switch.
-    if (currentFreshCwd === cwd && currentProject !== newProject) return;
+    if (currentFreshCwd === cwd && currentProject !== newProject) {
+      if (isInitialProjectAdoption) setInitialWorkspaceRestoreDone(true);
+      return;
+    }
     // Existing sessions stay open when the worktree selector moves within the
     // same project. A fresh composer must remount when its effective cwd moves,
     // otherwise its already-created runtime would keep sending to the old cwd.
@@ -524,6 +538,7 @@ export function AppShell() {
       currentProject === newProject
       && (selectedSession !== null || currentFreshCwd === cwd)
     ) {
+      if (isInitialProjectAdoption) setInitialWorkspaceRestoreDone(true);
       return;
     }
     // Close any session that belongs to a different project — it no longer
@@ -552,7 +567,10 @@ export function AppShell() {
       setRightPanelOpen(false);
       // Restore the workspace we switched to: its last open session, or keep
       // the default welcome page when none is remembered.
-      restoreWorkspaceContext(newProject);
+      restoreWorkspaceContext(
+        newProject,
+        isInitialProjectAdoption ? () => setInitialWorkspaceRestoreDone(true) : undefined,
+      );
     }
     router.replace("/", { scroll: false });
   }, [activeCwd, invalidateWorkspaceRestore, newSessionCwd, router, selectedSession, restoreWorkspaceContext]);
@@ -763,9 +781,40 @@ export function AppShell() {
     router.replace(`?session=${encodeURIComponent(newSessionId)}`, { scroll: false });
   }, [invalidateWorkspaceRestore, router, hydrateSelectedSession]);
 
-  const handleInitialRestoreDone = useCallback(() => {
+  const handleInitialRestoreDone = useCallback((hasInitialProject: boolean) => {
     setInitialSessionRestored(true);
+    setSidebarInitialLoadDone(true);
+    setSidebarHasInitialProject(hasInitialProject);
   }, []);
+
+  useEffect(() => {
+    const cwdRestoreDone = initialNavigation.requestedCwd === null
+      || initialCwdStatus === "ready"
+      || initialCwdStatus === "error";
+    const workspaceRestoreDone = !sidebarHasInitialProject
+      || initialCwdStatus === "error"
+      || initialWorkspaceRestoreDone;
+    if (!sidebarInitialLoadDone || !initialSessionRestored || !cwdRestoreDone || !workspaceRestoreDone) return;
+
+    let secondFrame = 0;
+    const firstFrame = requestAnimationFrame(() => {
+      secondFrame = requestAnimationFrame(() => {
+        document.documentElement.dataset.piAppReady = "true";
+        window.dispatchEvent(new Event("pi-app-ready"));
+      });
+    });
+    return () => {
+      cancelAnimationFrame(firstFrame);
+      cancelAnimationFrame(secondFrame);
+    };
+  }, [
+    initialCwdStatus,
+    initialNavigation.requestedCwd,
+    initialSessionRestored,
+    initialWorkspaceRestoreDone,
+    sidebarHasInitialProject,
+    sidebarInitialLoadDone,
+  ]);
 
   const handleSessionDeleted = useCallback((sessionId: string) => {
     invalidateWorkspaceRestore();
@@ -2146,20 +2195,7 @@ export function AppShell() {
               <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", fontSize: 15 }}>
                  {translate("workspace.selectSession")}
               </div>
-            ) : (
-              <div style={{ position: "absolute", top: 12, left: 12, display: "flex", alignItems: "flex-start", gap: 8, userSelect: "none", pointerEvents: "none" }}>
-                <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.7, flexShrink: 0 }}>
-                  <line x1="20" y1="12" x2="4" y2="12" /><polyline points="10 6 4 12 10 18" />
-                </svg>
-                <div>
-                   <div style={{ fontSize: 18, fontWeight: 600, color: "var(--text)", marginBottom: 8 }}>{translate("workspace.getStarted")}</div>
-                  <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.8 }}>
-                     <span style={{ color: "var(--text-dim)", marginRight: 6 }}>1.</span>{translate("workspace.selectProject")}<br />
-                     <span style={{ color: "var(--text-dim)", marginRight: 6 }}>2.</span>{translate("workspace.addModels")}
-                  </div>
-                </div>
-              </div>
-            )
+            ) : null
           ) : null}
         </div>
       </div>

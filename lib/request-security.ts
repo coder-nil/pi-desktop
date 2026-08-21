@@ -37,6 +37,11 @@ function configuredHostnamesFromEnvironment(): string[] {
   ].filter((value): value is string => Boolean(value?.trim()));
 }
 
+function isDesktopApiOrigin(origin: string | null): boolean {
+  const desktopOrigin = process.env.PI_WEB_DESKTOP_API_ORIGIN?.trim();
+  return Boolean(desktopOrigin) && origin === desktopOrigin;
+}
+
 function canonicalOrigin(value: string): string | null {
   try {
     return new URL(value).origin;
@@ -91,6 +96,7 @@ export function isApiRequestHostAllowed(
 export function isApiRequestOriginAllowed(request: Request): boolean {
   const origin = request.headers.get("origin");
   const fetchSite = request.headers.get("sec-fetch-site");
+  if (isDesktopApiOrigin(origin)) return true;
   if (fetchSite === "cross-site") return false;
   if (!origin) return true;
 

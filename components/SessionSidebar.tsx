@@ -88,7 +88,7 @@ interface Props {
   onNewSession?: (sessionId: string, cwd: string) => void;
   initialSessionId?: string | null;
   skipInitialProjectSelection?: boolean;
-  onInitialRestoreDone?: () => void;
+  onInitialRestoreDone?: (hasInitialProject: boolean) => void;
   refreshKey?: number;
   onSessionDeleted?: (sessionId: string) => void;
   selectedCwd?: string | null;
@@ -414,6 +414,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const { t } = useI18n();
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
   const [loading, setLoading] = useState(true);
+  const [initialLoadSettled, setInitialLoadSettled] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedCwd, setSelectedCwd] = useState<string | null>(null);
   const [homeDir, setHomeDir] = useState<string>("");
@@ -496,7 +497,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     } catch (e) {
       setError(String(e));
     } finally {
-      if (showLoading) setLoading(false);
+      if (showLoading) {
+        setLoading(false);
+        setInitialLoadSettled(true);
+      }
     }
   }, []);
 
@@ -634,6 +638,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   }, []);
 
   const restoredRef = useRef(false);
+  const initialReadyNotifiedRef = useRef(false);
 
   const projectSelection = useCallback((root: string, key: string): ProjectSelection => ({
     root,
@@ -734,7 +739,17 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
 
   // Auto-select cwd and restore session from URL on first load
   useEffect(() => {
-    if (allSessions.length === 0 || skipInitialProjectSelection) return;
+    if (!initialLoadSettled) return;
+    const notifyReady = (hasInitialProject: boolean) => {
+      if (initialReadyNotifiedRef.current) return;
+      initialReadyNotifiedRef.current = true;
+      onInitialRestoreDone?.(hasInitialProject);
+    };
+
+    if (skipInitialProjectSelection) {
+      notifyReady(true);
+      return;
+    }
 
     if (selectedCwd === null) {
       // If restoring a session, set cwd to match that session
@@ -744,15 +759,19 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         if (target) {
           setSelectedCwd(target.cwd);
           onSelectSession(target, true);
+          notifyReady(true);
           return;
         }
-        // Session not found — notify parent so it can show the placeholder
-        onInitialRestoreDone?.();
       }
       const projects = getRecentProjects(allSessions);
-      if (projects.length > 0) setSelectedCwd(projects[0].root);
+      if (projects.length > 0) {
+        setSelectedCwd(projects[0].root);
+        notifyReady(true);
+        return;
+      }
     }
-  }, [allSessions, selectedCwd, initialSessionId, skipInitialProjectSelection, onSelectSession, onInitialRestoreDone]);
+    notifyReady(selectedCwd !== null);
+  }, [allSessions, initialLoadSettled, selectedCwd, initialSessionId, skipInitialProjectSelection, onSelectSession, onInitialRestoreDone]);
 
   // Prefer an exact UI selection while a refetch is in flight. Once the
   // response catches up, the server-resolved path handles Windows case and

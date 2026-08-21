@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Pi Agents</title>
+    <script>
+      (function () {
+        var preference = "auto";
+        try {
+          preference = localStorage.getItem("pi-theme") || "auto";
+        } catch (_) {}
+        var dark = preference === "dark"
+          || (preference !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.dataset.theme = dark ? "dark" : "light";
+      })();
+    </script>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #ffffff;
+        --bg-panel: #f5f5f5;
+        --bg-bar: #fafafa;
+        --bg-selected: #e8e8e8;
+        --border: #e0e0e0;
+        --placeholder: #d8d8d8;
+        --composer: #f9fafb;
+        --text-muted: #6b7280;
+        --accent: #2563eb;
+        --accent-ring: rgba(37, 99, 235, .1);
+        --shimmer: rgba(255, 255, 255, .58);
+        background: var(--bg);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      :root[data-theme="dark"] {
+        color-scheme: dark;
+        --bg: #1a1a1a;
+        --bg-panel: #242424;
+        --bg-bar: #1d1d1d;
+        --bg-selected: #2e2e2e;
+        --border: #3a3a3a;
+        --placeholder: #383838;
+        --composer: #1f2937;
+        --text-muted: #9ca3af;
+        --accent: #60a5fa;
+        --accent-ring: rgba(96, 165, 250, .1);
+        --shimmer: rgba(255, 255, 255, .055);
+      }
+      * { box-sizing: border-box; }
+      html, body {
+        width: 100%;
+        min-height: 100%;
+        margin: 0;
+        overflow: hidden;
+        background: var(--bg);
+        color: var(--text-muted);
+      }
+      .shell {
+        display: grid;
+        grid-template-columns: 244px minmax(0, 1fr);
+        min-height: 100dvh;
+        opacity: 0;
+        animation: reveal 180ms ease-out forwards;
+      }
+      aside {
+        display: grid;
+        grid-template-rows: 43px 1fr 36px;
+        min-width: 0;
+        border-right: 1px solid var(--border);
+        background: var(--bg-panel);
+      }
+      .sidebar-head,
+      .sidebar-foot,
+      .topbar {
+        display: flex;
+        align-items: center;
+        border-bottom: 1px solid var(--border);
+      }
+      .sidebar-head { gap: 9px; padding: 0 13px; }
+      .sidebar-foot {
+        gap: 8px;
+        padding: 0 13px;
+        border-top: 1px solid var(--border);
+        border-bottom: 0;
+      }
+      .sidebar-body { padding: 16px 12px; }
+      .group { margin-bottom: 22px; }
+      .group-label { width: 58px; height: 7px; margin: 0 4px 12px; }
+      .nav-row {
+        display: flex;
+        align-items: center;
+        height: 31px;
+        gap: 9px;
+        padding: 0 6px;
+      }
+      .nav-row.active { background: var(--bg-selected); border-radius: 4px; }
+      .dot { width: 11px; height: 11px; border-radius: 3px; }
+      .line { height: 8px; border-radius: 2px; }
+      .line.short { width: 62px; }
+      .line.medium { width: 104px; }
+      .line.long { width: 142px; }
+      .placeholder {
+        position: relative;
+        overflow: hidden;
+        background: var(--placeholder);
+      }
+      .placeholder::after {
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(90deg, transparent, var(--shimmer), transparent);
+        content: "";
+        transform: translateX(-100%);
+        animation: shimmer 1.6s ease-in-out infinite;
+      }
+      .workspace {
+        display: grid;
+        grid-template-rows: 43px minmax(0, 1fr) 34px;
+        min-width: 0;
+      }
+      .topbar { gap: 18px; padding: 0 16px; background: var(--bg-bar); }
+      .tab {
+        display: flex;
+        align-items: center;
+        align-self: stretch;
+        gap: 8px;
+        min-width: 128px;
+        border-bottom: 2px solid var(--text-muted);
+      }
+      .content {
+        display: grid;
+        place-items: center;
+        padding: 48px;
+      }
+      .conversation {
+        display: grid;
+        width: min(690px, 82%);
+        gap: 34px;
+      }
+      .message { display: grid; gap: 11px; }
+      .message.offset { width: 72%; margin-left: auto; }
+      .message .line { height: 9px; }
+      .composer {
+        height: 74px;
+        margin-top: 18px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: var(--composer);
+      }
+      .statusbar {
+        position: relative;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 13px;
+        overflow: hidden;
+        border-top: 1px solid var(--border);
+        background: var(--bg-bar);
+        color: var(--text-muted);
+        font: 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      .status-indicator {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--accent);
+        box-shadow: 0 0 0 3px var(--accent-ring);
+        animation: pulse 1.2s ease-in-out infinite;
+      }
+      .progress {
+        position: absolute;
+        right: 0;
+        bottom: 0;
+        left: 0;
+        height: 1px;
+        overflow: hidden;
+      }
+      .progress::after {
+        display: block;
+        width: 32%;
+        height: 100%;
+        background: var(--accent);
+        content: "";
+        animation: progress 1.5s ease-in-out infinite;
+      }
+      @keyframes reveal { to { opacity: 1; } }
+      @keyframes shimmer { to { transform: translateX(100%); } }
+      @keyframes pulse { 50% { opacity: .45; } }
+      @keyframes progress {
+        from { transform: translateX(-110%); }
+        to { transform: translateX(330%); }
+      }
+      @media (max-width: 760px) {
+        .shell { grid-template-columns: 64px minmax(0, 1fr); }
+        .sidebar-head, .sidebar-foot { justify-content: center; padding: 0; }
+        .sidebar-head .line, .sidebar-foot .line, .group-label, .nav-row .line { display: none; }
+        .sidebar-body { padding-inline: 10px; }
+        .nav-row { justify-content: center; padding: 0; }
+        .content { padding: 28px 18px; }
+        .conversation { width: min(100%, 560px); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .shell { opacity: 1; animation: none; }
+        .placeholder::after, .status-indicator, .progress::after { animation: none; }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell" aria-label="Starting Pi Agents" aria-busy="true">
+      <aside aria-hidden="true">
+        <div class="sidebar-head">
+          <span class="dot placeholder"></span>
+          <span class="line medium placeholder"></span>
+        </div>
+        <div class="sidebar-body">
+          <section class="group">
+            <div class="group-label placeholder"></div>
+            <div class="nav-row active"><span class="dot placeholder"></span><span class="line long placeholder"></span></div>
+            <div class="nav-row"><span class="dot placeholder"></span><span class="line medium placeholder"></span></div>
+            <div class="nav-row"><span class="dot placeholder"></span><span class="line long placeholder"></span></div>
+          </section>
+          <section class="group">
+            <div class="group-label placeholder"></div>
+            <div class="nav-row"><span class="dot placeholder"></span><span class="line medium placeholder"></span></div>
+            <div class="nav-row"><span class="dot placeholder"></span><span class="line short placeholder"></span></div>
+          </section>
+        </div>
+        <div class="sidebar-foot"><span class="dot placeholder"></span><span class="line medium placeholder"></span></div>
+      </aside>
+      <section class="workspace">
+        <header class="topbar" aria-hidden="true">
+          <div class="tab"><span class="dot placeholder"></span><span class="line medium placeholder"></span></div>
+        </header>
+        <div class="content" aria-hidden="true">
+          <div class="conversation">
+            <div class="message offset">
+              <span class="line long placeholder"></span>
+              <span class="line medium placeholder"></span>
+            </div>
+            <div class="message">
+              <span class="line long placeholder"></span>
+              <span class="line long placeholder"></span>
+              <span class="line medium placeholder"></span>
+            </div>
+            <div class="composer"></div>
+          </div>
+        </div>
+        <div class="statusbar" role="status" aria-live="polite">
+          <span class="status-indicator" aria-hidden="true"></span>
+          <span>Starting local service</span>
+          <span class="progress" aria-hidden="true"></span>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

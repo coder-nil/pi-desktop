@@ -34,7 +34,7 @@ export const enLocale: LocalePlugin = {
     "git.commit": "Commit",
     "git.commitMessage": "Commit message",
     "git.summarizeCommit": "AI summary",
-    "git.summarizeCommitTitle": "Generate a commit message from staged changes",
+    "git.summarizeCommitTitle": "Generate a commit message only from staged code changes",
     "git.summarizeCommitUnavailable": "Select a session to use its model for a commit message",
     "git.commitStaged": "Commit staged",
     "git.remote": "Remote",

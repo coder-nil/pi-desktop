@@ -9,11 +9,19 @@ use std::{
     time::{Duration, Instant},
 };
 
+use tauri::webview::PageLoadEvent;
+use tauri::window::Color;
 use tauri::{Manager, RunEvent, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 
 const HOST: &str = "127.0.0.1";
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(45);
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
+const SPLASH_MINIMUM_DURATION: Duration = Duration::from_millis(900);
+
+#[cfg(windows)]
+const DESKTOP_API_ORIGIN: &str = "http://tauri.localhost";
+#[cfg(not(windows))]
+const DESKTOP_API_ORIGIN: &str = "tauri://localhost";
 
 struct DesktopServer {
     child: Child,
@@ -125,6 +133,7 @@ fn spawn_server(
         .env("HOSTNAME", HOST)
         .env("PORT", port.to_string())
         .env("PI_WEB_HOSTNAME", HOST)
+        .env("PI_WEB_DESKTOP_API_ORIGIN", DESKTOP_API_ORIGIN)
         .env("PI_WEB_NO_OPEN", "1")
         .stdin(Stdio::null())
         .stdout(Stdio::from(stdout))
@@ -197,24 +206,43 @@ fn show_startup_error(app: &tauri::AppHandle, message: &str, log_path: &Path) {
 fn create_main_window(app: &tauri::AppHandle, port: u16) -> Result<(), String> {
     let handle = app.clone();
     let (sender, receiver) = mpsc::sync_channel(1);
+    let (page_sender, page_receiver) = mpsc::sync_channel(1);
     app.run_on_main_thread(move || {
-        let result = (|| {
-            let url = format!("http://{HOST}:{port}")
-                .parse()
-                .map_err(|error| format!("Invalid application URL: {error}"))?;
-            let window = WebviewWindowBuilder::new(&handle, "main", WebviewUrl::External(url))
-                .title("Pi Agents")
-                .inner_size(1280.0, 820.0)
-                .min_inner_size(720.0, 520.0)
-                .visible(false)
-                .build()
-                .map_err(|error| format!("Could not create the application window: {error}"))?;
-            window
-                .show()
-                .map_err(|error| format!("Could not show the application window: {error}"))?;
-            window
-                .set_focus()
-                .map_err(|error| format!("Could not focus the application window: {error}"))?;
+        let result: Result<(), String> = (|| {
+            let api_origin = format!("http://{HOST}:{port}");
+            let initialization_script = format!(
+                "window.__PI_WEB_API_ORIGIN__ = {}; window.__PI_WEB_DESKTOP__ = true;",
+                serde_json::to_string(&api_origin).map_err(|error| error.to_string())?,
+            );
+            let window = WebviewWindowBuilder::new(
+                &handle,
+                "main",
+                WebviewUrl::App("desktop-splash.html".into()),
+            )
+            .initialization_script(initialization_script)
+            .on_page_load(move |window, payload| {
+                if payload.event() == PageLoadEvent::Finished
+                    && payload.url().path().ends_with("desktop-splash.html")
+                {
+                    let result = window
+                        .show()
+                        .map_err(|error| format!("Could not show the application window: {error}"))
+                        .and_then(|_| {
+                            window.set_focus().map_err(|error| {
+                                format!("Could not focus the application window: {error}")
+                            })
+                        });
+                    let _ = page_sender.try_send(result);
+                }
+            })
+            .title("Pi Agents")
+            .background_color(Color(26, 26, 26, 255))
+            .inner_size(1280.0, 820.0)
+            .min_inner_size(720.0, 520.0)
+            .visible(false)
+            .build()
+            .map_err(|error| format!("Could not create the application window: {error}"))?;
+            let _ = window;
             Ok(())
         })();
         let _ = sender.send(result);
@@ -222,13 +250,18 @@ fn create_main_window(app: &tauri::AppHandle, port: u16) -> Result<(), String> {
     .map_err(|error| format!("Could not schedule the application window: {error}"))?;
     receiver
         .recv_timeout(Duration::from_secs(10))
-        .map_err(|_| "Timed out while creating the application window.".to_string())?
+        .map_err(|_| "Timed out while creating the application window.".to_string())??;
+    page_receiver
+        .recv_timeout(Duration::from_secs(10))
+        .map_err(|_| "Timed out while loading the application startup page.".to_string())?
 }
 
 fn start_application(app: tauri::AppHandle) {
     let log_path = log_path(&app);
-    let result = (|| {
+    let result: Result<(), String> = (|| {
         let port = reserve_port()?;
+        create_main_window(&app, port)?;
+        let splash_started = Instant::now();
         let server = spawn_server(&app, port, &log_path)?;
         {
             let state = app.state::<ServerState>();
@@ -252,11 +285,30 @@ fn start_application(app: tauri::AppHandle) {
                 .map(|status| status.is_none())
                 .map_err(|error| format!("Could not inspect the Pi Agents server: {error}"))
         })?;
-        create_main_window(&app, port)
+        if let Some(remaining) = SPLASH_MINIMUM_DURATION.checked_sub(splash_started.elapsed()) {
+            thread::sleep(remaining);
+        }
+        if cfg!(debug_assertions) {
+            let url = format!("http://{HOST}:{port}")
+                .parse()
+                .map_err(|error| format!("Invalid application URL: {error}"))?;
+            app.get_webview_window("main")
+                .ok_or_else(|| "The Pi Agents startup window is unavailable.".to_string())?
+                .navigate(url)
+                .map_err(|error| format!("Could not load the Pi Agents interface: {error}"))?;
+        } else if let Some(window) = app.get_webview_window("main") {
+            window
+                .eval("window.location.replace('index.html')")
+                .map_err(|error| format!("Could not load the Pi Agents interface: {error}"))?;
+        }
+        Ok(())
     })();
 
     if let Err(error) = result {
         stop_server(&app);
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.close();
+        }
         show_startup_error(&app, &error, &log_path);
     }
 }

@@ -1,5 +1,5 @@
 import { createWriteStream } from "node:fs";
-import { chmod, cp, mkdir, mkdtemp, readdir, readFile, rename, rm } from "node:fs/promises";
+import { access, chmod, cp, mkdir, mkdtemp, readdir, readFile, rename, rm } from "node:fs/promises";
 import { get } from "node:https";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
@@ -12,6 +12,7 @@ const execFileAsync = promisify(execFile);
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const outputRoot = join(root, "desktop-dist");
 const serverOutput = join(outputRoot, "server");
+const frontendOutput = join(root, ".next-desktop-frontend");
 const nodeVersion = process.env.PI_WEB_DESKTOP_NODE_VERSION || "22.19.0";
 
 function option(name) {
@@ -106,6 +107,15 @@ async function prepareStandaloneServer() {
   await cp(join(root, "public"), join(serverOutput, "public"), { recursive: true });
 }
 
+async function prepareStaticFrontend() {
+  try {
+    await access(join(frontendOutput, "index.html"));
+  } catch {
+    throw new Error("Desktop frontend export is missing. Run `npm run build:desktop-frontend` before preparing the desktop bundle.");
+  }
+  await cp(frontendOutput, join(root, "src-tauri", "frontend"), { recursive: true });
+}
+
 async function findNativeModules(directory) {
   const matches = [];
   for (const entry of await readdir(directory, { withFileTypes: true })) {
@@ -123,6 +133,7 @@ await mkdir(stagingRoot, { recursive: true });
 await rm(outputRoot, { recursive: true, force: true });
 await rename(stagingRoot, outputRoot);
 await prepareStandaloneServer();
+await prepareStaticFrontend();
 const nativeModules = await findNativeModules(serverOutput);
 if (nodeTarget === "darwin-universal" && nativeModules.length > 0) {
   throw new Error(`Desktop standalone output contains architecture-specific native modules:\n${nativeModules.join("\n")}`);

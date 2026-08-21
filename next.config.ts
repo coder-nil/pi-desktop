@@ -12,7 +12,8 @@ try {
 } catch { /* package not found, use default */ }
 
 const nextConfig: NextConfig = {
-  output: "standalone",
+  output: process.env.PI_WEB_BUILD_TARGET === "desktop-frontend" ? "export" : "standalone",
+  distDir: process.env.PI_WEB_BUILD_TARGET === "desktop-frontend" ? ".next-desktop-frontend" : ".next",
   outputFileTracingRoot: configDir,
   serverExternalPackages: [
     "undici",
@@ -23,6 +24,7 @@ const nextConfig: NextConfig = {
   ],
   allowedDevOrigins: ["127.0.0.1", "192.168.*.*"],
   async headers() {
+    if (process.env.PI_WEB_BUILD_TARGET === "desktop-frontend") return [];
     return [
       {
         source: "/",

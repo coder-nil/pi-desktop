@@ -8,6 +8,17 @@ import {
   isWebPasswordEnabled,
 } from "@/lib/web-auth";
 
+function desktopCorsHeaders(request: NextRequest): HeadersInit | undefined {
+  const origin = request.headers.get("origin");
+  if (!origin || origin !== process.env.PI_WEB_DESKTOP_API_ORIGIN) return undefined;
+  return {
+    "Access-Control-Allow-Origin": origin,
+    "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    Vary: "Origin",
+  };
+}
+
 export function proxy(request: NextRequest) {
   const isApiRequest = request.nextUrl.pathname === "/api"
     || request.nextUrl.pathname.startsWith("/api/");
@@ -20,6 +31,11 @@ export function proxy(request: NextRequest) {
       return new NextResponse("Untrusted request", { status: 403 });
     }
     return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
+  }
+
+  const corsHeaders = isApiRequest ? desktopCorsHeaders(request) : undefined;
+  if (isApiRequest && request.method === "OPTIONS") {
+    return new NextResponse(null, { status: 204, headers: corsHeaders });
   }
 
   const password = process.env.PI_WEB_PASSWORD;
@@ -36,7 +52,7 @@ export function proxy(request: NextRequest) {
     });
   }
 
-  return NextResponse.next();
+  return NextResponse.next({ headers: corsHeaders });
 }
 
 export const config = { matcher: ["/", "/api/:path*"] };

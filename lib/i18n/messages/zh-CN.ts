@@ -34,7 +34,7 @@ export const zhCNLocale: LocalePlugin = {
     "git.commit": "提交",
     "git.commitMessage": "提交说明",
     "git.summarizeCommit": "AI 总结",
-    "git.summarizeCommitTitle": "根据已暂存的变更生成提交说明",
+    "git.summarizeCommitTitle": "仅根据已暂存的代码变更生成提交说明",
     "git.summarizeCommitUnavailable": "选择会话后可使用其模型生成提交说明",
     "git.commitStaged": "提交暂存内容",
     "git.remote": "远程",

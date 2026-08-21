@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Noto_Sans_Mono } from "next/font/google";
+import { DesktopStartupSkeleton } from "@/components/DesktopStartupSkeleton";
 import { PwaRegistration } from "@/components/PwaRegistration";
 import "katex/dist/katex.min.css";
 import "./globals.css";
@@ -63,12 +64,18 @@ export default function RootLayout({
         <meta name="google" content="notranslate" />
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=localStorage.getItem("pi-theme");var dark=t==="dark"||((t==null||t===""||t==="auto")&&window.matchMedia("(prefers-color-scheme: dark)").matches);if(dark)document.documentElement.classList.add("dark")}catch(e){}})();`,
+            __html: `(function(){try{var t=localStorage.getItem("pi-theme");var dark=t==="dark"||((t==null||t===""||t==="auto")&&window.matchMedia("(prefers-color-scheme: dark)").matches);if(dark)document.documentElement.classList.add("dark")}catch(e){}if(window.__PI_WEB_DESKTOP__)document.documentElement.classList.add("pi-desktop")})();`,
+          }}
+        />
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){var api=window.__PI_WEB_API_ORIGIN__;if(!api)return;api=api.replace(/\\/$/,"");var isApi=function(value){return typeof value==="string"&&value.indexOf("/api/")===0||value==="/api"};var rewrite=function(value){return isApi(value)?api+value:value};var nativeFetch=window.fetch.bind(window);window.fetch=function(input,init){if(typeof input==="string")return nativeFetch(rewrite(input),init);if(input instanceof URL)return nativeFetch(rewrite(input.toString()),init);if(input instanceof Request&&isApi(new URL(input.url).pathname))return nativeFetch(new Request(api+new URL(input.url).pathname+new URL(input.url).search,input),init);return nativeFetch(input,init)};var NativeEventSource=window.EventSource;window.EventSource=function(url,config){return new NativeEventSource(rewrite(String(url)),config)};window.EventSource.prototype=NativeEventSource.prototype;var nativeOpen=window.open;window.open=function(url){return nativeOpen.call(window,rewrite(String(url)))};var rewriteLink=function(link){var href=link.getAttribute("href");if(href&&isApi(href))link.setAttribute("href",rewrite(href))};var rewriteLinks=function(root){if(root instanceof HTMLAnchorElement)rewriteLink(root);root.querySelectorAll&&root.querySelectorAll("a[href]").forEach(rewriteLink)};document.addEventListener("DOMContentLoaded",function(){rewriteLinks(document);new MutationObserver(function(records){records.forEach(function(record){record.addedNodes.forEach(function(node){if(node instanceof Element)rewriteLinks(node)})})}).observe(document.documentElement,{childList:true,subtree:true})})})();`,
           }}
         />
       </head>
       <body translate="no" className="notranslate" suppressHydrationWarning>
         {children}
+        <DesktopStartupSkeleton />
         <PwaRegistration />
       </body>
     </html>
