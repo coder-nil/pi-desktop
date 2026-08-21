@@ -957,6 +957,21 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
       <div className="relative">
         {chatInputElement}
         <ExtensionStatusBar statuses={extensionStatuses} widgets={extensionWidgets} />
+        {!isMobile && (
+          <div
+            aria-hidden="true"
+            style={{
+              position: "absolute",
+              top: 0,
+              right: 0,
+              bottom: 0,
+              width: CHAT_MINIMAP_WIDTH,
+              background: "var(--bg-panel)",
+              borderLeft: "1px solid var(--border)",
+              pointerEvents: "none",
+            }}
+          />
+        )}
       </div>
       </>
       )}
