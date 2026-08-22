@@ -142,7 +142,7 @@ fn spawn_server(
     command
         .spawn()
         .map(|child| DesktopServer { child })
-        .map_err(|error| format!("Could not start the Pi Agents server: {error}"))
+        .map_err(|error| format!("Could not start the Pi Desktop server: {error}"))
 }
 
 fn probe_server<F>(port: u16, timeout: Duration, mut server_is_running: F) -> Result<(), String>
@@ -153,7 +153,7 @@ where
     let request = format!("GET / HTTP/1.1\r\nHost: {HOST}:{port}\r\nConnection: close\r\n\r\n");
     while Instant::now() < deadline {
         if !server_is_running()? {
-            return Err("The Pi Agents server exited before it became ready.".to_string());
+            return Err("The Pi Desktop server exited before it became ready.".to_string());
         }
         if let Ok(mut stream) =
             TcpStream::connect_timeout(&loopback_address(port), Duration::from_millis(500))
@@ -173,7 +173,7 @@ where
         thread::sleep(Duration::from_millis(150));
     }
     Err(format!(
-        "The Pi Agents server did not become ready within {} seconds.",
+        "The Pi Desktop server did not become ready within {} seconds.",
         timeout.as_secs()
     ))
 }
@@ -189,7 +189,7 @@ fn show_startup_error(app: &tauri::AppHandle, message: &str, log_path: &Path) {
             WebviewUrl::App("desktop-startup-error.html".into()),
         )
         .initialization_script(format!("window.__PI_WEB_STARTUP_ERROR__ = {encoded};"))
-        .title("Pi Agents could not start")
+        .title("Pi Desktop could not start")
         .inner_size(620.0, 360.0)
         .resizable(false)
         .build()
@@ -235,7 +235,7 @@ fn create_main_window(app: &tauri::AppHandle, port: u16) -> Result<(), String> {
                     let _ = page_sender.try_send(result);
                 }
             })
-            .title("Pi Agents")
+            .title("Pi Desktop")
             .background_color(Color(26, 26, 26, 255))
             .inner_size(1280.0, 820.0)
             .min_inner_size(720.0, 520.0)
@@ -278,12 +278,12 @@ fn start_application(app: tauri::AppHandle) {
                 .map_err(|_| "Server state is unavailable".to_string())?;
             let server = guard
                 .as_mut()
-                .ok_or_else(|| "The Pi Agents server was stopped during startup.".to_string())?;
+                .ok_or_else(|| "The Pi Desktop server was stopped during startup.".to_string())?;
             server
                 .child
                 .try_wait()
                 .map(|status| status.is_none())
-                .map_err(|error| format!("Could not inspect the Pi Agents server: {error}"))
+                .map_err(|error| format!("Could not inspect the Pi Desktop server: {error}"))
         })?;
         if let Some(remaining) = SPLASH_MINIMUM_DURATION.checked_sub(splash_started.elapsed()) {
             thread::sleep(remaining);
@@ -293,13 +293,13 @@ fn start_application(app: tauri::AppHandle) {
                 .parse()
                 .map_err(|error| format!("Invalid application URL: {error}"))?;
             app.get_webview_window("main")
-                .ok_or_else(|| "The Pi Agents startup window is unavailable.".to_string())?
+                .ok_or_else(|| "The Pi Desktop startup window is unavailable.".to_string())?
                 .navigate(url)
-                .map_err(|error| format!("Could not load the Pi Agents interface: {error}"))?;
+                .map_err(|error| format!("Could not load the Pi Desktop interface: {error}"))?;
         } else if let Some(window) = app.get_webview_window("main") {
             window
                 .eval("window.location.replace('index.html')")
-                .map_err(|error| format!("Could not load the Pi Agents interface: {error}"))?;
+                .map_err(|error| format!("Could not load the Pi Desktop interface: {error}"))?;
         }
         Ok(())
     })();
@@ -392,7 +392,7 @@ pub fn run() {
             }
         })
         .build(tauri::generate_context!())
-        .expect("error while building the Pi Agents desktop application");
+        .expect("error while building the Pi Desktop desktop application");
 
     app.run(|handle, event| {
         if matches!(event, RunEvent::ExitRequested { .. } | RunEvent::Exit) {

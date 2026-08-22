@@ -51,7 +51,7 @@ export const zhCNLocale: LocalePlugin = {
     "git.unstage": "取消暂存",
     "git.discard": "丢弃",
     "git.discardFileConfirm": "丢弃 {file} 中的更改？",
-    "appUpdate.releaseNotes": "Pi Agents v{version} 可用，查看更新说明",
+    "appUpdate.releaseNotes": "Pi Desktop v{version} 可用，查看更新说明",
     "sidebar.hide": "隐藏侧边栏",
     "sidebar.show": "显示侧边栏",
     "theme.light": "浅色模式（点击切换到深色）",

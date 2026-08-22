@@ -1,8 +1,8 @@
 [package]
-name = "pi-web-desktop"
-version = "0.8.9"
-description = "Desktop shell for Pi Agents"
-authors = ["Pi Agents contributors"]
+name = "pi-desktop"
+version = "0.84.2-aphla.1"
+description = "Desktop shell for Pi Desktop"
+authors = ["Pi Desktop contributors"]
 edition = "2021"
 license = "MIT"
 

@@ -51,7 +51,7 @@ export const enLocale: LocalePlugin = {
     "git.unstage": "Unstage",
     "git.discard": "Discard",
     "git.discardFileConfirm": "Discard changes in {file}?",
-    "appUpdate.releaseNotes": "Pi Agents v{version} is available. View release notes",
+    "appUpdate.releaseNotes": "Pi Desktop v{version} is available. View release notes",
     "sidebar.hide": "Hide sidebar",
     "sidebar.show": "Show sidebar",
     "theme.light": "Light mode (click for dark)",

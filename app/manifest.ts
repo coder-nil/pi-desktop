@@ -3,9 +3,9 @@ import type { MetadataRoute } from "next";
 export default function manifest(): MetadataRoute.Manifest {
   return {
     id: "/",
-    name: "Pi Agents",
-    short_name: "Pi Agents",
-    description: "Local web interface for the pi coding agent",
+    name: "Pi Desktop",
+    short_name: "Pi Desktop",
+    description: "Local desktop interface for the pi coding agent",
     start_url: "/",
     scope: "/",
     display: "standalone",

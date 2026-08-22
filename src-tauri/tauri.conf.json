@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Pi Agents",
-  "version": "0.8.9",
-  "identifier": "com.agegr.pi-web",
+  "productName": "Pi Desktop",
+  "version": "0.84.2-aphla.1",
+  "identifier": "com.agegr.pi-desktop",
   "build": {
     "frontendDist": "frontend"
   },

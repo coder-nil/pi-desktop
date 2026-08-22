@@ -706,7 +706,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                 <span style={{ display: "inline-flex", alignItems: "flex-end", gap: 4, flexShrink: 0, whiteSpace: "nowrap" }}>
                   <span style={{ fontSize: 22, color: "var(--text)", fontWeight: 700, letterSpacing: 0 }}>UI</span>
                   <span style={{ paddingBottom: 1, fontSize: 10, color: "var(--text-muted)", fontWeight: 500 }}>
-                    v{process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0"}
+                    {process.env.NEXT_PUBLIC_APP_VERSION ?? "aphla.1"}
                   </span>
                 </span>
                 <NewSessionUpdateLink label={(version) => t("appUpdate.releaseNotes", { version })} />

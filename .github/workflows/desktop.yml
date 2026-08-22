@@ -45,7 +45,7 @@ jobs:
       - name: Upload desktop bundles
         uses: actions/upload-artifact@v4
         with:
-          name: pi-web-${{ matrix.artifact }}
+          name: pi-desktop-${{ matrix.artifact }}
           path: |
             src-tauri/target/**/bundle/**/*
           if-no-files-found: error

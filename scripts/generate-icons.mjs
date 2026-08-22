@@ -135,4 +135,4 @@ await sharp(Buffer.from(inputMarkSvg()))
   .toFile(join(publicIcons, "pi-input-mark.png"));
 
 await rm(tempRoot, { recursive: true, force: true });
-console.log("Generated Pi Agents app icons.");
+console.log("Generated Pi Desktop app icons.");
