@@ -6,7 +6,7 @@
 
 中文微信群：请查看 [GitHub Discussions 帖子](https://github.com/agegr/pi-desktop/discussions/271)。
 
-![Pi Desktop 展示包含结构化 Markdown、工具调用和项目导航的 pi 会话](https://raw.githubusercontent.com/agegr/pi-desktop/main/docs/screenshot.png)
+![Pi Desktop 展示包含结构化 Markdown、工具调用和项目导航的 pi 会话](https://raw.githubusercontent.com/mafousoftware/pi-desktop/main/docs/screenshot.png)
 
 ## 功能
 

@@ -6,7 +6,7 @@ Pi Desktop is a local browser UI for the [pi coding agent](https://github.com/ea
 
 UI version: `aphla.1`
 
-![Pi Desktop displaying a pi session with structured Markdown, tool calls, and project navigation](https://raw.githubusercontent.com/agegr/pi-desktop/main/docs/screenshot.png)
+![Pi Desktop displaying a pi session with structured Markdown, tool calls, and project navigation](https://raw.githubusercontent.com/mafousoftware/pi-desktop/main/docs/screenshot.png)
 
 ## Features
 

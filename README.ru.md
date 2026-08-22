@@ -4,7 +4,7 @@
 
 Локальный браузерный интерфейс для [pi coding agent](https://github.com/earendil-works/pi). Pi Desktop использует те же локальные настройки и файлы сессий, что и pi, поэтому в браузере можно находить и продолжать диалоги, запускать агента, настраивать модели и ресурсы, а также просматривать файлы проекта.
 
-![Pi Desktop показывает сессию pi со структурированным Markdown, вызовами инструментов и навигацией по проекту](https://raw.githubusercontent.com/agegr/pi-desktop/main/docs/screenshot.png)
+![Pi Desktop показывает сессию pi со структурированным Markdown, вызовами инструментов и навигацией по проекту](https://raw.githubusercontent.com/mafousoftware/pi-desktop/main/docs/screenshot.png)
 
 ## Возможности
 
