@@ -1,6 +1,6 @@
 # Release Checklist
 
-This repo publishes desktop application bundles through the GitHub Release for `mafousoftware/pi-desktop`.
+This repo publishes desktop application bundles through the GitHub Release for `agegr/pi-desktop`.
 
 Use this checklist from a clean `main` checkout.
 
@@ -50,7 +50,7 @@ Confirm the tag does not already exist before creating it when unsure:
 
 ```bash
 git ls-remote --tags origin v<version>
-gh release view v<version> --repo mafousoftware/pi-desktop
+gh release view v<version> --repo agegr/pi-desktop
 ```
 
 ## 5. Generate Release Notes from Commits
@@ -115,7 +115,7 @@ Create a new release:
 
 ```bash
 gh release create v<version> \
-  --repo mafousoftware/pi-desktop \
+  --repo agegr/pi-desktop \
   --verify-tag \
   --title "v<version>" \
   --notes-file release-notes.md
@@ -125,14 +125,14 @@ If the release already exists and only the notes need updating:
 
 ```bash
 gh release edit v<version> \
-  --repo mafousoftware/pi-desktop \
+  --repo agegr/pi-desktop \
   --notes-file release-notes.md
 ```
 
 You can avoid a temporary file by passing notes through stdin:
 
 ```bash
-gh release edit v<version> --repo mafousoftware/pi-desktop --notes-file - <<'EOF
+gh release edit v<version> --repo agegr/pi-desktop --notes-file - <<'EOF
 ## 中文
 
 ...
@@ -146,7 +146,7 @@ EOF
 ## 7. Final Verification
 
 ```bash
-gh release view v<version> --repo mafousoftware/pi-desktop
+gh release view v<version> --repo agegr/pi-desktop
 git status --short --branch
 git log --oneline --decorate -3
 ```

@@ -4,7 +4,7 @@
 
 [pi コーディングエージェント](https://github.com/earendil-works/pi) のローカルブラウザー UI です。Pi Desktop は pi と同じローカル設定とセッションファイルを使用し、ブラウザーから会話の検索と再開、エージェントの実行、モデルやリソースの設定、プロジェクトファイルの確認を行えます。
 
-![構造化された Markdown、ツール呼び出し、プロジェクトナビゲーションとともに pi セッションを表示する Pi Desktop](https://raw.githubusercontent.com/mafousoftware/pi-desktop/main/docs/screenshot.png)
+![構造化された Markdown、ツール呼び出し、プロジェクトナビゲーションとともに pi セッションを表示する Pi Desktop](https://raw.githubusercontent.com/agegr/pi-desktop/main/docs/screenshot.png)
 
 ## 機能
 
@@ -17,12 +17,12 @@
 
 ## クイックスタート
 
-推奨される方法は、[GitHub Releases ページ](https://github.com/mafousoftware/pi-desktop/releases)から最新のデスクトップアプリをダウンロードすることです。お使いのプラットフォームのパッケージを選んで起動してください。Node.js と npm は必要ありません。
+推奨される方法は、[GitHub Releases ページ](https://github.com/agegr/pi-desktop/releases)から最新のデスクトップアプリをダウンロードすることです。お使いのプラットフォームのパッケージを選んで起動してください。Node.js と npm は必要ありません。
 
 ソースからビルドする場合は、Node.js 22.19.0 以降、Rust、Tauri CLI 2.8.4 を用意します：
 
 ```bash
-git clone https://github.com/mafousoftware/pi-desktop.git
+git clone https://github.com/agegr/pi-desktop.git
 cd pi-desktop
 npm ci
 cargo install tauri-cli --version 2.8.4 --locked

@@ -4,9 +4,9 @@
 
 [pi 编程智能体](https://github.com/earendil-works/pi)的本地浏览器界面。Pi Desktop 与 pi 共用本机配置和会话文件，可在浏览器中查找和继续对话、运行智能体、配置模型与资源，并查看项目文件。
 
-中文微信群：请查看 [GitHub Discussions 帖子](https://github.com/mafousoftware/pi-desktop/discussions/271)。
+中文微信群：请查看 [GitHub Discussions 帖子](https://github.com/agegr/pi-desktop/discussions/271)。
 
-![Pi Desktop 展示包含结构化 Markdown、工具调用和项目导航的 pi 会话](https://raw.githubusercontent.com/mafousoftware/pi-desktop/main/docs/screenshot.png)
+![Pi Desktop 展示包含结构化 Markdown、工具调用和项目导航的 pi 会话](https://raw.githubusercontent.com/agegr/pi-desktop/main/docs/screenshot.png)
 
 ## 功能
 
@@ -19,12 +19,12 @@
 
 ## 快速开始
 
-推荐从 [GitHub Releases 页面](https://github.com/mafousoftware/pi-desktop/releases)下载最新桌面应用。选择对应平台的安装包并启动即可，最终用户不需要安装 Node.js 或 npm。
+推荐从 [GitHub Releases 页面](https://github.com/agegr/pi-desktop/releases)下载最新桌面应用。选择对应平台的安装包并启动即可，最终用户不需要安装 Node.js 或 npm。
 
 如果需要从源码编译，先准备 Node.js 22.19.0 或更高版本、Rust 和 Tauri CLI 2.8.4：
 
 ```bash
-git clone https://github.com/mafousoftware/pi-desktop.git
+git clone https://github.com/agegr/pi-desktop.git
 cd pi-desktop
 npm ci
 cargo install tauri-cli --version 2.8.4 --locked

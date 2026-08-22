@@ -4,7 +4,7 @@
 
 Локальный браузерный интерфейс для [pi coding agent](https://github.com/earendil-works/pi). Pi Desktop использует те же локальные настройки и файлы сессий, что и pi, поэтому в браузере можно находить и продолжать диалоги, запускать агента, настраивать модели и ресурсы, а также просматривать файлы проекта.
 
-![Pi Desktop показывает сессию pi со структурированным Markdown, вызовами инструментов и навигацией по проекту](https://raw.githubusercontent.com/mafousoftware/pi-desktop/main/docs/screenshot.png)
+![Pi Desktop показывает сессию pi со структурированным Markdown, вызовами инструментов и навигацией по проекту](https://raw.githubusercontent.com/agegr/pi-desktop/main/docs/screenshot.png)
 
 ## Возможности
 
@@ -17,12 +17,12 @@
 
 ## Быстрый старт
 
-Рекомендуемый способ — скачать последнюю версию настольного приложения со страницы [GitHub Releases](https://github.com/mafousoftware/pi-desktop/releases). Выберите пакет для своей платформы и запустите приложение; Node.js и npm не требуются.
+Рекомендуемый способ — скачать последнюю версию настольного приложения со страницы [GitHub Releases](https://github.com/agegr/pi-desktop/releases). Выберите пакет для своей платформы и запустите приложение; Node.js и npm не требуются.
 
 Для сборки из исходного кода установите Node.js 22.19.0 или новее, Rust и Tauri CLI 2.8.4:
 
 ```bash
-git clone https://github.com/mafousoftware/pi-desktop.git
+git clone https://github.com/agegr/pi-desktop.git
 cd pi-desktop
 npm ci
 cargo install tauri-cli --version 2.8.4 --locked

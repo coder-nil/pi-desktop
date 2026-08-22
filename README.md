@@ -6,7 +6,7 @@ Pi Desktop is a local browser UI for the [pi coding agent](https://github.com/ea
 
 UI version: `aphla.1`
 
-![Pi Desktop displaying a pi session with structured Markdown, tool calls, and project navigation](https://raw.githubusercontent.com/mafousoftware/pi-desktop/main/docs/screenshot.png)
+![Pi Desktop displaying a pi session with structured Markdown, tool calls, and project navigation](https://raw.githubusercontent.com/agegr/pi-desktop/main/docs/screenshot.png)
 
 ## Features
 
@@ -19,12 +19,12 @@ UI version: `aphla.1`
 
 ## Quick Start
 
-The recommended way to use Pi Desktop is to download the latest desktop application from the [GitHub Releases page](https://github.com/mafousoftware/pi-desktop/releases). Choose the package for your platform and launch the installed application; Node.js and npm are not required.
+The recommended way to use Pi Desktop is to download the latest desktop application from the [GitHub Releases page](https://github.com/agegr/pi-desktop/releases). Choose the package for your platform and launch the installed application; Node.js and npm are not required.
 
 If you prefer to build from source, use the instructions below. Pi Desktop requires Node.js 22.19.0 or newer, Rust, and Tauri CLI 2.8.4:
 
 ```bash
-git clone https://github.com/mafousoftware/pi-desktop.git
+git clone https://github.com/agegr/pi-desktop.git
 cd pi-desktop
 npm ci
 cargo install tauri-cli --version 2.8.4 --locked
