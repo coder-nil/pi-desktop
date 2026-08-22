@@ -45,7 +45,7 @@ fn loopback_address(port: u16) -> SocketAddr {
 fn log_path(app: &tauri::AppHandle) -> PathBuf {
     app.path()
         .app_log_dir()
-        .unwrap_or_else(|_| std::env::temp_dir().join("pi-web"))
+        .unwrap_or_else(|_| std::env::temp_dir().join("pi-desktop"))
         .join("desktop.log")
 }
 

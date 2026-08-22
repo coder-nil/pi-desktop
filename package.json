@@ -1,21 +1,21 @@
 {
-  "name": "@agegr/pi-web",
+  "name": "@agegr/pi-desktop",
   "version": "0.84.2-aphla.1",
   "description": "Web UI for the pi coding agent",
-  "homepage": "https://github.com/agegr/pi-web#readme",
+  "homepage": "https://github.com/agegr/pi-desktop#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/agegr/pi-web.git"
+    "url": "git+https://github.com/agegr/pi-desktop.git"
   },
   "bugs": {
-    "url": "https://github.com/agegr/pi-web/issues"
+    "url": "https://github.com/agegr/pi-desktop/issues"
   },
   "license": "MIT",
   "engines": {
     "node": ">=22.19.0"
   },
   "bin": {
-    "pi-web": "bin/pi-web.js"
+    "pi-desktop": "bin/pi-desktop.js"
   },
   "files": [
     "bin",
@@ -28,7 +28,7 @@
     "package.json"
   ],
   "scripts": {
-    "dev": "node bin/pi-web-dev.js",
+    "dev": "node bin/pi-desktop-dev.js",
     "dev:lan": "next dev -H 0.0.0.0 -p 30141",
     "build": "next build --webpack",
     "build:desktop-frontend": "node scripts/build-desktop-frontend.mjs",

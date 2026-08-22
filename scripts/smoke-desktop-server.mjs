@@ -46,10 +46,12 @@ async function stopChild(child) {
   }
 }
 
-await open(nodeBinary, "r");
-await open(join(serverRoot, "server.js"), "r");
+const nodeHandle = await open(nodeBinary, "r");
+const serverHandle = await open(join(serverRoot, "server.js"), "r");
+await Promise.all([nodeHandle.close(), serverHandle.close()]);
 const port = await reservePort();
 const log = createWriteStream(logPath, { flags: "a" });
+await once(log, "open");
 const child = spawn(nodeBinary, ["server.js"], {
   cwd: serverRoot,
   env: {

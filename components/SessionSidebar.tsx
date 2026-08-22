@@ -154,7 +154,7 @@ interface ValidatedProject {
   key: string;
 }
 
-const UNREAD_SESSIONS_STORAGE_KEY = "pi-web:unread-session-ids";
+const UNREAD_SESSIONS_STORAGE_KEY = "pi-desktop:unread-session-ids";
 const RUNNING_SESSIONS_POLL_MS = 2500;
 
 function loadUnreadSessionIds(): Set<string> {
@@ -201,7 +201,7 @@ function displayCwd(cwd: string, homeDir?: string): string {
 
 /**
  * Path label that ellipsizes on the LEFT, keeping the (most relevant) trailing
- * segments visible: "…orkspace/pi-web". Shows as much of the path as fits
+ * segments visible: "…orkspace/pi-desktop". Shows as much of the path as fits
  * instead of a fixed number of segments. The rtl container moves the ellipsis
  * to the left edge; the inner plaintext bidi isolation keeps the path itself
  * rendered strictly left-to-right (no punctuation reordering).

@@ -23,7 +23,7 @@ export async function resolveModelDiscoveryAuth(
 ): Promise<ModelDiscoveryAuth> {
   let tempDir: string | undefined;
   try {
-    tempDir = mkdtempSync(join(tmpdir(), "pi-web-model-discovery-"));
+    tempDir = mkdtempSync(join(tmpdir(), "pi-desktop-model-discovery-"));
     const modelsPath = join(tempDir, "models.json");
     const discoveryModelId = "__pi_web_model_discovery__";
     writeFileSync(modelsPath, JSON.stringify({

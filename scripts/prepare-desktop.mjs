@@ -75,7 +75,7 @@ async function extractNode(target, temporaryDirectory) {
 
 async function prepareNode(target) {
   const nodeOutput = join(outputRoot, target.startsWith("win-") ? "node.exe" : "node");
-  const temporaryDirectory = await mkdtemp(join(tmpdir(), "pi-web-node-"));
+  const temporaryDirectory = await mkdtemp(join(tmpdir(), "pi-desktop-node-"));
   try {
     if (target === "darwin-universal") {
       if (process.platform !== "darwin") throw new Error("The universal macOS runtime must be prepared on macOS.");

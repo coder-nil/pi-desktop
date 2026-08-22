@@ -8,7 +8,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { join } from "node:path";
 
-const HOST_EXTENSION_NAME = "pi-web-project-command-environment";
+const HOST_EXTENSION_NAME = "pi-desktop-project-command-environment";
 const HOST_EXTENSION_PATH = `<inline:${HOST_EXTENSION_NAME}>`;
 
 type ProjectShellSettings = {

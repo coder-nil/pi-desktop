@@ -31,8 +31,8 @@ function findChromeApp() {
   if (process.platform !== "darwin") return null;
 
   const candidates = [
-    path.join(os.homedir(), "Applications", "Chrome Apps.localized", "Pi Web.app"),
-    "/Applications/Chrome Apps.localized/Pi Web.app",
+    path.join(os.homedir(), "Applications", "Chrome Apps.localized", "Pi Desktop.app"),
+    "/Applications/Chrome Apps.localized/Pi Desktop.app",
   ];
   return candidates.find((candidate) => fs.existsSync(candidate)) ?? null;
 }

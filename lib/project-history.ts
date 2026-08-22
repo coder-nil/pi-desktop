@@ -1,5 +1,5 @@
-const STORAGE_KEY = "pi-web:project-history";
-const HIDDEN_STORAGE_KEY = "pi-web:hidden-project-history";
+const STORAGE_KEY = "pi-desktop:project-history";
+const HIDDEN_STORAGE_KEY = "pi-desktop:hidden-project-history";
 const MAX_PROJECT_HISTORY = 12;
 
 interface StorageLike {
