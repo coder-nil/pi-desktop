@@ -3,7 +3,6 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "@/hooks/useI18n";
-import { DEFAULT_CWD } from "@/lib/default-cwd";
 
 interface DirectoryEntry {
   name: string;
@@ -56,7 +55,7 @@ interface Props {
   error?: string | null;
 }
 
-export function DirectoryPicker({ onCancel, onSelect, initialPath = DEFAULT_CWD, busy = false, error }: Props) {
+export function DirectoryPicker({ onCancel, onSelect, initialPath = "", busy = false, error }: Props) {
   const { t } = useI18n();
   const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null);
   const [currentPath, setCurrentPath] = useState(initialPath);

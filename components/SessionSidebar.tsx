@@ -9,7 +9,6 @@ import { skillExpansionToCommand } from "@/lib/slash-display";
 import { getProjectActivity, getRecentProjects, sessionsForProject } from "@/lib/project-groups";
 import { addProjectHistory, getHiddenProjectHistory, hideProjectHistory, getProjectHistory, removeProjectHistory } from "@/lib/project-history";
 import { workspaceKeyOf } from "@/lib/workspace-memory";
-import { DEFAULT_CWD } from "@/lib/default-cwd";
 import { getFileName } from "@/lib/file-paths";
 import { useI18n } from "@/hooks/useI18n";
 import { DirectoryPicker } from "./DirectoryPicker";
@@ -1091,7 +1090,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
       {customPathOpen && (
         <DirectoryPicker
-          initialPath={DEFAULT_CWD}
+          // Start new path selection in the user's home directory. Once a
+          // project is active, keep the picker anchored to that project's root.
+          initialPath={selectedProject?.root ?? ""}
           busy={customPathValidating}
           error={customPathError}
           onCancel={() => {
