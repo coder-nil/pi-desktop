@@ -6,7 +6,7 @@ Pi Desktop is a local browser UI for the [pi coding agent](https://github.com/ea
 
 UI version: `aphla.1`
 
-![Pi Desktop displaying a pi session with structured Markdown, tool calls, and project navigation](https://raw.githubusercontent.com/agegr/pi-desktop/main/docs/screenshot2.png)
+![Pi Desktop displaying a pi session with structured Markdown, tool calls, and project navigation](https://raw.githubusercontent.com/mafousoftware/pi-desktop/main/docs/screenshot.png)
 
 ## Features
 
@@ -19,24 +19,26 @@ UI version: `aphla.1`
 
 ## Quick Start
 
-Pi Desktop requires Node.js 22.19.0 or newer. Check your version with `node --version`, then run:
+The recommended way to use Pi Desktop is to download the latest desktop application from the [GitHub Releases page](https://github.com/mafousoftware/pi-desktop/releases). Choose the package for your platform and launch the installed application; Node.js and npm are not required.
+
+If you prefer to build from source, use the instructions below. Pi Desktop requires Node.js 22.19.0 or newer, Rust, and Tauri CLI 2.8.4:
 
 ```bash
-npx @agegr/pi-desktop@latest
+git clone https://github.com/mafousoftware/pi-desktop.git
+cd pi-desktop
+npm ci
+cargo install tauri-cli --version 2.8.4 --locked
 ```
 
-The CLI opens a browser after the server is ready. If it does not, open [http://127.0.0.1:30141](http://127.0.0.1:30141). Pi Desktop listens only on `127.0.0.1` by default.
-
-If no model provider is configured yet, open the **Models** panel to sign in or add an API key.
-
-To install the `pi-desktop` command globally:
+Build the package on the matching platform:
 
 ```bash
-npm install -g @agegr/pi-desktop@latest
-pi-desktop
+npm run desktop:build:mac       # macOS universal app
+npm run desktop:build:windows  # Windows installer
+npm run desktop:build:linux    # Linux packages
 ```
 
-To update, stop the running process with `Ctrl+C` and run the same install command again. To uninstall, run `npm uninstall -g @agegr/pi-desktop`.
+The generated application bundles are written under `src-tauri/target/release/bundle/`. If no model provider is configured yet, open the **Models** panel to sign in or add an API key.
 
 ## Configuration
 
@@ -76,7 +78,7 @@ On macOS or Linux:
 HTTP_PROXY=http://127.0.0.1:7890 \
 HTTPS_PROXY=http://127.0.0.1:7890 \
 NO_PROXY=localhost,127.0.0.1 \
-npx @agegr/pi-desktop@latest
+npm run dev
 ```
 
 On Windows PowerShell:
@@ -85,7 +87,7 @@ On Windows PowerShell:
 $env:HTTP_PROXY = "http://127.0.0.1:7890"
 $env:HTTPS_PROXY = "http://127.0.0.1:7890"
 $env:NO_PROXY = "localhost,127.0.0.1"
-npx @agegr/pi-desktop@latest
+npm run dev
 ```
 
 ## Notes

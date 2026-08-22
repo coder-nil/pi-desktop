@@ -1,9 +1,6 @@
 # Release Checklist
 
-This repo publishes two artifacts for each release:
-
-- npm package: `@agegr/pi-desktop`
-- GitHub Release: `agegr/pi-desktop`
+This repo publishes desktop application bundles through the GitHub Release for `mafousoftware/pi-desktop`.
 
 Use this checklist from a clean `main` checkout.
 
@@ -13,7 +10,6 @@ Use this checklist from a clean `main` checkout.
 git status --short --branch
 git log --oneline --decorate -5
 gh auth status
-npm whoami
 node -e "const p=require('./package.json'); console.log(p.version)"
 ```
 
@@ -21,38 +17,25 @@ Expected:
 
 - `git status` is clean, or only contains changes you intentionally plan to release.
 - GitHub is authenticated as an account that can push and create releases.
-- npm is authenticated as an account that can publish `@agegr/pi-desktop`.
+## 2. Build the Desktop Bundles
 
-## 2. Publish to npm
+The desktop workflow builds macOS, Windows, and Linux bundles from the tagged commit. For a local build, run the platform-specific command on the matching operating system:
 
 ```bash
-npm run release
+npm ci
+cargo install tauri-cli --version 2.8.4 --locked
+npm run desktop:build:mac
+npm run desktop:build:windows
+npm run desktop:build:linux
 ```
 
-The release script runs:
+The workflow installs the required dependencies and uploads the generated bundles to the GitHub Release.
+
+## 3. Commit the Version
+
+Replace `<version>` with the release version, for example `0.84.2-aphla.1`.
 
 ```bash
-npm version patch --no-git-tag-version && npm run build && npm publish --access public
-```
-
-Notes:
-
-- This bumps `package.json` and `package-lock.json`.
-- It intentionally runs a production build. Do not run `next build` during normal development; release work is the exception.
-- If `npm view @agegr/pi-desktop version` briefly shows the previous version, check the exact version instead:
-
-```bash
-npm view @agegr/pi-desktop@<version> version --registry https://registry.npmjs.org/
-npm view @agegr/pi-desktop versions --json --registry https://registry.npmjs.org/
-```
-
-## 3. Commit the Version Bump
-
-Replace `<version>` with the new package version, for example `0.7.5`.
-
-```bash
-git diff -- package.json package-lock.json
-git add package.json package-lock.json
 git commit -m "Release v<version>"
 ```
 
@@ -67,7 +50,7 @@ Confirm the tag does not already exist before creating it when unsure:
 
 ```bash
 git ls-remote --tags origin v<version>
-gh release view v<version> --repo agegr/pi-desktop
+gh release view v<version> --repo mafousoftware/pi-desktop
 ```
 
 ## 5. Generate Release Notes from Commits
@@ -103,7 +86,7 @@ Suggested structure:
 
 ### 内部调整
 
-- 发布 npm 包 `@agegr/pi-desktop@<version>`。
+- 发布 macOS、Windows 和 Linux 桌面应用包。
 
 ## English
 
@@ -123,7 +106,7 @@ Prepared from commits in `v<previous>..v<version>`.
 
 ### Internal
 
-- Published npm package `@agegr/pi-desktop@<version>`.
+- Published macOS, Windows, and Linux desktop bundles.
 ```
 
 ## 6. Create or Update the GitHub Release
@@ -132,7 +115,7 @@ Create a new release:
 
 ```bash
 gh release create v<version> \
-  --repo agegr/pi-desktop \
+  --repo mafousoftware/pi-desktop \
   --verify-tag \
   --title "v<version>" \
   --notes-file release-notes.md
@@ -142,14 +125,14 @@ If the release already exists and only the notes need updating:
 
 ```bash
 gh release edit v<version> \
-  --repo agegr/pi-desktop \
+  --repo mafousoftware/pi-desktop \
   --notes-file release-notes.md
 ```
 
 You can avoid a temporary file by passing notes through stdin:
 
 ```bash
-gh release edit v<version> --repo agegr/pi-desktop --notes-file - <<'EOF'
+gh release edit v<version> --repo mafousoftware/pi-desktop --notes-file - <<'EOF
 ## 中文
 
 ...
@@ -163,8 +146,7 @@ EOF
 ## 7. Final Verification
 
 ```bash
-gh release view v<version> --repo agegr/pi-desktop
-npm view @agegr/pi-desktop@<version> version --registry https://registry.npmjs.org/
+gh release view v<version> --repo mafousoftware/pi-desktop
 git status --short --branch
 git log --oneline --decorate -3
 ```
@@ -172,6 +154,5 @@ git log --oneline --decorate -3
 Expected:
 
 - GitHub Release exists and is not a draft unless intentionally published as one.
-- npm exact version resolves.
 - `main` is aligned with `origin/main`.
 - `HEAD` points at the release commit and `v<version>` tag.

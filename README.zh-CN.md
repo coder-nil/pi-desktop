@@ -4,9 +4,9 @@
 
 [pi 编程智能体](https://github.com/earendil-works/pi)的本地浏览器界面。Pi Desktop 与 pi 共用本机配置和会话文件，可在浏览器中查找和继续对话、运行智能体、配置模型与资源，并查看项目文件。
 
-中文微信群：请查看 [GitHub Discussions 帖子](https://github.com/agegr/pi-desktop/discussions/271)。
+中文微信群：请查看 [GitHub Discussions 帖子](https://github.com/mafousoftware/pi-desktop/discussions/271)。
 
-![Pi Desktop 展示包含结构化 Markdown、工具调用和项目导航的 pi 会话](https://raw.githubusercontent.com/agegr/pi-desktop/main/docs/screenshot2.png)
+![Pi Desktop 展示包含结构化 Markdown、工具调用和项目导航的 pi 会话](https://raw.githubusercontent.com/mafousoftware/pi-desktop/main/docs/screenshot.png)
 
 ## 功能
 
@@ -19,24 +19,26 @@
 
 ## 快速开始
 
-Pi Desktop 要求 Node.js 22.19.0 或更高版本。先用 `node --version` 检查版本，然后运行：
+推荐从 [GitHub Releases 页面](https://github.com/mafousoftware/pi-desktop/releases)下载最新桌面应用。选择对应平台的安装包并启动即可，最终用户不需要安装 Node.js 或 npm。
+
+如果需要从源码编译，先准备 Node.js 22.19.0 或更高版本、Rust 和 Tauri CLI 2.8.4：
 
 ```bash
-npx @agegr/pi-desktop@latest
+git clone https://github.com/mafousoftware/pi-desktop.git
+cd pi-desktop
+npm ci
+cargo install tauri-cli --version 2.8.4 --locked
 ```
 
-服务就绪后，命令行会尝试自动打开浏览器。如果没有打开，请访问 [http://127.0.0.1:30141](http://127.0.0.1:30141)。Pi Desktop 默认仅监听 `127.0.0.1`。
-
-如果尚未配置模型 Provider，请打开**模型（Models）**面板登录或添加 API Key。
-
-如需全局安装 `pi-desktop` 命令：
+请在对应平台执行构建命令：
 
 ```bash
-npm install -g @agegr/pi-desktop@latest
-pi-desktop
+npm run desktop:build:mac       # macOS 通用应用
+npm run desktop:build:windows  # Windows 安装包
+npm run desktop:build:linux    # Linux 安装包
 ```
 
-更新前先用 `Ctrl+C` 停止正在运行的进程，再次执行同一条安装命令。卸载时运行 `npm uninstall -g @agegr/pi-desktop`。
+构建产物位于 `src-tauri/target/release/bundle/`。如果尚未配置模型 Provider，请打开**模型（Models）**面板登录或添加 API Key。
 
 ## 配置
 
@@ -76,7 +78,7 @@ macOS 或 Linux：
 HTTP_PROXY=http://127.0.0.1:7890 \
 HTTPS_PROXY=http://127.0.0.1:7890 \
 NO_PROXY=localhost,127.0.0.1 \
-npx @agegr/pi-desktop@latest
+npm run dev
 ```
 
 Windows PowerShell：
@@ -85,7 +87,7 @@ Windows PowerShell：
 $env:HTTP_PROXY = "http://127.0.0.1:7890"
 $env:HTTPS_PROXY = "http://127.0.0.1:7890"
 $env:NO_PROXY = "localhost,127.0.0.1"
-npx @agegr/pi-desktop@latest
+npm run dev
 ```
 
 ## 注意事项

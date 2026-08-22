@@ -4,7 +4,7 @@
 
 [pi コーディングエージェント](https://github.com/earendil-works/pi) のローカルブラウザー UI です。Pi Desktop は pi と同じローカル設定とセッションファイルを使用し、ブラウザーから会話の検索と再開、エージェントの実行、モデルやリソースの設定、プロジェクトファイルの確認を行えます。
 
-![構造化された Markdown、ツール呼び出し、プロジェクトナビゲーションとともに pi セッションを表示する Pi Desktop](https://raw.githubusercontent.com/agegr/pi-desktop/main/docs/screenshot2.png)
+![構造化された Markdown、ツール呼び出し、プロジェクトナビゲーションとともに pi セッションを表示する Pi Desktop](https://raw.githubusercontent.com/mafousoftware/pi-desktop/main/docs/screenshot.png)
 
 ## 機能
 
@@ -17,24 +17,26 @@
 
 ## クイックスタート
 
-Pi Desktop には Node.js 22.19.0 以降が必要です。`node --version` でバージョンを確認してから、次を実行します：
+推奨される方法は、[GitHub Releases ページ](https://github.com/mafousoftware/pi-desktop/releases)から最新のデスクトップアプリをダウンロードすることです。お使いのプラットフォームのパッケージを選んで起動してください。Node.js と npm は必要ありません。
+
+ソースからビルドする場合は、Node.js 22.19.0 以降、Rust、Tauri CLI 2.8.4 を用意します：
 
 ```bash
-npx @agegr/pi-desktop@latest
+git clone https://github.com/mafousoftware/pi-desktop.git
+cd pi-desktop
+npm ci
+cargo install tauri-cli --version 2.8.4 --locked
 ```
 
-サーバーの準備が整うと、CLI はブラウザーを自動的に開こうとします。開かない場合は [http://127.0.0.1:30141](http://127.0.0.1:30141) にアクセスしてください。Pi Desktop はデフォルトで `127.0.0.1` のみをリッスンします。
-
-モデル Provider が未設定の場合は、**Models** パネルを開いてログインするか API Key を追加してください。
-
-`pi-desktop` コマンドをグローバルにインストールする場合：
+対応するプラットフォームで次のコマンドを実行します：
 
 ```bash
-npm install -g @agegr/pi-desktop@latest
-pi-desktop
+npm run desktop:build:mac       # macOS ユニバーサルアプリ
+npm run desktop:build:windows  # Windows インストーラー
+npm run desktop:build:linux    # Linux パッケージ
 ```
 
-更新時は、実行中のプロセスを `Ctrl+C` で停止してから同じインストールコマンドを再実行します。アンインストールするには `npm uninstall -g @agegr/pi-desktop` を実行します。
+生成されたパッケージは `src-tauri/target/release/bundle/` にあります。モデル Provider が未設定の場合は、**Models** パネルを開いてログインするか API Key を追加してください。
 
 ## 設定
 
@@ -74,7 +76,7 @@ macOS または Linux：
 HTTP_PROXY=http://127.0.0.1:7890 \
 HTTPS_PROXY=http://127.0.0.1:7890 \
 NO_PROXY=localhost,127.0.0.1 \
-npx @agegr/pi-desktop@latest
+npm run dev
 ```
 
 Windows PowerShell：
@@ -83,7 +85,7 @@ Windows PowerShell：
 $env:HTTP_PROXY = "http://127.0.0.1:7890"
 $env:HTTPS_PROXY = "http://127.0.0.1:7890"
 $env:NO_PROXY = "localhost,127.0.0.1"
-npx @agegr/pi-desktop@latest
+npm run dev
 ```
 
 ## 注意事項
