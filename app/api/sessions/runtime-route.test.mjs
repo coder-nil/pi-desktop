@@ -58,7 +58,7 @@ test("live detail and state routes work without a persisted JSONL file", async (
     getLeafId: () => entry.id,
     getTree: () => [],
     getSessionName: () => undefined,
-    getSessionFile: () => `/tmp/pi-web-live-route-not-persisted-${process.pid}.jsonl`,
+    getSessionFile: () => `/tmp/pi-desktop-live-route-not-persisted-${process.pid}.jsonl`,
   };
   globalThis.__piSessions = new Map([[id, {
     isAlive: () => true,
