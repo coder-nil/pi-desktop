@@ -31,12 +31,12 @@ cargo install tauri-cli --version 2.8.4 --locked
 対応するプラットフォームで次のコマンドを実行します：
 
 ```bash
-npm run desktop:build:mac       # macOS ユニバーサルアプリ
+npm run desktop:build:mac       # 現在の Mac アーキテクチャ向けアプリ
 npm run desktop:build:windows  # Windows インストーラー
 npm run desktop:build:linux    # Linux パッケージ
 ```
 
-生成されたパッケージは `src-tauri/target/release/bundle/` にあります。モデル Provider が未設定の場合は、**Models** パネルを開いてログインするか API Key を追加してください。
+GitHub Releases では、Apple Silicon（`arm64`）版と Intel（`x64`）版の macOS パッケージを個別に提供します。対応する Mac では、`npm run desktop:build:mac:arm64` または `npm run desktop:build:mac:x64` で対象を明示できます。明示的な target の生成物は `src-tauri/target/<target>/release/bundle/`、現在のホスト target の生成物は `src-tauri/target/release/bundle/` にあります。モデル Provider が未設定の場合は、**Models** パネルを開いてログインするか API Key を追加してください。
 
 ## 設定
 

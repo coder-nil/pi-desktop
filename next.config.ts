@@ -14,6 +14,7 @@ const nextConfig: NextConfig = {
   output: process.env.PI_WEB_BUILD_TARGET === "desktop-frontend" ? "export" : "standalone",
   distDir: process.env.PI_WEB_BUILD_TARGET === "desktop-frontend" ? ".next-desktop-frontend" : ".next",
   outputFileTracingRoot: configDir,
+  images: { unoptimized: true },
   serverExternalPackages: [
     "undici",
     "@earendil-works/pi-coding-agent",

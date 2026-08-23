@@ -33,12 +33,12 @@ cargo install tauri-cli --version 2.8.4 --locked
 Build the package on the matching platform:
 
 ```bash
-npm run desktop:build:mac       # macOS universal app
+npm run desktop:build:mac       # macOS app for the current Mac architecture
 npm run desktop:build:windows  # Windows installer
 npm run desktop:build:linux    # Linux packages
 ```
 
-The generated application bundles are written under `src-tauri/target/release/bundle/`. If no model provider is configured yet, open the **Models** panel to sign in or add an API key.
+GitHub Releases provide separate macOS packages for Apple Silicon (`arm64`) and Intel (`x64`). To build either Mac target explicitly, use `npm run desktop:build:mac:arm64` or `npm run desktop:build:mac:x64` on a matching Mac. Generated bundles are written under `src-tauri/target/<target>/release/bundle/` for explicit targets, or `src-tauri/target/release/bundle/` for the current host target. If no model provider is configured yet, open the **Models** panel to sign in or add an API key.
 
 ## Configuration
 

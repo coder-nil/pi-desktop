@@ -31,12 +31,12 @@ cargo install tauri-cli --version 2.8.4 --locked
 请在对应平台执行构建命令：
 
 ```bash
-npm run desktop:build:mac       # macOS 通用应用
+npm run desktop:build:mac       # 适配当前 Mac 架构的应用
 npm run desktop:build:windows  # Windows 安装包
 npm run desktop:build:linux    # Linux 安装包
 ```
 
-构建产物位于 `src-tauri/target/release/bundle/`。如果尚未配置模型 Provider，请打开**模型（Models）**面板登录或添加 API Key。
+GitHub Releases 分别提供 Apple 芯片（`arm64`）和 Intel（`x64`）版本的 macOS 安装包。在对应架构的 Mac 上，可用 `npm run desktop:build:mac:arm64` 或 `npm run desktop:build:mac:x64` 明确构建指定版本。指定 target 的产物位于 `src-tauri/target/<target>/release/bundle/`，当前主机默认 target 的产物位于 `src-tauri/target/release/bundle/`。如果尚未配置模型 Provider，请打开**模型（Models）**面板登录或添加 API Key。
 
 ## 配置
 
@@ -120,7 +120,7 @@ cargo install tauri-cli --version 2.8.4 --locked
 npm run desktop:dev
 ```
 
-生产安装包携带 Node 和 Next standalone 服务，最终用户不需要安装 Node 或 npm。平台构建命令为 `npm run desktop:build:mac`、`npm run desktop:build:windows` 和 `npm run desktop:build:linux`。生产构建会写入 `.next/`，不要在日常 Web 开发过程中运行。
+生产安装包携带 Node 和 Next standalone 服务，最终用户不需要安装 Node 或 npm。平台构建命令为 `npm run desktop:build:mac`、`npm run desktop:build:windows` 和 `npm run desktop:build:linux`；macOS 发布流程会分别构建 ARM64 和 Intel 版本。生产构建会写入 `.next/`，不要在日常 Web 开发过程中运行。
 
 日常开发时不要运行 `next build` 或 `npm run build`。它们会写入 `.next/`，可能干扰开发服务器；仅在发布流程中执行构建。
 

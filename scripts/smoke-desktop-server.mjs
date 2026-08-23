@@ -9,7 +9,11 @@ import { fileURLToPath } from "node:url";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const runtimeRoot = join(root, "desktop-dist");
 const serverRoot = join(runtimeRoot, "server");
-const nodeBinary = join(runtimeRoot, process.platform === "win32" ? "node.exe" : "node");
+const useSystemNode = process.argv.includes("--system-node");
+const nodeBinary = useSystemNode
+  ? process.execPath
+  : join(runtimeRoot, process.platform === "win32" ? "node.exe" : "node");
+const embeddedNodeBinary = join(runtimeRoot, process.platform === "win32" ? "node.exe" : "node");
 const logPath = join(runtimeRoot, "smoke-test.log");
 
 async function reservePort() {
@@ -46,7 +50,7 @@ async function stopChild(child) {
   }
 }
 
-const nodeHandle = await open(nodeBinary, "r");
+const nodeHandle = await open(embeddedNodeBinary, "r");
 const serverHandle = await open(join(serverRoot, "server.js"), "r");
 await Promise.all([nodeHandle.close(), serverHandle.close()]);
 const port = await reservePort();

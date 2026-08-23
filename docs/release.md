@@ -19,17 +19,18 @@ Expected:
 - GitHub is authenticated as an account that can push and create releases.
 ## 2. Build the Desktop Bundles
 
-The desktop workflow builds macOS, Windows, and Linux bundles from the tagged commit. For a local build, run the platform-specific command on the matching operating system:
+The desktop workflow builds separate macOS ARM64 and Intel bundles, plus Windows x64 and Linux x64 bundles, from the tagged commit. For a local build, run the platform-specific command on the matching operating system and architecture:
 
 ```bash
 npm ci
 cargo install tauri-cli --version 2.8.4 --locked
-npm run desktop:build:mac
+npm run desktop:build:mac:arm64  # Apple Silicon Mac
+npm run desktop:build:mac:x64    # Intel Mac
 npm run desktop:build:windows
 npm run desktop:build:linux
 ```
 
-The workflow installs the required dependencies and uploads the generated bundles to the GitHub Release.
+The workflow installs the required dependencies and uploads four distinctly named artifacts. Branch builds keep them as Actions artifacts; tag builds also publish them to the GitHub Release.
 
 ## 3. Commit the Version
 

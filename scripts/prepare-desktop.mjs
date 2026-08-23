@@ -74,18 +74,15 @@ async function extractNode(target, temporaryDirectory) {
 }
 
 async function prepareNode(target) {
+  const supportedTargets = new Set(["darwin-arm64", "darwin-x64", "win-x64", "linux-x64"]);
+  if (!supportedTargets.has(target)) {
+    throw new Error(`Unsupported desktop Node target: ${target}`);
+  }
   const nodeOutput = join(outputRoot, target.startsWith("win-") ? "node.exe" : "node");
   const temporaryDirectory = await mkdtemp(join(tmpdir(), "pi-desktop-node-"));
   try {
-    if (target === "darwin-universal") {
-      if (process.platform !== "darwin") throw new Error("The universal macOS runtime must be prepared on macOS.");
-      const arm64Node = await extractNode("darwin-arm64", temporaryDirectory);
-      const x64Node = await extractNode("darwin-x64", temporaryDirectory);
-      await execFileAsync("lipo", ["-create", arm64Node, x64Node, "-output", nodeOutput]);
-    } else {
-      const executable = await extractNode(target, temporaryDirectory);
-      await cp(executable, nodeOutput);
-    }
+    const executable = await extractNode(target, temporaryDirectory);
+    await cp(executable, nodeOutput);
     if (process.platform !== "win32") await chmod(nodeOutput, 0o755);
   } finally {
     await rm(temporaryDirectory, { recursive: true, force: true });
@@ -105,6 +102,22 @@ async function prepareStandaloneServer() {
   await mkdir(join(serverOutput, ".next"), { recursive: true });
   await cp(join(root, ".next/static"), join(serverOutput, ".next/static"), { recursive: true });
   await cp(join(root, "public"), join(serverOutput, "public"), { recursive: true });
+}
+
+async function removeUnusedSharpRuntime() {
+  const nodeModules = join(serverOutput, "node_modules");
+  await rm(join(nodeModules, "sharp"), { recursive: true, force: true });
+
+  const imgPackages = join(nodeModules, "@img");
+  let entries = [];
+  try {
+    entries = await readdir(imgPackages, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  await Promise.all(entries
+    .filter((entry) => entry.isDirectory() && entry.name.startsWith("sharp-"))
+    .map((entry) => rm(join(imgPackages, entry.name), { recursive: true, force: true })));
 }
 
 async function prepareStaticFrontend() {
@@ -133,10 +146,11 @@ await mkdir(stagingRoot, { recursive: true });
 await rm(outputRoot, { recursive: true, force: true });
 await rename(stagingRoot, outputRoot);
 await prepareStandaloneServer();
+await removeUnusedSharpRuntime();
 await prepareStaticFrontend();
 const nativeModules = await findNativeModules(serverOutput);
-if (nodeTarget === "darwin-universal" && nativeModules.length > 0) {
-  throw new Error(`Desktop standalone output contains architecture-specific native modules:\n${nativeModules.join("\n")}`);
+if (nativeModules.length > 0) {
+  throw new Error(`Desktop standalone output contains unsupported native modules:\n${nativeModules.join("\n")}`);
 }
 await prepareNode(nodeTarget);
 console.log(`Prepared desktop runtime for ${nodeTarget} in ${outputRoot}`);
