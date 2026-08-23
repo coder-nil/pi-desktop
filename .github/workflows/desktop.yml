@@ -64,8 +64,17 @@ jobs:
       - name: Install Linux desktop dependencies
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - name: Cache Windows bundler tools
+        if: runner.os == 'Windows'
+        uses: actions/cache@v4
+        with:
+          path: src-tauri/target/.tauri
+          key: tauri-windows-nsis-${{ hashFiles('scripts/prepare-windows-bundler.mjs') }}
       - name: Install JavaScript dependencies
         run: npm ci
+      - name: Prepare and verify Windows bundler tools
+        if: runner.os == 'Windows'
+        run: node scripts/prepare-windows-bundler.mjs
       - name: Build Next.js standalone server
         run: npm run desktop:prepare:server
       - name: Build static desktop frontend

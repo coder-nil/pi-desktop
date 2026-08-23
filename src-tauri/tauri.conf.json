@@ -16,6 +16,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "useLocalToolsDir": true,
     "resources": {
       "../desktop-dist/": "runtime/"
     },
