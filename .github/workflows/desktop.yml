@@ -89,9 +89,55 @@ jobs:
         run: npm run desktop:smoke -- --system-node
       - name: Run Rust tests
         run: cargo test --manifest-path src-tauri/Cargo.toml
-      - name: Build Tauri bundle
-        if: runner.os != 'Windows'
+
+      - name: Ad-hoc sign embedded Node runtime
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          codesign \
+            --force \
+            --options runtime \
+            --sign - \
+            desktop-dist/node
+          codesign --verify --strict --verbose=2 desktop-dist/node
+
+      - name: Build ad-hoc signed macOS bundle
+        if: runner.os == 'macOS'
+        env:
+          APPLE_SIGNING_IDENTITY: "-"
         run: cargo tauri build --target ${{ matrix.rust_target }}
+
+      - name: Verify macOS bundle integrity
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          bundle_root="src-tauri/target/${{ matrix.rust_target }}/release/bundle"
+          app_path="$bundle_root/macos/Pi Desktop.app"
+          dmg_path="$(find "$bundle_root/dmg" -maxdepth 1 -type f -name '*.dmg' -print -quit)"
+
+          if [[ ! -d "$app_path" || -z "$dmg_path" ]]; then
+            echo '::error::The expected macOS application or DMG was not generated.'
+            exit 1
+          fi
+
+          codesign --verify --deep --strict --verbose=2 "$app_path"
+          codesign -dv --verbose=4 "$app_path" 2>&1 | grep -q '^Signature=adhoc$'
+
+          mount_point="$RUNNER_TEMP/pi-desktop-dmg-${{ matrix.artifact }}"
+          mkdir -p "$mount_point"
+          hdiutil attach "$dmg_path" -readonly -nobrowse -mountpoint "$mount_point"
+          trap 'hdiutil detach "$mount_point"' EXIT
+          codesign --verify --deep --strict --verbose=2 "$mount_point/Pi Desktop.app"
+
+          dmg_directory="$(dirname "$dmg_path")"
+          dmg_name="$(basename "$dmg_path")"
+          (cd "$dmg_directory" && shasum -a 256 "$dmg_name") \
+            > "$bundle_root/SHA256SUMS-${{ matrix.artifact }}.txt"
+
+      - name: Build Linux Tauri bundle
+        if: runner.os == 'Linux'
+        run: cargo tauri build --target ${{ matrix.rust_target }}
+
       - name: Build Windows NSIS installer with retries
         if: runner.os == 'Windows'
         shell: pwsh
@@ -135,6 +181,7 @@ jobs:
           generate_release_notes: true
           files: |
             release-assets/**/*.dmg
+            release-assets/**/SHA256SUMS-*.txt
             release-assets/**/*.msi
             release-assets/**/*.exe
             release-assets/**/*.AppImage

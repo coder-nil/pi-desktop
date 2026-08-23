@@ -27,7 +27,18 @@ function normalizeConfiguredHostname(value: string | undefined): string | null {
 }
 
 function isLoopbackHostname(hostname: string): boolean {
-  return hostname === "localhost" || hostname.endsWith(".localhost");
+  if (hostname === "localhost" || hostname.endsWith(".localhost")) return true;
+  if (isIP(hostname) === 4) return hostname.startsWith("127.");
+  if (isIP(hostname) !== 6) return false;
+
+  if (hostname === "::1" || hostname === "0:0:0:0:0:0:0:1") return true;
+  const mappedIpv4 = hostname.match(/^(?:::ffff:|0:0:0:0:0:ffff:)(.+)$/)?.[1];
+  if (!mappedIpv4) return false;
+  if (mappedIpv4.startsWith("127.")) return true;
+
+  const firstHexGroup = mappedIpv4.split(":", 1)[0];
+  return /^[0-9a-f]{1,4}$/.test(firstHexGroup)
+    && (Number.parseInt(firstHexGroup, 16) >> 8) === 0x7f;
 }
 
 function configuredHostnamesFromEnvironment(): string[] {
@@ -90,6 +101,22 @@ export function isApiRequestHostAllowed(
   return configuredHostnames.some(
     (configured) => normalizeConfiguredHostname(configured) === hostname,
   );
+}
+
+/**
+ * Allow passwordless access only when both the listening interface and the
+ * external Host header are loopback. Host alone is client-controlled.
+ */
+export function isUnauthenticatedLoopbackRequest(
+  request: Request,
+  configuredHostname = process.env.PI_WEB_HOSTNAME,
+): boolean {
+  const boundHostname = normalizeConfiguredHostname(configuredHostname);
+  if (boundHostname === null || !isLoopbackHostname(boundHostname)) return false;
+
+  const host = request.headers.get("host");
+  const hostname = host ? hostnameFromAuthority(host) : null;
+  return hostname !== null && isLoopbackHostname(hostname);
 }
 
 /** Reject browser cross-site API requests while preserving non-browser clients. */

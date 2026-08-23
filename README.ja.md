@@ -38,6 +38,16 @@ npm run desktop:build:linux    # Linux パッケージ
 
 GitHub Releases では、Apple Silicon（`arm64`）版と Intel（`x64`）版の macOS パッケージを個別に提供します。対応する Mac では、`npm run desktop:build:mac:arm64` または `npm run desktop:build:mac:x64` で対象を明示できます。明示的な target の生成物は `src-tauri/target/<target>/release/bundle/`、現在のホスト target の生成物は `src-tauri/target/release/bundle/` にあります。モデル Provider が未設定の場合は、**Models** パネルを開いてログインするか API Key を追加してください。
 
+GitHub Releases で配布する macOS パッケージは、証明書不要の ad-hoc 署名を使用します。これはアプリケーションバンドルの意図しない変更を検出できますが、Apple が信頼する開発者 ID を証明するものではなく、インターネットからのダウンロードを Gatekeeper に自動承認させることもできません。Pi Desktop を「アプリケーション」にドラッグした後、初回起動前にダウンロード隔離属性を明示的に削除してください：
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/Pi Desktop.app"
+```
+
+このコマンドは、本プロジェクトの公式 GitHub Releases ページからダウンロードしたパッケージに対してのみ実行してください。警告なしでダブルクリックインストールを行うには、有料の Apple Developer ID と公証が必要です。
+
+各 macOS リリースには対応する `SHA256SUMS-macos-*.txt` も含まれます。DMG と同じディレクトリにダウンロードし、隔離属性を削除する前に `shasum -a 256 -c SHA256SUMS-macos-arm64.txt`（Intel 版では `macos-x64` ファイル）を実行してパッケージを検証してください。
+
 ## 設定
 
 ポートとホスト名では、コマンドラインオプションが対応する環境変数より優先されます。`--no-open` と `PI_WEB_NO_OPEN=1` は、どちらを指定してもブラウザーの自動起動が無効になります。
@@ -53,18 +63,18 @@ GitHub Releases では、Apple Silicon（`arm64`）版と Intel（`x64`）版の
 例：
 
 ```bash
-pi-desktop -p 8080 -H 0.0.0.0 --no-open
+pi-desktop -p 8080 --no-open
 ```
 
 ### リモートアクセス
 
-ループバック以外のアドレスにバインドすると、高い権限の操作を実行できるエージェントがネットワークに公開されます。信頼できる LAN で使用する場合も、十分に長いランダムなパスワードを設定してください：
+ループバック以外のアドレスにバインドすると、高い権限の操作を実行できるエージェントがネットワークに公開されます。`PI_WEB_PASSWORD` が設定されていない場合、Pi Desktop はループバック以外からのリクエストを拒否します。信頼できる LAN で使用する場合も、十分に長いランダムなパスワードを設定してください：
 
 ```bash
 PI_WEB_PASSWORD='十分に長いランダムなパスワード' pi-desktop --hostname 0.0.0.0
 ```
 
-Basic Auth は転送中のパスワードを暗号化しません。平文 HTTP で Pi Desktop をインターネットに公開せず、信頼できるリバースプロキシによる HTTPS または信頼できる VPN を使用してください。リバースプロキシが外部ホスト名を転送する場合は、その名前を完全一致で `PI_WEB_ALLOWED_HOSTS` に追加します。この許可リストは Pi Desktop のバインド先を変更しません。
+Basic Auth は転送中のパスワードを暗号化しません。平文 HTTP で Pi Desktop をインターネットに公開せず、信頼できるリバースプロキシによる HTTPS または信頼できる VPN を使用してください。リバースプロキシが外部ホスト名を転送する場合は、その名前を完全一致で `PI_WEB_ALLOWED_HOSTS` に追加します。リモートアクセスには引き続きパスワードが必要で、この許可リストは Pi Desktop のバインド先を変更しません。
 
 ### HTTP プロキシ
 

@@ -2,6 +2,8 @@
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { parseArgs } = require("util");
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { isIP } = require("node:net");
 
 const TRUE_VALUES = new Set(["1", "true", "yes", "on"]);
 
@@ -22,6 +24,24 @@ function normalizePort(value) {
   return String(port);
 }
 
+function isLoopbackHostname(value) {
+  const trimmed = value.trim().toLowerCase().replace(/\.$/, "");
+  const hostname = trimmed.startsWith("[") && trimmed.endsWith("]")
+    ? trimmed.slice(1, -1)
+    : trimmed;
+  if (hostname === "localhost" || hostname.endsWith(".localhost")) return true;
+  if (isIP(hostname) === 4) return hostname.startsWith("127.");
+  if (isIP(hostname) !== 6) return false;
+  if (hostname === "::1" || hostname === "0:0:0:0:0:0:0:1") return true;
+
+  const mappedIpv4 = hostname.match(/^(?:::ffff:|0:0:0:0:0:ffff:)(.+)$/)?.[1];
+  if (!mappedIpv4) return false;
+  if (mappedIpv4.startsWith("127.")) return true;
+  const firstHexGroup = mappedIpv4.split(":", 1)[0];
+  return /^[0-9a-f]{1,4}$/.test(firstHexGroup)
+    && (Number.parseInt(firstHexGroup, 16) >> 8) === 0x7f;
+}
+
 function parseLaunchOptions(args = process.argv.slice(2), env = process.env) {
   const { values: cliArgs } = parseArgs({
     args,
@@ -40,4 +60,4 @@ function parseLaunchOptions(args = process.argv.slice(2), env = process.env) {
   };
 }
 
-module.exports = { parseLaunchOptions };
+module.exports = { isLoopbackHostname, parseLaunchOptions };

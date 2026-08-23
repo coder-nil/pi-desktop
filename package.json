@@ -29,7 +29,7 @@
   ],
   "scripts": {
     "dev": "node bin/pi-desktop-dev.js",
-    "dev:lan": "next dev -H 0.0.0.0 -p 30141",
+    "dev:lan": "node bin/pi-desktop-dev.js -H 0.0.0.0 --no-open",
     "build": "next build --webpack",
     "build:desktop-frontend": "node scripts/build-desktop-frontend.mjs",
     "desktop:dev": "node scripts/prepare-desktop-dev.mjs && cargo tauri dev",
@@ -45,8 +45,8 @@
     "desktop:build:windows": "npm run desktop:prepare:server && npm run desktop:prepare:frontend && npm run desktop:prepare:runtime -- --node-target=win-x64 && npm run desktop:smoke && cargo tauri build --target x86_64-pc-windows-msvc",
     "desktop:build:linux": "npm run desktop:prepare:server && npm run desktop:prepare:frontend && npm run desktop:prepare:runtime -- --node-target=linux-x64 && npm run desktop:smoke && cargo tauri build --target x86_64-unknown-linux-gnu",
     "icons:generate": "node scripts/generate-icons.mjs",
-    "start": "next start -H 127.0.0.1 -p 30141",
-    "start:lan": "next start -H 0.0.0.0 -p 30141",
+    "start": "node bin/pi-desktop.js --no-open",
+    "start:lan": "node bin/pi-desktop.js -H 0.0.0.0 --no-open",
     "lint": "eslint .",
     "test": "node --experimental-strip-types --test \"app/**/*.test.mjs\" \"components/**/*.test.mjs\" \"hooks/**/*.test.mjs\" \"lib/**/*.test.mjs\" \"public/**/*.test.mjs\"",
     "release": "npm version patch --no-git-tag-version && npm run build && npm publish --access public"

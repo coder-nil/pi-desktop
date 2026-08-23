@@ -40,6 +40,16 @@ npm run desktop:build:linux    # Linux packages
 
 GitHub Releases provide separate macOS packages for Apple Silicon (`arm64`) and Intel (`x64`). To build either Mac target explicitly, use `npm run desktop:build:mac:arm64` or `npm run desktop:build:mac:x64` on a matching Mac. Generated bundles are written under `src-tauri/target/<target>/release/bundle/` for explicit targets, or `src-tauri/target/release/bundle/` for the current host target. If no model provider is configured yet, open the **Models** panel to sign in or add an API key.
 
+Published macOS packages use certificate-free ad-hoc signing. This protects the bundle from accidental modification but cannot establish an Apple-trusted developer identity or satisfy Gatekeeper for internet downloads. After dragging Pi Desktop into Applications, users must explicitly remove the download quarantine before the first launch:
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/Pi Desktop.app"
+```
+
+Only run this for a package downloaded from this project's official GitHub Releases page. A warning-free double-click installation requires a paid Apple Developer ID and notarization.
+
+Each macOS release includes a matching `SHA256SUMS-macos-*.txt` file. Download it beside the DMG and run `shasum -a 256 -c SHA256SUMS-macos-arm64.txt` (or the `macos-x64` file) before removing quarantine.
+
 ## Configuration
 
 For port and hostname, command-line options override the corresponding environment variables. Either `--no-open` or `PI_WEB_NO_OPEN=1` disables automatic browser opening.
@@ -55,18 +65,18 @@ For port and hostname, command-line options override the corresponding environme
 For example:
 
 ```bash
-pi-desktop -p 8080 -H 0.0.0.0 --no-open
+pi-desktop -p 8080 --no-open
 ```
 
 ### Remote Access
 
-Binding to a non-loopback address exposes an agent that can execute high-privilege actions. On a trusted LAN, require a long random password:
+Binding to a non-loopback address exposes an agent that can execute high-privilege actions. Pi Desktop rejects non-loopback requests unless `PI_WEB_PASSWORD` is set. Use a long random password even on a trusted LAN:
 
 ```bash
 PI_WEB_PASSWORD='a-long-random-password' pi-desktop --hostname 0.0.0.0
 ```
 
-Basic Auth does not encrypt the password in transit. Do not expose Pi Desktop over plain HTTP to the internet; use HTTPS through a trusted reverse proxy or a trusted VPN. If a reverse proxy sends an external hostname, add that exact name to `PI_WEB_ALLOWED_HOSTS`. This allow-list does not change the address Pi Desktop binds to.
+Basic Auth does not encrypt the password in transit. Do not expose Pi Desktop over plain HTTP to the internet; use HTTPS through a trusted reverse proxy or a trusted VPN. If a reverse proxy sends an external hostname, add that exact name to `PI_WEB_ALLOWED_HOSTS`. The password is still required, and this allow-list does not change the address Pi Desktop binds to.
 
 ### HTTP Proxy
 

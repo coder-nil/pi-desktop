@@ -38,6 +38,16 @@ npm run desktop:build:linux    # Linux 安装包
 
 GitHub Releases 分别提供 Apple 芯片（`arm64`）和 Intel（`x64`）版本的 macOS 安装包。在对应架构的 Mac 上，可用 `npm run desktop:build:mac:arm64` 或 `npm run desktop:build:mac:x64` 明确构建指定版本。指定 target 的产物位于 `src-tauri/target/<target>/release/bundle/`，当前主机默认 target 的产物位于 `src-tauri/target/release/bundle/`。如果尚未配置模型 Provider，请打开**模型（Models）**面板登录或添加 API Key。
 
+发布到 GitHub Releases 的 macOS 安装包采用无需证书的 ad-hoc 签名。这可以校验应用包是否被意外修改，但不能建立受 Apple 信任的开发者身份，也无法让互联网下载文件自动通过 Gatekeeper。将 Pi Desktop 拖入“应用程序”后，首次启动前需要明确移除下载隔离属性：
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/Pi Desktop.app"
+```
+
+仅应对从本项目官方 GitHub Releases 页面下载的安装包执行此命令。要实现无警告双击安装，仍需付费的 Apple Developer ID 和公证。
+
+每个 macOS 版本还会提供对应的 `SHA256SUMS-macos-*.txt`。将它和 DMG 下载到同一目录，在解除隔离前运行 `shasum -a 256 -c SHA256SUMS-macos-arm64.txt`（Intel 版本使用 `macos-x64` 文件）校验安装包。
+
 ## 配置
 
 端口和主机名以命令行参数为准，优先于对应的环境变量。`--no-open` 与 `PI_WEB_NO_OPEN=1` 中任意一个都会关闭自动打开浏览器。
@@ -53,18 +63,18 @@ GitHub Releases 分别提供 Apple 芯片（`arm64`）和 Intel（`x64`）版本
 例如：
 
 ```bash
-pi-desktop -p 8080 -H 0.0.0.0 --no-open
+pi-desktop -p 8080 --no-open
 ```
 
 ### 远程访问
 
-监听非回环地址会暴露一个可执行高权限操作的智能体。在可信局域网中使用时，请设置足够长的随机密码：
+监听非回环地址会暴露一个可执行高权限操作的智能体。未设置 `PI_WEB_PASSWORD` 时，Pi Desktop 会拒绝所有非回环请求。即使在可信局域网中，也应设置足够长的随机密码：
 
 ```bash
 PI_WEB_PASSWORD='足够长的随机密码' pi-desktop --hostname 0.0.0.0
 ```
 
-Basic Auth 不会加密传输中的密码。不要通过明文 HTTP 将 Pi Desktop 暴露到互联网；远程访问应使用可信反向代理提供 HTTPS，或通过可信 VPN。如果反向代理传递外部主机名，请把该名称精确加入 `PI_WEB_ALLOWED_HOSTS`。这个白名单不会改变 Pi Desktop 的监听地址。
+Basic Auth 不会加密传输中的密码。不要通过明文 HTTP 将 Pi Desktop 暴露到互联网；远程访问应使用可信反向代理提供 HTTPS，或通过可信 VPN。如果反向代理传递外部主机名，请把该名称精确加入 `PI_WEB_ALLOWED_HOSTS`。远程访问仍然必须设置密码，这个白名单也不会改变 Pi Desktop 的监听地址。
 
 ### HTTP 代理
 

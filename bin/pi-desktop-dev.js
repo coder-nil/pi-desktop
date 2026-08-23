@@ -6,6 +6,7 @@ const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { isLoopbackHostname, parseLaunchOptions } = require("./pi-desktop-options");
 const { wireChildProcessLifecycle } = require("./process-lifecycle");
 
 const pkgDir = path.join(__dirname, "..");
@@ -17,14 +18,39 @@ try {
   nextBin = path.join(path.dirname(nextPkg), "dist", "bin", "next");
 }
 
-const nextArgs = ["dev", "-H", "127.0.0.1", "-p", "30141", ...process.argv.slice(2)];
+const rawArgs = process.argv.slice(2);
+const { hostname, openBrowser: shouldOpenBrowser, port } = parseLaunchOptions(rawArgs);
+if (!isLoopbackHostname(hostname) && !process.env.PI_WEB_PASSWORD) {
+  console.error(
+    `Refusing to expose pi-desktop on ${hostname} without authentication. Set PI_WEB_PASSWORD to a long random password.`,
+  );
+  process.exit(1);
+}
+
+const passthroughArgs = [];
+for (let index = 0; index < rawArgs.length; index += 1) {
+  const argument = rawArgs[index];
+  if (argument === "--no-open") continue;
+  if (["--hostname", "-H", "--port", "-p"].includes(argument)) {
+    index += 1;
+    continue;
+  }
+  if (argument.startsWith("--hostname=") || argument.startsWith("--port=")) continue;
+  passthroughArgs.push(argument);
+}
+
+const nextArgs = ["dev", "-H", hostname, "-p", port, ...passthroughArgs];
 const child = spawn(process.execPath, [nextBin, ...nextArgs], {
   cwd: pkgDir,
   stdio: ["inherit", "pipe", "inherit"],
+  env: { ...process.env, PI_WEB_HOSTNAME: hostname },
 });
 wireChildProcessLifecycle(child);
 
-const url = "http://127.0.0.1:30141";
+const urlHostname = hostname.includes(":") && !hostname.startsWith("[")
+  ? `[${hostname}]`
+  : hostname;
+const url = `http://${urlHostname}:${port}`;
 let browserOpened = false;
 
 function findChromeApp() {
@@ -60,7 +86,7 @@ function openBrowser() {
 child.stdout.on("data", (chunk) => {
   const text = chunk.toString();
   process.stdout.write(text);
-  if (!browserOpened && text.includes("Ready")) {
+  if (shouldOpenBrowser && !browserOpened && text.includes("Ready")) {
     browserOpened = true;
     const opener = openBrowser();
     opener.on("error", (error) => {

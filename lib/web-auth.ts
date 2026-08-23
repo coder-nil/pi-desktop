@@ -1,6 +1,13 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 
 export const PI_WEB_AUTH_USERNAME = "pi";
+export const FAILED_WEB_AUTH_LIMIT = 20;
+export const FAILED_WEB_AUTH_WINDOW_MS = 60_000;
+
+export interface FailedWebAuthAttemptResult {
+  rateLimited: boolean;
+  retryAfterSeconds: number;
+}
 
 function hashSecret(value: string): Buffer {
   return createHash("sha256").update(value, "utf8").digest();
@@ -42,4 +49,28 @@ export function isValidBasicAuthorization(
   const usernameMatches = secretsEqual(username, PI_WEB_AUTH_USERNAME);
   const passwordMatches = secretsEqual(suppliedPassword, password);
   return usernameMatches && passwordMatches;
+}
+
+/**
+ * Bound online password guessing without trusting spoofable proxy/IP headers.
+ * Successful requests bypass this process-wide failed-attempt bucket.
+ */
+export function recordFailedWebAuthAttempt(
+  attempts: number[],
+  now = Date.now(),
+  limit = FAILED_WEB_AUTH_LIMIT,
+  windowMs = FAILED_WEB_AUTH_WINDOW_MS,
+): FailedWebAuthAttemptResult {
+  const cutoff = now - windowMs;
+  while (attempts.length > 0 && attempts[0] <= cutoff) attempts.shift();
+
+  if (attempts.length >= limit) {
+    return {
+      rateLimited: true,
+      retryAfterSeconds: Math.max(1, Math.ceil((attempts[0] + windowMs - now) / 1000)),
+    };
+  }
+
+  attempts.push(now);
+  return { rateLimited: false, retryAfterSeconds: 0 };
 }

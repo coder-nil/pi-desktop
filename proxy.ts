@@ -2,11 +2,21 @@ import { NextResponse, type NextRequest } from "next/server";
 import {
   isApiRequestAllowed,
   isApiRequestHostAllowed,
+  isUnauthenticatedLoopbackRequest,
 } from "@/lib/request-security";
 import {
   isValidBasicAuthorization,
   isWebPasswordEnabled,
+  recordFailedWebAuthAttempt,
 } from "@/lib/web-auth";
+
+declare global {
+  var __piFailedWebAuthAttempts: number[] | undefined;
+}
+
+function failedWebAuthAttempts(): number[] {
+  return globalThis.__piFailedWebAuthAttempts ??= [];
+}
 
 function desktopCorsHeaders(request: NextRequest): HeadersInit | undefined {
   const origin = request.headers.get("origin");
@@ -39,10 +49,26 @@ export function proxy(request: NextRequest) {
   }
 
   const password = process.env.PI_WEB_PASSWORD;
+  if (!isUnauthenticatedLoopbackRequest(request) && !isWebPasswordEnabled(password)) {
+    return new NextResponse("Authentication is required for non-loopback access", {
+      status: 403,
+      headers: { "Cache-Control": "no-store" },
+    });
+  }
   if (
     isWebPasswordEnabled(password)
     && !isValidBasicAuthorization(request.headers.get("authorization"), password)
   ) {
+    const failedAttempt = recordFailedWebAuthAttempt(failedWebAuthAttempts());
+    if (failedAttempt.rateLimited) {
+      return new NextResponse("Too many failed authentication attempts", {
+        status: 429,
+        headers: {
+          "Cache-Control": "no-store",
+          "Retry-After": String(failedAttempt.retryAfterSeconds),
+        },
+      });
+    }
     return new NextResponse("Authentication required", {
       status: 401,
       headers: {

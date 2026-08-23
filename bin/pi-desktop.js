@@ -16,7 +16,7 @@ const path = require("path");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const fs = require("fs");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { parseLaunchOptions } = require("./pi-desktop-options");
+const { isLoopbackHostname, parseLaunchOptions } = require("./pi-desktop-options");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { wireChildProcessLifecycle } = require("./process-lifecycle");
 
@@ -39,7 +39,6 @@ try {
 }
 
 const { port, hostname, openBrowser } = parseLaunchOptions();
-const loopbackHostnames = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
 const passwordEnabled = Boolean(process.env.PI_WEB_PASSWORD);
 
 if (!fs.existsSync(nextDir)) {
@@ -47,15 +46,16 @@ if (!fs.existsSync(nextDir)) {
   process.exit(1);
 }
 
-if (!loopbackHostnames.has(hostname)) {
+if (!isLoopbackHostname(hostname)) {
   if (passwordEnabled) {
     console.warn(
       `Warning: pi-desktop is listening on ${hostname} with Basic Auth over HTTP. Use HTTPS or a trusted VPN to protect the password in transit.`,
     );
   } else {
-    console.warn(
-      `Warning: pi-desktop is listening on ${hostname} without authentication. Only use this on a trusted network.`,
+    console.error(
+      `Refusing to expose pi-desktop on ${hostname} without authentication. Set PI_WEB_PASSWORD to a long random password.`,
     );
+    process.exit(1);
   }
 }
 
