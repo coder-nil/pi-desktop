@@ -55,13 +55,7 @@ async function extractNode(target, temporaryDirectory) {
 
   if (archiveExtension === "zip") {
     if (process.platform === "win32") {
-      await execFileAsync("powershell.exe", [
-        "-NoProfile",
-        "-Command",
-        "Expand-Archive -LiteralPath $args[0] -DestinationPath $args[1] -Force",
-        archivePath,
-        temporaryDirectory,
-      ]);
+      await execFileAsync("tar.exe", ["-xf", archivePath, "-C", temporaryDirectory]);
     } else {
       await execFileAsync("unzip", ["-q", archivePath, "-d", temporaryDirectory]);
     }
