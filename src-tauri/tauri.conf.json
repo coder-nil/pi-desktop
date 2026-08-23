@@ -17,8 +17,7 @@
     "active": true,
     "targets": "all",
     "resources": {
-      "../desktop-dist/server/": "server/",
-      "../desktop-dist/node": "node"
+      "../desktop-dist/": "runtime/"
     },
     "icon": [
       "icons/32x32.png",

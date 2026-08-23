@@ -1,8 +1,9 @@
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { createWriteStream } from "node:fs";
-import { open } from "node:fs/promises";
+import { open, rm } from "node:fs/promises";
 import { createServer } from "node:net";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -14,7 +15,7 @@ const nodeBinary = useSystemNode
   ? process.execPath
   : join(runtimeRoot, process.platform === "win32" ? "node.exe" : "node");
 const embeddedNodeBinary = join(runtimeRoot, process.platform === "win32" ? "node.exe" : "node");
-const logPath = join(runtimeRoot, "smoke-test.log");
+const logPath = join(tmpdir(), `pi-desktop-smoke-${process.pid}.log`);
 
 async function reservePort() {
   const server = createServer();
@@ -73,5 +74,6 @@ try {
   console.log(`Desktop standalone server became ready on port ${port}.`);
 } finally {
   await stopChild(child);
-  log.end();
+  await new Promise((resolveClose) => log.end(resolveClose));
+  await rm(logPath, { force: true });
 }

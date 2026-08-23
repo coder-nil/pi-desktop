@@ -66,13 +66,14 @@ fn production_runtime(app: &tauri::AppHandle) -> Result<(PathBuf, PathBuf, Vec<S
         .path()
         .resource_dir()
         .map_err(|error| error.to_string())?;
-    let node = resources.join(if cfg!(windows) { "node.exe" } else { "node" });
-    let server_dir = resources.join("server");
+    let runtime = resources.join("runtime");
+    let node = runtime.join(if cfg!(windows) { "node.exe" } else { "node" });
+    let server_dir = runtime.join("server");
     let server = server_dir.join("server.js");
     if !node.is_file() || !server.is_file() {
         return Err(format!(
             "The bundled server runtime is incomplete at {}",
-            resources.display()
+            runtime.display()
         ));
     }
     Ok((
