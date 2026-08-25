@@ -21,6 +21,18 @@ UI version: `aphla.1`
 
 The recommended way to use Pi Desktop is to download the latest desktop application from the [GitHub Releases page](https://github.com/agegr/pi-desktop/releases). Choose the package for your platform and launch the installed application; Node.js and npm are not required.
 
+### Opening on macOS without a paid certificate
+
+Published macOS packages use certificate-free ad-hoc signing. This protects the bundle from accidental modification but cannot establish an Apple-trusted developer identity or satisfy Gatekeeper for internet downloads. After dragging Pi Desktop into Applications, run the following command before the first launch:
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/Pi Desktop.app"
+```
+
+Only run this for a package downloaded from this project's official GitHub Releases page. A warning-free double-click installation requires a paid Apple Developer ID and notarization, which this project does not use.
+
+Each macOS release includes a matching `SHA256SUMS-macos-*.txt` file. Download it beside the DMG and run `shasum -a 256 -c SHA256SUMS-macos-arm64.txt` (or the `macos-x64` file) before removing quarantine.
+
 If you prefer to build from source, use the instructions below. Pi Desktop requires Node.js 22.19.0 or newer, Rust, and Tauri CLI 2.8.4:
 
 ```bash
@@ -39,16 +51,6 @@ npm run desktop:build:linux    # Linux packages
 ```
 
 GitHub Releases provide separate macOS packages for Apple Silicon (`arm64`) and Intel (`x64`). To build either Mac target explicitly, use `npm run desktop:build:mac:arm64` or `npm run desktop:build:mac:x64` on a matching Mac. Generated bundles are written under `src-tauri/target/<target>/release/bundle/` for explicit targets, or `src-tauri/target/release/bundle/` for the current host target. If no model provider is configured yet, open the **Models** panel to sign in or add an API key.
-
-Published macOS packages use certificate-free ad-hoc signing. This protects the bundle from accidental modification but cannot establish an Apple-trusted developer identity or satisfy Gatekeeper for internet downloads. After dragging Pi Desktop into Applications, users must explicitly remove the download quarantine before the first launch:
-
-```bash
-xattr -dr com.apple.quarantine "/Applications/Pi Desktop.app"
-```
-
-Only run this for a package downloaded from this project's official GitHub Releases page. A warning-free double-click installation requires a paid Apple Developer ID and notarization.
-
-Each macOS release includes a matching `SHA256SUMS-macos-*.txt` file. Download it beside the DMG and run `shasum -a 256 -c SHA256SUMS-macos-arm64.txt` (or the `macos-x64` file) before removing quarantine.
 
 ## Configuration
 

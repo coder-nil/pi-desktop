@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { registerHooks } from "node:module";
 import test from "node:test";
 import React from "react";
@@ -21,6 +22,8 @@ const jiti = createJiti(import.meta.url, {
   tsconfigPaths: true,
 });
 const { AssistantOutline } = await jiti.import("./ChatMinimap.tsx");
+const minimapSource = await readFile(new URL("./ChatMinimap.tsx", import.meta.url), "utf8");
+const chatWindowSource = await readFile(new URL("./ChatWindow.tsx", import.meta.url), "utf8");
 
 test("renders math in headings without disabling heading navigation", () => {
   const html = renderToStaticMarkup(
@@ -36,4 +39,18 @@ test("renders math in headings without disabling heading navigation", () => {
   assert.match(html, /data-preview-heading-index="0"/);
   assert.match(html, /data-preview-heading-index="1"/);
   assert.doesNotMatch(html, /disabled=""/);
+});
+
+test("keeps the input-side rail in sync with minimap visibility and preview state", () => {
+  assert.match(minimapSource, /onStateChange\?\.\(\{ visible, previewOpen \}\)/);
+  assert.match(minimapSource, /onStateChange\?\.\(\{ visible: false, previewOpen: false \}\)/);
+  assert.match(chatWindowSource, /onStateChange=\{handleMinimapStateChange\}/);
+  assert.match(
+    chatWindowSource,
+    /!isMobile && minimapState\.visible && \(/,
+  );
+  assert.match(
+    chatWindowSource,
+    /borderLeft: minimapState\.previewOpen \? "none" : "1px solid var\(--border\)"/,
+  );
 });

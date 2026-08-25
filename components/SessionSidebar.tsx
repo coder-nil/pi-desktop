@@ -10,6 +10,7 @@ import { getProjectActivity, getRecentProjects, sessionsForProject } from "@/lib
 import { addProjectHistory, getHiddenProjectHistory, hideProjectHistory, getProjectHistory, removeProjectHistory } from "@/lib/project-history";
 import { workspaceKeyOf } from "@/lib/workspace-memory";
 import { getFileName } from "@/lib/file-paths";
+import type { SessionSearchMatch } from "@/lib/session-search";
 import { useI18n } from "@/hooks/useI18n";
 import { DirectoryPicker } from "./DirectoryPicker";
 import { FileExplorer, type FileExplorerHandle } from "./FileExplorer";
@@ -415,6 +416,13 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [loading, setLoading] = useState(true);
   const [initialLoadSettled, setInitialLoadSettled] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sessionSearch, setSessionSearch] = useState("");
+  const [sessionSearchResult, setSessionSearchResult] = useState<{ query: string; matches: SessionSearchMatch[] }>({
+    query: "",
+    matches: [],
+  });
+  const [sessionSearchPending, setSessionSearchPending] = useState(false);
+  const [sessionSearchError, setSessionSearchError] = useState(false);
   const [selectedCwd, setSelectedCwd] = useState<string | null>(null);
   const [homeDir, setHomeDir] = useState<string>("");
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -630,6 +638,43 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       if (d.home) setHomeDir(d.home);
     }).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    const query = sessionSearch.trim();
+    if (!query) {
+      setSessionSearchResult({ query: "", matches: [] });
+      setSessionSearchPending(false);
+      setSessionSearchError(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    setSessionSearchPending(true);
+    setSessionSearchError(false);
+    const timer = setTimeout(async () => {
+      try {
+        const params = new URLSearchParams({ q: query, limit: "80" });
+        const res = await fetch(`/api/sessions/search?${params}`, {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json() as { matches?: SessionSearchMatch[] };
+        setSessionSearchResult({ query, matches: data.matches ?? [] });
+      } catch (searchError) {
+        if (searchError instanceof DOMException && searchError.name === "AbortError") return;
+        setSessionSearchResult({ query, matches: [] });
+        setSessionSearchError(true);
+      } finally {
+        if (!controller.signal.aborted) setSessionSearchPending(false);
+      }
+    }, 250);
+
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [sessionSearch]);
 
   useEffect(() => {
     setProjectHistory(getProjectHistory());
@@ -1051,9 +1096,27 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     [projectActivity, selectedProject],
   );
 
-  const filteredSessions = selectedProject
-    ? sessionsForProject(allSessions, selectedProject.key)
-    : allSessions;
+  const normalizedSessionSearch = sessionSearch.trim().toLocaleLowerCase();
+  const sessionSearchMatchMap = useMemo(() => {
+    const resolvedMatches = sessionSearchResult.query === sessionSearch.trim()
+      ? sessionSearchResult.matches
+      : [];
+    const matches = new Map(resolvedMatches.map((match) => [match.sessionId, match.snippet]));
+    if (!normalizedSessionSearch) return matches;
+
+    for (const session of allSessions) {
+      const metadata = [session.name, session.firstMessage, session.cwd]
+        .filter((value): value is string => Boolean(value));
+      const matched = metadata.find((value) => value.toLocaleLowerCase().includes(normalizedSessionSearch));
+      if (matched && !matches.has(session.id)) matches.set(session.id, matched.replace(/\s+/g, " ").trim());
+    }
+    return matches;
+  }, [allSessions, normalizedSessionSearch, sessionSearch, sessionSearchResult]);
+  const filteredSessions = normalizedSessionSearch
+    ? allSessions.filter((session) => sessionSearchMatchMap.has(session.id))
+    : selectedProject
+      ? sessionsForProject(allSessions, selectedProject.key)
+      : allSessions;
   const showWorktreeSwitcher = Boolean(
     worktreeState?.isGit
     && worktreeState.isTopLevel
@@ -1172,13 +1235,6 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
               />
             )}
           </button>
-          <button type="button" onClick={handleNewSession} disabled={!selectedCwd} title={selectedCwd ? t("sidebar.newSessionTitle", { path: selectedCwd }) : t("sidebar.selectProject")} aria-label={t("sidebar.new")} style={{ width: 30, height: 30, padding: 0, border: "none", borderRadius: 6, background: "transparent", color: selectedCwd ? "var(--text-muted)" : "var(--text-dim)", cursor: selectedCwd ? "pointer" : "not-allowed", display: "flex", alignItems: "center", justifyContent: "center" }} onMouseEnter={(e) => { if (selectedCwd) e.currentTarget.style.background = "var(--bg-hover)"; }} onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><path d="M12 5v14" /><path d="M5 12h14" /></svg>
-          </button>
-          <button type="button" onClick={() => loadSessions(false, true)} title={t("sidebar.refresh")} aria-label={t("sidebar.refresh")} style={{ width: 30, height: 30, padding: 0, border: "none", borderRadius: 6, background: "transparent", color: sessionRefreshDone ? "#4ade80" : "var(--text-muted)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }} onMouseEnter={(e) => { if (!sessionRefreshDone) e.currentTarget.style.background = "var(--bg-hover)"; }} onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}>
-            {sessionRefreshDone ? <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg> : <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /></svg>}
-          </button>
-
           <AnimatedDropdown
             open={dropdownOpen}
             style={{
@@ -1796,6 +1852,78 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{inactiveWorktreeSelector.label}</span>
           </button>
         )}
+        <div style={{ display: "flex", gap: 4, marginTop: 8 }}>
+          <div style={{ position: "relative", flex: 1, minWidth: 0 }}>
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+              style={{ position: "absolute", left: 9, top: 8, color: "var(--text-dim)", pointerEvents: "none" }}
+            >
+              <circle cx="11" cy="11" r="7" />
+              <path d="m20 20-3.5-3.5" />
+            </svg>
+            <input
+              type="text"
+              role="searchbox"
+              value={sessionSearch}
+              onChange={(event) => setSessionSearch(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  setSessionSearch("");
+                  event.currentTarget.blur();
+                }
+              }}
+              placeholder={t("sidebar.searchSessions")}
+              aria-label={t("sidebar.searchSessions")}
+              style={{
+                width: "100%",
+                height: 30,
+                boxSizing: "border-box",
+                padding: "0 30px",
+                border: "1px solid var(--border)",
+                borderRadius: 6,
+                outline: "none",
+                background: "var(--bg)",
+                color: "var(--text)",
+                fontSize: 12,
+              }}
+              onFocus={(event) => { event.currentTarget.style.borderColor = "var(--accent)"; }}
+              onBlur={(event) => { event.currentTarget.style.borderColor = "var(--border)"; }}
+            />
+            {sessionSearch && (
+              <button
+                type="button"
+                onClick={() => setSessionSearch("")}
+                title={t("sidebar.clearSearch")}
+                aria-label={t("sidebar.clearSearch")}
+                style={{
+                  position: "absolute", right: 4, top: 3,
+                  width: 24, height: 24, padding: 0,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  border: "none", borderRadius: 5,
+                  background: "transparent", color: "var(--text-dim)", cursor: "pointer",
+                }}
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <path d="M6 6l12 12M18 6 6 18" />
+                </svg>
+              </button>
+            )}
+          </div>
+          <button type="button" onClick={handleNewSession} disabled={!selectedCwd} title={selectedCwd ? t("sidebar.newSessionTitle", { path: selectedCwd }) : t("sidebar.selectProject")} aria-label={t("sidebar.new")} style={{ width: 30, height: 30, padding: 0, border: "none", borderRadius: 6, background: "transparent", color: selectedCwd ? "var(--text-muted)" : "var(--text-dim)", cursor: selectedCwd ? "pointer" : "not-allowed", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }} onMouseEnter={(e) => { if (selectedCwd) e.currentTarget.style.background = "var(--bg-hover)"; }} onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><path d="M12 5v14" /><path d="M5 12h14" /></svg>
+          </button>
+          <button type="button" onClick={() => loadSessions(false, true)} title={t("sidebar.refresh")} aria-label={t("sidebar.refresh")} style={{ width: 30, height: 30, padding: 0, border: "none", borderRadius: 6, background: "transparent", color: sessionRefreshDone ? "#4ade80" : "var(--text-muted)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }} onMouseEnter={(e) => { if (!sessionRefreshDone) e.currentTarget.style.background = "var(--bg-hover)"; }} onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}>
+            {sessionRefreshDone ? <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg> : <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /></svg>}
+          </button>
+        </div>
       </div>
 
       {/* Session list */}
@@ -1810,9 +1938,19 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             {error}
           </div>
         )}
-        {!loading && !error && filteredSessions.length === 0 && (
+        {!loading && !error && normalizedSessionSearch && sessionSearchPending && filteredSessions.length === 0 && (
           <div style={{ padding: "16px 14px", color: "var(--text-muted)", fontSize: 12 }}>
-            {t("sidebar.noSessions")}
+            {t("sidebar.searchingSessions")}
+          </div>
+        )}
+        {!loading && !error && normalizedSessionSearch && sessionSearchError && filteredSessions.length === 0 && (
+          <div style={{ padding: "16px 14px", color: "#f87171", fontSize: 12 }}>
+            {t("sidebar.searchFailed")}
+          </div>
+        )}
+        {!loading && !error && filteredSessions.length === 0 && (!normalizedSessionSearch || (!sessionSearchPending && !sessionSearchError)) && (
+          <div style={{ padding: "16px 14px", color: "var(--text-muted)", fontSize: 12 }}>
+            {normalizedSessionSearch ? t("sidebar.noMatchingSessions") : t("sidebar.noSessions")}
           </div>
         )}
         {sessionTree.map((node) => (
@@ -1828,6 +1966,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
               onSessionDeleted?.(id);
               loadSessions();
             }}
+            searchMatches={sessionSearchMatchMap}
             depth={0}
           />
         ))}
@@ -2139,6 +2278,7 @@ function SessionTreeItem({
   onSelectSession,
   onRenamed,
   onSessionDeleted,
+  searchMatches,
   depth,
 }: {
   node: SessionTreeNode;
@@ -2148,10 +2288,12 @@ function SessionTreeItem({
   onSelectSession: (s: SessionInfo) => void;
   onRenamed?: () => void;
   onSessionDeleted?: (id: string) => void;
+  searchMatches: ReadonlyMap<string, string>;
   depth: number;
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const hasChildren = node.children.length > 0;
+  const searchMatch = searchMatches.get(node.session.id);
 
   return (
     <div>
@@ -2175,6 +2317,7 @@ function SessionTreeItem({
           onClick={() => onSelectSession(node.session)}
           onRenamed={onRenamed}
           onDeleted={(id) => onSessionDeleted?.(id)}
+          searchMatch={searchMatch}
           depth={depth}
           hasChildren={hasChildren}
           collapsed={collapsed}
@@ -2193,6 +2336,7 @@ function SessionTreeItem({
               onSelectSession={onSelectSession}
               onRenamed={onRenamed}
               onSessionDeleted={onSessionDeleted}
+              searchMatches={searchMatches}
               depth={depth + 1}
             />
           ))}
@@ -2317,6 +2461,7 @@ function SessionItem({
   onClick,
   onRenamed,
   onDeleted,
+  searchMatch,
   depth = 0,
   hasChildren = false,
   collapsed = false,
@@ -2329,6 +2474,7 @@ function SessionItem({
   onClick: () => void;
   onRenamed?: () => void;
   onDeleted?: (id: string) => void;
+  searchMatch?: string;
   depth?: number;
   hasChildren?: boolean;
   collapsed?: boolean;
@@ -2554,15 +2700,19 @@ function SessionItem({
               </span>
             </div>
             <div style={{ marginTop: 2, display: "flex", alignItems: "center", gap: 8, color: "var(--text-dim)", fontSize: 11, minWidth: 0 }}>
-              {isRunning ? (
+              {searchMatch ? (
+                <span title={searchMatch} style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
+                  {searchMatch}
+                </span>
+              ) : isRunning ? (
                 <RunningSessionIndicator />
               ) : isUnread ? (
                 <UnreadSessionIndicator />
               ) : (
                 <span title={session.modified}>{formatRelativeTime(session.modified)}</span>
               )}
-              <span>{t("sidebar.messagesCount", { count: session.messageCount })}</span>
-              {session.worktreeBranch && (
+              {!searchMatch && <span>{t("sidebar.messagesCount", { count: session.messageCount })}</span>}
+              {!searchMatch && session.worktreeBranch && (
                 <span
                   title={`Worktree: ${session.cwd}`}
                   style={{ display: "flex", alignItems: "center", gap: 3, color: "var(--accent)", minWidth: 0, overflow: "hidden" }}

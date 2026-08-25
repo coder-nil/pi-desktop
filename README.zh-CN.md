@@ -19,6 +19,18 @@
 
 推荐从 [GitHub Releases 页面](https://github.com/agegr/pi-desktop/releases)下载最新桌面应用。选择对应平台的安装包并启动即可，最终用户不需要安装 Node.js 或 npm。
 
+### macOS 首次打开（无需付费证书）
+
+发布到 GitHub Releases 的 macOS 安装包采用无需证书的 ad-hoc 签名。这可以校验应用包是否被意外修改，但不能建立受 Apple 信任的开发者身份，也无法让互联网下载文件自动通过 Gatekeeper。将 Pi Desktop 拖入“应用程序”后，请在首次启动前执行：
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/Pi Desktop.app"
+```
+
+仅应对从本项目官方 GitHub Releases 页面下载的安装包执行此命令。要实现无警告双击安装，需要付费的 Apple Developer ID 和公证，本项目不使用这种方式。
+
+每个 macOS 版本还会提供对应的 `SHA256SUMS-macos-*.txt`。将它和 DMG 下载到同一目录，在解除隔离前运行 `shasum -a 256 -c SHA256SUMS-macos-arm64.txt`（Intel 版本使用 `macos-x64` 文件）校验安装包。
+
 如果需要从源码编译，先准备 Node.js 22.19.0 或更高版本、Rust 和 Tauri CLI 2.8.4：
 
 ```bash
@@ -37,16 +49,6 @@ npm run desktop:build:linux    # Linux 安装包
 ```
 
 GitHub Releases 分别提供 Apple 芯片（`arm64`）和 Intel（`x64`）版本的 macOS 安装包。在对应架构的 Mac 上，可用 `npm run desktop:build:mac:arm64` 或 `npm run desktop:build:mac:x64` 明确构建指定版本。指定 target 的产物位于 `src-tauri/target/<target>/release/bundle/`，当前主机默认 target 的产物位于 `src-tauri/target/release/bundle/`。如果尚未配置模型 Provider，请打开**模型（Models）**面板登录或添加 API Key。
-
-发布到 GitHub Releases 的 macOS 安装包采用无需证书的 ad-hoc 签名。这可以校验应用包是否被意外修改，但不能建立受 Apple 信任的开发者身份，也无法让互联网下载文件自动通过 Gatekeeper。将 Pi Desktop 拖入“应用程序”后，首次启动前需要明确移除下载隔离属性：
-
-```bash
-xattr -dr com.apple.quarantine "/Applications/Pi Desktop.app"
-```
-
-仅应对从本项目官方 GitHub Releases 页面下载的安装包执行此命令。要实现无警告双击安装，仍需付费的 Apple Developer ID 和公证。
-
-每个 macOS 版本还会提供对应的 `SHA256SUMS-macos-*.txt`。将它和 DMG 下载到同一目录，在解除隔离前运行 `shasum -a 256 -c SHA256SUMS-macos-arm64.txt`（Intel 版本使用 `macos-x64` 文件）校验安装包。
 
 ## 配置
 

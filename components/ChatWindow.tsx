@@ -434,6 +434,14 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     return history.reverse();
   }, [messages]);
   const messageRefs = useMessageRefs(visibleMessages.length);
+  const [minimapState, setMinimapState] = useState({ visible: false, previewOpen: false });
+  const handleMinimapStateChange = useCallback((next: { visible: boolean; previewOpen: boolean }) => {
+    setMinimapState((current) => (
+      current.visible === next.visible && current.previewOpen === next.previewOpen
+        ? current
+        : next
+    ));
+  }, []);
   const revealHistoryForMinimap = useCallback(() => {
     setVisibleCount((current) => Math.max(current, messages.length * 2));
   }, [messages.length]);
@@ -950,6 +958,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
             scrollContainer={scrollContainerRef}
             messageRefs={messageRefs}
             onRevealHistory={revealHistoryForMinimap}
+            onStateChange={handleMinimapStateChange}
           />
         )}
       </div>
@@ -957,9 +966,10 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
       <div className="relative">
         {chatInputElement}
         <ExtensionStatusBar statuses={extensionStatuses} widgets={extensionWidgets} />
-        {!isMobile && (
+        {!isMobile && minimapState.visible && (
           <div
             aria-hidden="true"
+            data-minimap-input-rail=""
             style={{
               position: "absolute",
               top: 0,
@@ -967,7 +977,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
               bottom: 0,
               width: CHAT_MINIMAP_WIDTH,
               background: "var(--bg-panel)",
-              borderLeft: "1px solid var(--border)",
+              borderLeft: minimapState.previewOpen ? "none" : "1px solid var(--border)",
               pointerEvents: "none",
             }}
           />

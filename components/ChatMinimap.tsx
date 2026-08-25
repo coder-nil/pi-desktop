@@ -17,6 +17,7 @@ interface Props {
   scrollContainer: RefObject<HTMLDivElement | null>;
   messageRefs: RefObject<(HTMLDivElement | null)[]>;
   onRevealHistory: () => void;
+  onStateChange?: (state: { visible: boolean; previewOpen: boolean }) => void;
 }
 
 const MINIMAP_WIDTH = 36;
@@ -232,6 +233,7 @@ export function ChatMinimap({
   scrollContainer,
   messageRefs,
   onRevealHistory,
+  onStateChange,
 }: Props) {
   const [visible, setVisible] = useState(false);
   const [allNodes, setAllNodes] = useState<NodeInfo[]>([]);
@@ -580,6 +582,15 @@ export function ChatMinimap({
 
   const nearestNode = mouseYRatio === null ? null : findNearestNode(mouseYRatio);
   const nearestNodeIndex = nearestNode?.index ?? null;
+  const previewOpen = visible && minimapHovered && allNodes.length > 0;
+
+  useEffect(() => {
+    onStateChange?.({ visible, previewOpen });
+  }, [onStateChange, previewOpen, visible]);
+
+  useEffect(() => () => {
+    onStateChange?.({ visible: false, previewOpen: false });
+  }, [onStateChange]);
 
   useEffect(() => {
     if (!minimapHovered || nearestNodeIndex === null) return;
@@ -601,6 +612,7 @@ export function ChatMinimap({
   return (
     <div
       ref={containerRef}
+      data-chat-minimap=""
       onMouseDown={handleMouseDown}
       onMouseEnter={showPreview}
       onMouseLeave={schedulePreviewHide}
@@ -671,7 +683,7 @@ export function ChatMinimap({
         );
       })}
 
-      {minimapHovered && allNodes.length > 0 && (
+      {previewOpen && (
         <div
           ref={previewBoxRef}
           className={styles.preview}

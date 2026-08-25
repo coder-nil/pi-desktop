@@ -76,3 +76,12 @@ test("keeps successfully added projects in removable local history", () => {
   assert.match(source, /project\.key === selectedProject\?\.key/);
   assert.match(source, /visibleProjects\[index \+ 1\]\?\.root/);
 });
+
+test("searches conversation content across projects with stale-request cancellation", () => {
+  assert.match(source, /fetch\(`\/api\/sessions\/search\?\$\{params\}`/);
+  assert.match(source, /const controller = new AbortController\(\)/);
+  assert.match(source, /controller\.abort\(\)/);
+  assert.match(source, /sessionSearchResult\.query === sessionSearch\.trim\(\)/);
+  assert.match(source, /normalizedSessionSearch\s*\? allSessions\.filter/);
+  assert.match(source, /searchMatches=\{sessionSearchMatchMap\}/);
+});
