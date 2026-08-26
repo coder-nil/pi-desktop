@@ -62,6 +62,15 @@ export default function RootLayout({
     <html lang="en" translate="no" className={`${notoSansMono.variable} notranslate`} suppressHydrationWarning>
       <head>
         <meta name="google" content="notranslate" />
+        {process.env.NODE_ENV !== "production" && (
+          <script
+            dangerouslySetInnerHTML={{
+              // A production PWA worker may still control this origin when switching
+              // back to `next dev`, where its cached chunks are invalid for HMR.
+              __html: `(function(){if(!("serviceWorker" in navigator))return;navigator.serviceWorker.getRegistrations().then(function(registrations){return Promise.all(registrations.filter(function(registration){try{return new URL(registration.active?.scriptURL||registration.waiting?.scriptURL||registration.installing?.scriptURL,location.href).pathname==="/sw.js"}catch(e){return false}}).map(function(registration){return registration.unregister()}))}).then(function(){return caches.keys()}).then(function(keys){return Promise.all(keys.filter(function(key){return key.indexOf("pi-desktop-")===0}).map(function(key){return caches.delete(key)}))}).then(function(){if(navigator.serviceWorker.controller)location.reload()}).catch(function(){})})();`,
+            }}
+          />
+        )}
         <script
           dangerouslySetInnerHTML={{
             __html: `(function(){try{var t=localStorage.getItem("pi-theme");var dark=t==="dark"||((t==null||t===""||t==="auto")&&window.matchMedia("(prefers-color-scheme: dark)").matches);if(dark)document.documentElement.classList.add("dark")}catch(e){}if(window.__PI_WEB_DESKTOP__)document.documentElement.classList.add("pi-desktop")})();`,

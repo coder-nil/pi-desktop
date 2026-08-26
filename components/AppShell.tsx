@@ -43,7 +43,7 @@ import {
   SIDEBAR_MIN_WIDTH,
 } from "@/lib/panel-layout";
 import type { BlockingExtensionUiRequest, SessionInfo, SessionTreeNode } from "@/lib/types";
-import type { AppUpdateResponse, ProjectTrustStatus } from "@/lib/api-types";
+import type { ProjectTrustStatus } from "@/lib/api-types";
 import type { ChatInputHandle } from "./ChatInput";
 import type { SessionStatsInfo } from "@/lib/pi-types";
 import type { FileViewerState } from "@/lib/file-viewer-state";
@@ -60,12 +60,6 @@ type AutoNameStatus =
   | { kind: "naming" }
   | { kind: "success" }
   | { kind: "error"; message: string };
-type AppUpdateStatus =
-  | { kind: "checking" }
-  | { kind: "up-to-date" }
-  | { kind: "available"; update: AppUpdateResponse }
-  | { kind: "error" };
-
 const TOP_BAR_ICON_BUTTON_SIZE = 36;
 const LANGUAGE_MENU_WIDTH = 176;
 
@@ -115,7 +109,6 @@ export function AppShell() {
   const [projectTrustDialogOpen, setProjectTrustDialogOpen] = useState(false);
   const [projectTrustBusy, setProjectTrustBusy] = useState(false);
   const [projectTrustError, setProjectTrustError] = useState<string | null>(null);
-  const [appUpdateStatus, setAppUpdateStatus] = useState<AppUpdateStatus>({ kind: "checking" });
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
   const [mobileToolbarMoreOpen, setMobileToolbarMoreOpen] = useState(false);
@@ -181,24 +174,6 @@ export function AppShell() {
   useEffect(() => {
     setMobileSidebarReady(true);
   }, []);
-  const checkForAppUpdate = useCallback(async (forceRefresh: boolean, signal?: AbortSignal) => {
-    setAppUpdateStatus({ kind: "checking" });
-    try {
-      const response = await fetch(`/api/app-update${forceRefresh ? "?refresh=1" : ""}`, { signal });
-      const data = await response.json() as AppUpdateResponse & { error?: string };
-      if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
-      setAppUpdateStatus(data.updateAvailable
-        ? { kind: "available", update: data }
-        : { kind: "up-to-date" });
-    } catch {
-      if (!signal?.aborted) setAppUpdateStatus({ kind: "error" });
-    }
-  }, []);
-  useEffect(() => {
-    const controller = new AbortController();
-    void checkForAppUpdate(false, controller.signal);
-    return () => controller.abort();
-  }, [checkForAppUpdate]);
   useEffect(() => {
     if (!rightPanelOpen) return;
     reclampSidebarWidth();
@@ -971,21 +946,6 @@ export function AppShell() {
   const activeCwdName = activeCwd ? getFileName(activeCwd) || activeCwd : null;
   const windowTitle = activeCwdName ? `${activeCwdName} - Pi Desktop` : "Pi Desktop";
 
-  const appUpdateTitle = appUpdateStatus.kind === "checking"
-    ? translate("appUpdate.checking")
-    : appUpdateStatus.kind === "up-to-date"
-      ? translate("appUpdate.upToDate")
-      : appUpdateStatus.kind === "available"
-        ? translate("appUpdate.available", { version: appUpdateStatus.update.latestVersion })
-        : translate("appUpdate.failed");
-  const handleAppUpdateClick = useCallback(() => {
-    if (appUpdateStatus.kind === "available") {
-      window.open(appUpdateStatus.update.releaseUrl, "_blank", "noopener,noreferrer");
-      return;
-    }
-    void checkForAppUpdate(true);
-  }, [appUpdateStatus, checkForAppUpdate]);
-
   useEffect(() => {
     const syncWindowTitle = () => {
       if (document.title !== windowTitle) document.title = windowTitle;
@@ -1071,33 +1031,6 @@ export function AppShell() {
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <circle cx="6" cy="6" r="3" /><circle cx="18" cy="18" r="3" />
                 <path d="M6 9v6a3 3 0 0 0 3 3h6" /><path d="M18 15V9a3 3 0 0 0-3-3H9" />
-              </svg>
-            ),
-          },
-          {
-            id: "update",
-            label: translate("appUpdate.check"),
-            title: appUpdateTitle,
-            onClick: handleAppUpdateClick,
-            disabled: appUpdateStatus.kind === "checking",
-            iconOnly: true,
-            color: appUpdateStatus.kind === "available" ? "var(--accent)" : undefined,
-            icon: appUpdateStatus.kind === "checking" ? (
-              <svg className="animate-spin" width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" opacity="0.25" />
-                <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-              </svg>
-            ) : appUpdateStatus.kind === "up-to-date" ? (
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M20 6 9 17l-5-5" />
-              </svg>
-            ) : appUpdateStatus.kind === "error" ? (
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <circle cx="12" cy="12" r="9" /><path d="M12 7v6" /><path d="M12 17h.01" />
-              </svg>
-            ) : (
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M12 3v12" /><path d="m7 10 5 5 5-5" /><path d="M5 21h14" />
               </svg>
             ),
           },

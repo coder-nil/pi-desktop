@@ -112,25 +112,22 @@ function NewSessionUpdateLink({
         display: "inline-flex",
         alignItems: "center",
         alignSelf: "center",
-        gap: 3,
-        minHeight: 32,
-        minWidth: 0,
-        padding: "0 4px",
+        justifyContent: "center",
+        width: 28,
+        height: 28,
+        padding: 0,
         background: "transparent",
         borderRadius: 5,
         color: "var(--accent)",
-        fontSize: 12,
-        fontWeight: 600,
-        lineHeight: 1.2,
         textDecoration: "none",
         transition: "background 0.12s",
         whiteSpace: "nowrap",
       }}
     >
-      <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>v{update.latestVersion}</span>
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0 }}>
-        <path d="M7 17 17 7" />
-        <path d="M7 7h10v10" />
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M12 3v12" />
+        <path d="m7 10 5 5 5-5" />
+        <path d="M5 21h14" />
       </svg>
     </a>
   );
@@ -704,7 +701,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                 fontFamily: "var(--font-mono)",
               }}
             >
-              <div style={{ display: "flex", alignItems: "flex-end", gap: isMobile ? 8 : 12, minWidth: 0, flex: 1, lineHeight: 1, overflow: "hidden" }}>
+              <div style={{ display: "flex", alignItems: "flex-end", gap: isMobile ? 8 : 12, minWidth: 0, lineHeight: 1, overflow: "hidden" }}>
                 <span style={{ display: "inline-flex", alignItems: "flex-end", gap: 4, flexShrink: 0, whiteSpace: "nowrap" }}>
                   <span style={{ fontSize: 22, color: "var(--text)", fontWeight: 700, letterSpacing: 0 }}>Pi</span>
                   <span style={{ paddingBottom: 1, fontSize: 10, color: "var(--text-muted)", fontWeight: 500 }}>
@@ -717,8 +714,8 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                     {process.env.NEXT_PUBLIC_APP_VERSION ?? "aphla.1"}
                   </span>
                 </span>
-                <NewSessionUpdateLink label={(version) => t("appUpdate.releaseNotes", { version })} />
               </div>
+              <NewSessionUpdateLink label={(version) => t("appUpdate.releaseNotes", { version })} />
             </div>
             {chatInputElement}
             <ExtensionStatusBar statuses={extensionStatuses} widgets={extensionWidgets} />
