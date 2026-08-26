@@ -48,3 +48,4 @@ next-env.d.ts
 /.desktop-api-*/
 /.desktop-proxy-*.ts
 /src-tauri/target/
+/src-tauri/frontend/
