@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -8,9 +9,10 @@ const jiti = createJiti(import.meta.url, {
   jsx: { runtime: "automatic" },
   tsconfigPaths: true,
 });
-const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, canRestoreUserMessage, filterModelOptions, getUpwardMenuMaxHeight, getUserMessageText, getUserMessageDraftImages } = await jiti.import("./ChatInput.tsx");
+const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, buildComposerMessage, canRestoreUserMessage, filterModelOptions, getSlashCommandTagKind, getUpwardMenuMaxHeight, getUserMessageText, getUserMessageDraftImages, parseSelectedAtMention, parseSelectedAtMentions } = await jiti.import("./ChatInput.tsx");
 const { clearDraft, getDraft, mergeRestoredSubmissionDraft, mergeRestoredSubmissionText, rekeyDraft, setDraft } = await jiti.import("../lib/draft-store.ts");
 const { I18nProvider } = await jiti.import("../hooks/useI18n.tsx");
+const source = await readFile(new URL("./ChatInput.tsx", import.meta.url), "utf8");
 
 test("renders the upstream model error", () => {
   const html = renderToStaticMarkup(
@@ -26,6 +28,64 @@ test("renders the upstream model error", () => {
 
 test("does not render an empty model error", () => {
   assert.equal(renderToStaticMarkup(React.createElement(ModelErrorBanner, { error: null })), "");
+});
+
+test("classifies slash command tags by resource kind", () => {
+  assert.equal(getSlashCommandTagKind({ name: "skill:review", description: "", source: "skill" }), "skill");
+  assert.equal(getSlashCommandTagKind({ name: "inspect", description: "", source: "extension", sourceInfo: { path: "/tmp/mcp-server.ts", source: "mcp", scope: "user", origin: "top-level" } }), "mcp");
+  assert.equal(getSlashCommandTagKind({ name: "deploy", description: "", source: "extension", sourceInfo: { path: "/tmp/pi-plugin/index.ts", source: "pi-plugin", scope: "user", origin: "package" } }), "plugin");
+  assert.equal(getSlashCommandTagKind({ name: "reload", description: "", source: "builtin" }), "command");
+});
+
+test("turns completed @ references into removable composer tags", () => {
+  assert.deepEqual(parseSelectedAtMention("@components/ChatInput.tsx "), { text: "@components/ChatInput.tsx" });
+  assert.deepEqual(parseSelectedAtMention('@"docs/my file.md" '), { text: '@"docs/my file.md"' });
+  assert.deepEqual(parseSelectedAtMention('@"src/my file.ts":10-20 '), { text: '@"src/my file.ts":10-20' });
+  assert.deepEqual(parseSelectedAtMentions("@src/a.ts @src/b.ts "), [
+    { text: "@src/a.ts" },
+    { text: "@src/b.ts" },
+  ]);
+  assert.equal(parseSelectedAtMention("review @components/ChatInput.tsx"), null);
+  assert.equal(parseSelectedAtMention("@"), null);
+});
+
+test("converts both file and directory autocomplete selections into tags", () => {
+  assert.match(source, /const insert = buildAtInsertText\(entry\.path, entry\.isDir, atQuery\.quoted\);\s*const mention = parseSelectedAtMention\(insert\.text\);/);
+  assert.doesNotMatch(source, /if \(!entry\.isDir\)/);
+  assert.match(source, /setAtQuery\(null\);/);
+});
+
+test("persists selected @ tags in composer drafts", () => {
+  const key = "mention-draft";
+  clearDraft(key);
+  setDraft(key, {
+    value: "review these",
+    images: [],
+    selectedMentions: [{ text: "@src/a.ts" }, { text: '@"src/my file.ts":2' }],
+  });
+  assert.deepEqual(getDraft(key)?.selectedMentions, [
+    { text: "@src/a.ts" },
+    { text: '@"src/my file.ts":2' },
+  ]);
+  clearDraft(key);
+});
+
+test("removes the nearest @ tag before the command tag on empty Backspace", () => {
+  assert.match(
+    source,
+    /if \(selectedAtMentions\.length > 0\) \{\s*removeSelectedAtMention\(selectedAtMentions\.length - 1\);\s*\} else \{\s*removeSelectedSlashCommand\(\);/,
+  );
+});
+
+test("reassembles mention tags before the remaining composer text", () => {
+  assert.equal(
+    buildComposerMessage("please review", null, [{ text: "@src/app.ts" }, { text: '@"docs/my file.md"' }]),
+    '@src/app.ts @"docs/my file.md" please review',
+  );
+  assert.equal(
+    buildComposerMessage("focus on errors", { name: "skill:review", kind: "skill" }, [{ text: "@src/app.ts" }]),
+    "/skill:review @src/app.ts focus on errors",
+  );
 });
 
 test("renders enabledModels scope warnings", () => {
@@ -156,6 +216,7 @@ test("does not restore a historical message over a pending image attachment", ()
   assert.equal(canRestoreUserMessage("", 0, 0), true);
   assert.equal(canRestoreUserMessage("", 1, 0), false);
   assert.equal(canRestoreUserMessage("", 0, 1), false);
+  assert.equal(canRestoreUserMessage("", 0, 0, 1), false);
   assert.equal(canRestoreUserMessage("draft", 0, 0), false);
 });
 

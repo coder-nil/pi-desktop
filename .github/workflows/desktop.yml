@@ -3,13 +3,13 @@ name: Desktop packages
 on:
   push:
     branches:
-      - "v*"
+      - "main"
     tags:
       - "v*"
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag to build and publish (for example, v0.84.2-aphla.1)"
+        description: "Tag to build and publish (for example, v0.84.2-alpha.2)"
         required: true
         type: string
 

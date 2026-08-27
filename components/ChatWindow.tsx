@@ -15,7 +15,6 @@ import { useAgentSession, type AgentPhase, type NoticeItem } from "@/hooks/useAg
 import { useDragDrop } from "@/hooks/useDragDrop";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import type { SessionStatsInfo } from "@/lib/pi-types";
-import type { AppUpdateResponse } from "@/lib/api-types";
 import {
   captureScrollDistance,
   getNextVisibleCount,
@@ -70,68 +69,6 @@ function phaseLabel(phase: AgentPhase, t: (key: string, params?: Record<string, 
 
 const CHAT_MINIMAP_WIDTH = 36;
 const CHAT_COLUMN_PADDING = 16;
-
-function NewSessionUpdateLink({
-  label,
-}: {
-  label: (version: string) => string;
-}) {
-  const [update, setUpdate] = useState<AppUpdateResponse | null>(null);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    void fetch("/api/app-update", { signal: controller.signal })
-      .then(async (response) => {
-        if (!response.ok) return null;
-        return response.json() as Promise<AppUpdateResponse>;
-      })
-      .then((result) => {
-        if (result?.updateAvailable && result.latestVersion && result.releaseUrl) {
-          setUpdate(result);
-        }
-      })
-      .catch(() => {
-        // Update checks are best-effort and must not interrupt a new session.
-      });
-    return () => controller.abort();
-  }, []);
-
-  if (!update) return null;
-  const accessibleLabel = label(update.latestVersion);
-
-  return (
-    <a
-      href={update.releaseUrl}
-      target="_blank"
-      rel="noopener noreferrer"
-      title={accessibleLabel}
-      aria-label={accessibleLabel}
-      onMouseEnter={(event) => { event.currentTarget.style.background = "var(--bg-hover)"; }}
-      onMouseLeave={(event) => { event.currentTarget.style.background = "transparent"; }}
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        alignSelf: "center",
-        justifyContent: "center",
-        width: 28,
-        height: 28,
-        padding: 0,
-        background: "transparent",
-        borderRadius: 5,
-        color: "var(--accent)",
-        textDecoration: "none",
-        transition: "background 0.12s",
-        whiteSpace: "nowrap",
-      }}
-    >
-      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M12 3v12" />
-        <path d="m7 10 5 5 5-5" />
-        <path d="M5 21h14" />
-      </svg>
-    </a>
-  );
-}
 
 function hasFinalAssistantAnswer(message: AgentMessage): boolean {
   if (message.role !== "assistant") return false;
@@ -689,34 +626,6 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
       {isEmptyNew ? (
         <div className="flex flex-1 flex-col items-center justify-center overflow-y-auto px-4 py-8">
           <div className="w-full max-w-[820px]">
-            <div
-              className="mb-3"
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: 12,
-                marginLeft: 16,
-                marginRight: isMobile ? 16 : 52,
-                fontFamily: "var(--font-mono)",
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "flex-end", gap: isMobile ? 8 : 12, minWidth: 0, lineHeight: 1, overflow: "hidden" }}>
-                <span style={{ display: "inline-flex", alignItems: "flex-end", gap: 4, flexShrink: 0, whiteSpace: "nowrap" }}>
-                  <span style={{ fontSize: 22, color: "var(--text)", fontWeight: 700, letterSpacing: 0 }}>Pi</span>
-                  <span style={{ paddingBottom: 1, fontSize: 10, color: "var(--text-muted)", fontWeight: 500 }}>
-                    v{process.env.NEXT_PUBLIC_PI_VERSION ?? "0.0.0"}
-                  </span>
-                </span>
-                <span style={{ display: "inline-flex", alignItems: "flex-end", gap: 4, flexShrink: 0, whiteSpace: "nowrap" }}>
-                  <span style={{ fontSize: 22, color: "var(--text)", fontWeight: 700, letterSpacing: 0 }}>UI</span>
-                  <span style={{ paddingBottom: 1, fontSize: 10, color: "var(--text-muted)", fontWeight: 500 }}>
-                    {process.env.NEXT_PUBLIC_APP_VERSION ?? "aphla.1"}
-                  </span>
-                </span>
-              </div>
-              <NewSessionUpdateLink label={(version) => t("appUpdate.releaseNotes", { version })} />
-            </div>
             {chatInputElement}
             <ExtensionStatusBar statuses={extensionStatuses} widgets={extensionWidgets} />
           </div>

@@ -3,18 +3,19 @@ import fs from "node:fs";
 import test from "node:test";
 
 const source = fs.readFileSync(new URL("./AppShell.tsx", import.meta.url), "utf8");
+const sidebarSource = fs.readFileSync(new URL("./SessionSidebar.tsx", import.meta.url), "utf8");
 
 test("压缩后的会话仍可根据持久化消息数生成标题", () => {
   assert.match(
-    source,
-    /\(sessionStats\?\.userMessages \?\? 0\) > 0 \|\| selectedSession\.messageCount > 0/,
+    sidebarSource,
+    /const canGenerateTitle = session\.messageCount > 0 && !titleGenerationBusy/,
   );
 });
 
 test("尚未落盘的会话不会触发依赖 JSONL 的自动命名", () => {
   assert.match(
-    source,
-    /const disabled = !selectedSession \|\| selectedSession\.transient \|\| !hasMessages/,
+    sidebarSource,
+    /\{\(hovered \|\| titleStatus\) && !session\.transient && \(/,
   );
 });
 

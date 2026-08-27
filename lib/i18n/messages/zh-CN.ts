@@ -406,7 +406,7 @@ export const zhCNLocale: LocalePlugin = {
     "i18n.subscriptions": "订阅服务",
     "i18n.customEndpoint": "自定义端点格式",
     "i18n.noChanges": "没有更改",
-    "i18n.branches": "分支",
+    "i18n.branches": "对话分支",
     "i18n.noActiveSession": "没有活动会话",
     "i18n.noBranches": "此会话没有分支",
     "i18n.source": "源代码",

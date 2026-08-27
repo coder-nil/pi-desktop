@@ -4,7 +4,7 @@
 
 Pi Desktop is a local browser UI for the [pi coding agent](https://github.com/earendil-works/pi). It uses the same local configuration and session files as pi, so you can browse and resume conversations, run agent turns, configure models and resources, and inspect project files from a browser.
 
-UI version: `aphla.1`
+UI version: `alpha.2`
 
 ![Pi Desktop displaying a pi session with structured Markdown, tool calls, and project navigation](https://raw.githubusercontent.com/mafousoftware/pi-desktop/main/docs/screenshot.png)
 

@@ -9,7 +9,7 @@ import { ChatWindow } from "./ChatWindow";
 import { TabBar, type Tab } from "./TabBar";
 import { openFileTab, saveFileViewerState } from "./file-tab-state";
 import { ProjectTrustDialog } from "./ProjectTrustDialog";
-import { BranchNavigator } from "./BranchNavigator";
+import { BranchNavigator, ConversationBranchesIcon } from "./BranchNavigator";
 import { useTheme } from "@/hooks/useTheme";
 import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -57,9 +57,9 @@ const GitPanel = dynamic(() => import("./GitPanel").then((module) => module.GitP
 type SessionCopyField = "file" | "id";
 type AutoNameStatus =
   | { kind: "idle" }
-  | { kind: "naming" }
-  | { kind: "success" }
-  | { kind: "error"; message: string };
+  | { kind: "naming"; sessionId: string }
+  | { kind: "success"; sessionId: string }
+  | { kind: "error"; sessionId: string; message: string };
 const TOP_BAR_ICON_BUTTON_SIZE = 36;
 const LANGUAGE_MENU_WIDTH = 176;
 
@@ -105,6 +105,7 @@ export function AppShell() {
   const [skillsConfigOpen, setSkillsConfigOpen] = useState(false);
   const [pluginsConfigOpen, setPluginsConfigOpen] = useState(false);
   const [gitPanelOpen, setGitPanelOpen] = useState(false);
+  const [activeProjectIsGit, setActiveProjectIsGit] = useState<boolean | null>(null);
   const [projectTrust, setProjectTrust] = useState<ProjectTrustStatus | null>(null);
   const [projectTrustDialogOpen, setProjectTrustDialogOpen] = useState(false);
   const [projectTrustBusy, setProjectTrustBusy] = useState(false);
@@ -725,12 +726,12 @@ export function AppShell() {
     });
   }, [deliverSessionNotification, selectedSession, translate]);
 
-  const handleAutoName = useCallback(async () => {
-    const sessionId = selectedSession?.id;
+  const handleAutoName = useCallback(async (targetSessionId?: string) => {
+    const sessionId = targetSessionId ?? selectedSession?.id;
     if (!sessionId || autoNameStatus.kind === "naming") return;
     if (autoNameTimerRef.current) clearTimeout(autoNameTimerRef.current);
     setActiveTopPanel(null);
-    setAutoNameStatus({ kind: "naming" });
+    setAutoNameStatus({ kind: "naming", sessionId });
 
     try {
       const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/auto-name`, {
@@ -743,23 +744,18 @@ export function AppShell() {
 
       const title = body.title.trim();
       setRefreshKey((key) => key + 1);
-      if (activeSessionIdRef.current !== sessionId) return;
-      setSelectedSession((current) => current?.id === sessionId ? { ...current, name: title } : current);
-      setSessionStats((current) => current?.sessionId === sessionId ? { ...current, sessionName: title } : current);
-      setAutoNameStatus({ kind: "success" });
+      if (activeSessionIdRef.current === sessionId) {
+        setSelectedSession((current) => current?.id === sessionId ? { ...current, name: title } : current);
+        setSessionStats((current) => current?.sessionId === sessionId ? { ...current, sessionName: title } : current);
+      }
+      setAutoNameStatus({ kind: "success", sessionId });
       autoNameTimerRef.current = setTimeout(() => setAutoNameStatus({ kind: "idle" }), 1800);
     } catch (error) {
-      if (activeSessionIdRef.current !== sessionId) return;
       const message = error instanceof Error ? error.message : String(error);
-      setAutoNameStatus({ kind: "error", message });
+      setAutoNameStatus({ kind: "error", sessionId, message });
       autoNameTimerRef.current = setTimeout(() => setAutoNameStatus({ kind: "idle" }), 5000);
     }
   }, [autoNameStatus.kind, selectedSession?.id]);
-
-  useEffect(() => {
-    if (autoNameTimerRef.current) clearTimeout(autoNameTimerRef.current);
-    setAutoNameStatus({ kind: "idle" });
-  }, [selectedSession?.id]);
 
   const handleExplorerRefresh = useCallback(() => {
     setExplorerRefreshKey((k) => k + 1);
@@ -947,6 +943,10 @@ export function AppShell() {
   const windowTitle = activeCwdName ? `${activeCwdName} - Pi Desktop` : "Pi Desktop";
 
   useEffect(() => {
+    if (activeProjectIsGit !== true) setGitPanelOpen(false);
+  }, [activeProjectIsGit]);
+
+  useEffect(() => {
     const syncWindowTitle = () => {
       if (document.title !== windowTitle) document.title = windowTitle;
     };
@@ -977,6 +977,9 @@ export function AppShell() {
         onAtMentions={handleAtMentions}
         onBackgroundTaskDone={handleBackgroundTaskDone}
         onRunningSessionIdsChange={handleRunningSessionIdsChange}
+        onProjectGitStateChange={setActiveProjectIsGit}
+        onGenerateTitle={(sessionId) => void handleAutoName(sessionId)}
+        titleGenerationStatus={autoNameStatus.kind === "idle" ? null : autoNameStatus}
       />
       <div style={{ padding: "8px", flexShrink: 0, display: "flex", justifyContent: "space-between", gap: 4 }}>
         {([
@@ -1043,7 +1046,7 @@ export function AppShell() {
           icon: React.ReactNode;
           iconOnly?: boolean;
           color?: string;
-        }[]).map(({ id, label, title, onClick, disabled, icon, iconOnly, color }) => (
+        }[]).filter(({ id }) => id !== "git" || activeProjectIsGit === true).map(({ id, label, title, onClick, disabled, icon, iconOnly, color }) => (
           <button
             key={id}
             type="button"
@@ -1275,84 +1278,6 @@ export function AppShell() {
           </svg>
           {!mobile && <span>{translate("history.label")}</span>}
         </button>
-        {(() => {
-          // 上下文压缩后当前消息可能不再包含 user 消息，需同时参考会话文件的消息总数。
-          const hasMessages = Boolean(
-            selectedSession
-            && ((sessionStats?.userMessages ?? 0) > 0 || selectedSession.messageCount > 0),
-          );
-          const disabled = !selectedSession || selectedSession.transient || !hasMessages || autoNameStatus.kind === "naming";
-          const isSuccess = autoNameStatus.kind === "success";
-          const isError = autoNameStatus.kind === "error";
-          const label = autoNameStatus.kind === "naming"
-            ? translate("title.generating")
-            : isSuccess
-              ? translate("title.updated")
-              : isError
-                ? translate("title.failed")
-                : translate("title.generate");
-          const title = !selectedSession || selectedSession.transient
-            ? translate("title.unsaved")
-            : !hasMessages
-              ? translate("title.noMessages")
-              : isError
-                ? autoNameStatus.message
-                : translate("title.generateSession");
-
-          return (
-            <button
-              type="button"
-              onClick={() => {
-                void handleAutoName();
-                if (mobile) setMobileToolbarMoreOpen(true);
-              }}
-              disabled={disabled}
-              title={title}
-              aria-label={label}
-              style={{
-                display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-                width: mobile ? TOP_BAR_ICON_BUTTON_SIZE : undefined,
-                height: "100%", padding: mobile ? 0 : "0 12px",
-                background: "none", border: "none",
-                borderTop: "2px solid transparent",
-                borderRight: "1px solid var(--border)",
-                color: isError ? "#dc2626" : isSuccess ? "var(--accent)" : disabled ? "var(--text-dim)" : "var(--text-muted)",
-                cursor: disabled ? "not-allowed" : "pointer",
-                opacity: disabled && autoNameStatus.kind !== "naming" ? 0.45 : 1,
-                flexShrink: 0, fontSize: 11, whiteSpace: "nowrap",
-                transition: "color 0.1s, background 0.1s, opacity 0.1s",
-              }}
-              onMouseEnter={(event) => {
-                if (disabled) return;
-                event.currentTarget.style.color = isError ? "#dc2626" : "var(--text)";
-                event.currentTarget.style.background = "var(--bg-hover)";
-              }}
-              onMouseLeave={(event) => {
-                event.currentTarget.style.color = isError ? "#dc2626" : isSuccess ? "var(--accent)" : disabled ? "var(--text-dim)" : "var(--text-muted)";
-                event.currentTarget.style.background = "none";
-              }}
-              data-mobile-toolbar-action={mobile ? "name" : undefined}
-            >
-              {autoNameStatus.kind === "naming" ? (
-                <svg className="animate-spin" width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                  <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" opacity="0.25" />
-                  <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                </svg>
-              ) : isSuccess ? (
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-              ) : (
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="m15 4 5 5L7 22l-5-5Z" />
-                  <path d="m14 5 5 5" />
-                  <path d="M6 4V2M5 3H3M19 19v3M17.5 20.5h3" />
-                </svg>
-              )}
-              {!mobile && <span>{label}</span>}
-            </button>
-          );
-        })()}
         {mobile ? (
           <button
             type="button"
@@ -1372,12 +1297,7 @@ export function AppShell() {
             }}
             data-mobile-toolbar-action="branches"
           >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: branchTree.length > 0 ? "var(--accent)" : "var(--text-dim)" }} aria-hidden="true">
-              <line x1="6" y1="3" x2="6" y2="15" />
-              <circle cx="18" cy="6" r="3" />
-              <circle cx="6" cy="18" r="3" />
-              <path d="M18 9a9 9 0 0 1-9 9" />
-            </svg>
+            <ConversationBranchesIcon active={branchTree.length > 0} />
           </button>
         ) : (
           <BranchNavigator
@@ -2338,7 +2258,7 @@ export function AppShell() {
         onReloaded={() => setSessionKey((k) => k + 1)}
       />
     )}
-    {gitPanelOpen && activeCwd && (
+    {gitPanelOpen && activeProjectIsGit === true && activeCwd && (
       <GitPanel cwd={activeCwd} sessionId={selectedSession?.id ?? null} onClose={() => setGitPanelOpen(false)} onChanged={handleExplorerRefresh} />
     )}
     </>

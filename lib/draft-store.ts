@@ -8,9 +8,22 @@ export interface ChatDraftImage {
   mimeType: string;
 }
 
+export type ChatDraftCommandKind = "command" | "skill" | "mcp" | "plugin";
+
+export interface ChatDraftCommand {
+  name: string;
+  kind: ChatDraftCommandKind;
+}
+
+export interface ChatDraftMention {
+  text: string;
+}
+
 export interface ChatDraft {
   value: string;
   images: ChatDraftImage[];
+  selectedCommand?: ChatDraftCommand;
+  selectedMentions?: ChatDraftMention[];
 }
 
 const drafts = new Map<string, ChatDraft>();
@@ -19,11 +32,13 @@ function cloneDraft(draft: ChatDraft): ChatDraft {
   return {
     value: draft.value,
     images: draft.images.map((image) => ({ ...image })),
+    ...(draft.selectedCommand && { selectedCommand: { ...draft.selectedCommand } }),
+    ...(draft.selectedMentions?.length && { selectedMentions: draft.selectedMentions.map((mention) => ({ ...mention })) }),
   };
 }
 
 function isEmptyDraft(draft: ChatDraft): boolean {
-  return !draft.value && draft.images.length === 0;
+  return !draft.value && draft.images.length === 0 && !draft.selectedCommand && !draft.selectedMentions?.length;
 }
 
 export function getDraft(key: string): ChatDraft | null {
@@ -98,7 +113,15 @@ export function rekeyDraft(
   if (!previous) return next;
 
   const merged = next
-    ? mergeRestoredSubmissionDraft(next.value, next.images, previous.value, previous.images)
+    ? {
+        ...mergeRestoredSubmissionDraft(next.value, next.images, previous.value, previous.images),
+        ...(previous.selectedCommand ?? next.selectedCommand
+          ? { selectedCommand: previous.selectedCommand ?? next.selectedCommand }
+          : {}),
+        ...((next.selectedMentions?.length || previous.selectedMentions?.length)
+          ? { selectedMentions: [...(next.selectedMentions ?? []), ...(previous.selectedMentions ?? [])] }
+          : {}),
+      }
     : previous;
   setDraft(nextKey, merged);
   return cloneDraft(merged);

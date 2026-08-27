@@ -24,6 +24,28 @@ interface Props {
   hideInlineButton?: boolean;
 }
 
+export function ConversationBranchesIcon({ active = false, size = 14 }: { active?: boolean; size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      style={{ color: active ? "var(--accent)" : "var(--text-dim)", flexShrink: 0 }}
+      aria-hidden="true"
+    >
+      <path d="M3.5 5.5h7a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2H7l-2.5 2v-2h-1a2 2 0 0 1-2-2v-2a2 2 0 0 1 2-2Z" />
+      <path d="M15.5 3.5h4a2 2 0 0 1 2 2v1a2 2 0 0 1-2 2h-2l-2 1.5V8.5a2 2 0 0 1-2-2v-1a2 2 0 0 1 2-2Z" />
+      <path d="M15.5 14.5h4a2 2 0 0 1 2 2v1a2 2 0 0 1-2 2h-2l-2 1.5v-1.5a2 2 0 0 1-2-2v-1a2 2 0 0 1 2-2Z" />
+      <path d="M12.5 9.5c2.1.4 3.3 1.5 3.5 3.2" />
+    </svg>
+  );
+}
+
 // Find the visible entry IDs on the path from root to activeLeafId.
 function buildActivePath(nodes: SessionTreeNode[], targetId: string | null): Set<string> {
   if (!targetId) return new Set();
@@ -286,14 +308,7 @@ export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, cont
   const topLevel = selectTopLevelBranches(tree);
   const hasContent = !noBranchReason && topLevel.length > 0;
 
-  const branchIcon = (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: hasContent ? "var(--accent)" : "var(--text-dim)", flexShrink: 0 }}>
-      <line x1="6" y1="3" x2="6" y2="15" />
-      <circle cx="18" cy="6" r="3" />
-      <circle cx="6" cy="18" r="3" />
-      <path d="M18 9a9 9 0 0 1-9 9" />
-    </svg>
-  );
+  const branchIcon = <ConversationBranchesIcon active={hasContent} />;
 
   const chevron = (
     <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--text-dim)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ marginLeft: 2, transform: open ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>

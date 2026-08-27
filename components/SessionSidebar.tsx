@@ -106,6 +106,13 @@ interface Props {
    *  Lets the app play a cross-workspace completion tone. */
   onBackgroundTaskDone?: () => void;
   onRunningSessionIdsChange?: (ids: Set<string>) => void;
+  onProjectGitStateChange?: (isGit: boolean | null) => void;
+  onGenerateTitle?: (sessionId: string) => void;
+  titleGenerationStatus?: {
+    sessionId: string;
+    kind: "naming" | "success" | "error";
+    message?: string;
+  } | null;
 }
 
 interface WorktreeEntry {
@@ -372,7 +379,7 @@ function PiWebTitle() {
   const [scrambling, setScrambling] = useState(false);
   const revertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const target = showVersion ? (process.env.NEXT_PUBLIC_APP_VERSION ?? "aphla.1") : "Pi Desktop";
+  const target = showVersion ? (process.env.NEXT_PUBLIC_APP_VERSION ?? "alpha.2") : "Pi Desktop";
   const display = useScramble(target, scrambling);
 
   const triggerScramble = useCallback((toVersion: boolean) => {
@@ -410,7 +417,7 @@ function PiWebTitle() {
   );
 }
 
-export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange }: Props) {
+export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onProjectGitStateChange, onGenerateTitle, titleGenerationStatus }: Props) {
   const { t } = useI18n();
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -781,6 +788,16 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     return () => { cancelled = true; };
   }, [selectedCwd, wtRefreshKey, refreshKey]);
 
+  useEffect(() => {
+    if (!selectedCwd || worktreeLoadingCwd === selectedCwd) {
+      onProjectGitStateChange?.(null);
+      return;
+    }
+    onProjectGitStateChange?.(
+      worktreeState?.forCwd === selectedCwd ? worktreeState.isGit : null,
+    );
+  }, [onProjectGitStateChange, selectedCwd, worktreeLoadingCwd, worktreeState]);
+
   // Auto-select cwd and restore session from URL on first load
   useEffect(() => {
     if (!initialLoadSettled) return;
@@ -1124,18 +1141,13 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     && selectedProject?.key === worktreeState.projectKey
   );
   const worktreeGuide = selectedCwd
-    && worktreeState
+    && worktreeState?.isGit
     && selectedProject?.key === worktreeState.projectKey
     && !showWorktreeSwitcher
-    ? (worktreeState.isGit
-        ? {
-             label: t("sidebar.openRepoRoot"),
-             title: t("sidebar.openRepoRootTitle"),
-          }
-        : {
-             label: t("sidebar.gitRepoRootOnly"),
-             title: t("sidebar.gitRepoRootOnlyTitle"),
-          })
+    ? {
+         label: t("sidebar.openRepoRoot"),
+         title: t("sidebar.openRepoRootTitle"),
+      }
     : null;
   const worktreeLoading = Boolean(selectedCwd && worktreeLoadingCwd === selectedCwd);
   const inactiveWorktreeSelector = worktreeGuide
@@ -1234,6 +1246,43 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 }}
               />
             )}
+          </button>
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              handleCustomPathClick();
+            }}
+            title={t("sidebar.customPath")}
+            aria-label={t("sidebar.customPath")}
+            style={{
+              width: 32,
+              height: 32,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              flexShrink: 0,
+              padding: 0,
+              border: "none",
+              borderRadius: 6,
+              background: "var(--bg-hover)",
+              color: "var(--text-muted)",
+              cursor: "pointer",
+              transition: "color 0.12s, background 0.12s",
+            }}
+            onMouseEnter={(event) => {
+              event.currentTarget.style.color = "var(--accent)";
+              event.currentTarget.style.background = "var(--bg-selected)";
+            }}
+            onMouseLeave={(event) => {
+              event.currentTarget.style.color = "var(--text-muted)";
+              event.currentTarget.style.background = "var(--bg-hover)";
+            }}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H9l2 2h7.5A2.5 2.5 0 0 1 21 9.5v7A2.5 2.5 0 0 1 18.5 19h-13A2.5 2.5 0 0 1 3 16.5Z" />
+              <path d="M15.5 10.5v5M13 13h5" />
+            </svg>
           </button>
           <AnimatedDropdown
             open={dropdownOpen}
@@ -1966,6 +2015,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
               onSessionDeleted?.(id);
               loadSessions();
             }}
+            onGenerateTitle={onGenerateTitle}
+            titleGenerationStatus={titleGenerationStatus}
             searchMatches={sessionSearchMatchMap}
             depth={0}
           />
@@ -2278,6 +2329,8 @@ function SessionTreeItem({
   onSelectSession,
   onRenamed,
   onSessionDeleted,
+  onGenerateTitle,
+  titleGenerationStatus,
   searchMatches,
   depth,
 }: {
@@ -2288,6 +2341,8 @@ function SessionTreeItem({
   onSelectSession: (s: SessionInfo) => void;
   onRenamed?: () => void;
   onSessionDeleted?: (id: string) => void;
+  onGenerateTitle?: (sessionId: string) => void;
+  titleGenerationStatus?: Props["titleGenerationStatus"];
   searchMatches: ReadonlyMap<string, string>;
   depth: number;
 }) {
@@ -2317,6 +2372,8 @@ function SessionTreeItem({
           onClick={() => onSelectSession(node.session)}
           onRenamed={onRenamed}
           onDeleted={(id) => onSessionDeleted?.(id)}
+          onGenerateTitle={onGenerateTitle}
+          titleGenerationStatus={titleGenerationStatus}
           searchMatch={searchMatch}
           depth={depth}
           hasChildren={hasChildren}
@@ -2336,6 +2393,8 @@ function SessionTreeItem({
               onSelectSession={onSelectSession}
               onRenamed={onRenamed}
               onSessionDeleted={onSessionDeleted}
+              onGenerateTitle={onGenerateTitle}
+              titleGenerationStatus={titleGenerationStatus}
               searchMatches={searchMatches}
               depth={depth + 1}
             />
@@ -2461,6 +2520,8 @@ function SessionItem({
   onClick,
   onRenamed,
   onDeleted,
+  onGenerateTitle,
+  titleGenerationStatus,
   searchMatch,
   depth = 0,
   hasChildren = false,
@@ -2474,6 +2535,8 @@ function SessionItem({
   onClick: () => void;
   onRenamed?: () => void;
   onDeleted?: (id: string) => void;
+  onGenerateTitle?: (sessionId: string) => void;
+  titleGenerationStatus?: Props["titleGenerationStatus"];
   searchMatch?: string;
   depth?: number;
   hasChildren?: boolean;
@@ -2502,6 +2565,9 @@ function SessionItem({
   // it as the auto-name fallback, mirroring MessageView's rendering.
   const displayFirstMessage = skillExpansionToCommand(session.firstMessage) ?? session.firstMessage;
   const title = session.name || displayFirstMessage.slice(0, 50) || session.id.slice(0, 12);
+  const titleStatus = titleGenerationStatus?.sessionId === session.id ? titleGenerationStatus : null;
+  const titleGenerationBusy = titleGenerationStatus?.kind === "naming";
+  const canGenerateTitle = session.messageCount > 0 && !titleGenerationBusy;
 
   const startRename = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
@@ -2750,8 +2816,63 @@ function SessionItem({
           )}
 
           {/* Action buttons — shown on hover */}
-          {hovered && !session.transient && (
+          {(hovered || titleStatus) && !session.transient && (
             <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+              <button
+                onClick={(event) => {
+                  event.stopPropagation();
+                  if (canGenerateTitle) onGenerateTitle?.(session.id);
+                }}
+                disabled={!canGenerateTitle}
+                title={titleStatus?.kind === "error"
+                  ? titleStatus.message ?? t("title.failed")
+                  : session.messageCount === 0
+                    ? t("title.noMessages")
+                    : titleStatus?.kind === "naming"
+                      ? t("title.generating")
+                      : titleStatus?.kind === "success"
+                        ? t("title.updated")
+                        : t("title.generateSession")}
+                aria-label={titleStatus?.kind === "naming" ? t("title.generating") : t("title.generate")}
+                style={{
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  width: 32, height: 32, padding: 0,
+                  background: "transparent", border: "none",
+                  borderRadius: 7,
+                  color: titleStatus?.kind === "error"
+                    ? "#dc2626"
+                    : titleStatus?.kind === "success"
+                      ? "var(--accent)"
+                      : canGenerateTitle ? "var(--text)" : "var(--text-dim)",
+                  cursor: canGenerateTitle ? "pointer" : "not-allowed",
+                  opacity: canGenerateTitle || titleStatus ? 1 : 0.45,
+                  flexShrink: 0,
+                  transition: "background 0.12s, color 0.12s",
+                }}
+                onMouseEnter={(event) => {
+                  if (canGenerateTitle) event.currentTarget.style.background = "var(--bg-selected)";
+                }}
+                onMouseLeave={(event) => {
+                  event.currentTarget.style.background = "transparent";
+                }}
+              >
+                {titleStatus?.kind === "naming" ? (
+                  <svg className="animate-spin" width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" opacity="0.25" />
+                    <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                  </svg>
+                ) : titleStatus?.kind === "success" ? (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                ) : (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="m15 4 5 5L7 22l-5-5Z" />
+                    <path d="m14 5 5 5" />
+                    <path d="M6 4V2M5 3H3M19 19v3M17.5 20.5h3" />
+                  </svg>
+                )}
+              </button>
               <button
                 onClick={startRename}
                 title={t("sidebar.rename")}

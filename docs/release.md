@@ -34,7 +34,7 @@ The workflow installs the required dependencies and uploads four distinctly name
 
 ## 3. Commit the Version
 
-Replace `<version>` with the release version, for example `0.84.2-aphla.1`.
+Replace `<version>` with the release version, for example `0.84.2-alpha.2`.
 
 ```bash
 git commit -m "Release v<version>"

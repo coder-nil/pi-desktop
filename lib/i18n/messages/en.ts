@@ -406,7 +406,7 @@ export const enLocale: LocalePlugin = {
     "i18n.subscriptions": "Subscriptions",
     "i18n.customEndpoint": "Custom endpoint format",
     "i18n.noChanges": "No changes",
-    "i18n.branches": "Branches",
+    "i18n.branches": "Conversation branches",
     "i18n.noActiveSession": "No active session",
     "i18n.noBranches": "This session has no branches",
     "i18n.source": "Source",

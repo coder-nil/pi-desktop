@@ -56,7 +56,7 @@ const nextConfig: NextConfig = {
   },
   env: {
     // Keep the UI's branded release label independent from the npm/Tauri semver.
-    NEXT_PUBLIC_APP_VERSION: "aphla.1",
+    NEXT_PUBLIC_APP_VERSION: "alpha.2",
     NEXT_PUBLIC_PACKAGE_VERSION: packageVersion,
     NEXT_PUBLIC_PI_VERSION: piVersion,
   },

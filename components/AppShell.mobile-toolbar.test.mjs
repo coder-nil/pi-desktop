@@ -4,14 +4,14 @@ import test from "node:test";
 
 const source = await readFile(new URL("./AppShell.tsx", import.meta.url), "utf8");
 
-test("uses a compact mobile toolbar with a floating six-action layer", () => {
+test("uses a compact mobile toolbar with a floating five-action layer", () => {
   assert.match(source, /data-mobile-toolbar="true"[\s\S]*?flex: 1,[\s\S]*?minWidth: 0/);
   assert.match(
     source,
     /data-mobile-toolbar-actions="true"[\s\S]*?position: "absolute"[\s\S]*?right: 0,[\s\S]*?left: TOP_BAR_ICON_BUTTON_SIZE/,
   );
 
-  for (const action of ["history", "name", "branches", "system", "theme", "language"]) {
+  for (const action of ["history", "branches", "system", "theme", "language"]) {
     assert.match(source, new RegExp(`data-mobile-toolbar-action=(?:\\{mobile \\? )?"${action}"`));
   }
 });
@@ -34,9 +34,8 @@ test("keeps the mobile action layer open after using an expanded action", () => 
   const toggleTopPanel = source.match(/const toggleTopPanel = useCallback\([\s\S]*?\n  \}, \[isMobile\]\);/)?.[0];
   const themeHandler = source.match(/const renderThemeButton =[\s\S]*?onClick=\{\(event\) => \{[\s\S]*?toggleTheme\([\s\S]*?\n      \}\}/)?.[0];
   const historyHandler = source.match(/onClick=\{\(\) => \{[\s\S]*?handleViewFullHistory\(\);[\s\S]*?\n          \}\}/)?.[0];
-  const autoNameHandler = source.match(/onClick=\{\(\) => \{[\s\S]*?void handleAutoName\(\);[\s\S]*?\n              \}\}/)?.[0];
 
-  for (const handler of [toggleTopPanel, themeHandler, historyHandler, autoNameHandler]) {
+  for (const handler of [toggleTopPanel, themeHandler, historyHandler]) {
     assert.ok(handler);
     assert.doesNotMatch(handler, /setMobileToolbarMoreOpen\(false\)/);
     assert.match(handler, /setMobileToolbarMoreOpen\(true\)/);
@@ -60,4 +59,11 @@ test("places trust warnings below the mobile toolbar and the file toggle in tool
   assert.match(source, /data-mobile-trust-banner=\{mobileBanner \? "true" : undefined\}/);
   assert.doesNotMatch(source, /File panel toggle — always visible at top-right/);
   assert.doesNotMatch(source, /position: "fixed", top: "env\(safe-area-inset-top\)"/);
+});
+
+test("shows Git controls only for a resolved Git project", () => {
+  assert.match(source, /onProjectGitStateChange=\{setActiveProjectIsGit\}/);
+  assert.match(source, /filter\(\(\{ id \}\) => id !== "git" \|\| activeProjectIsGit === true\)/);
+  assert.match(source, /gitPanelOpen && activeProjectIsGit === true && activeCwd/);
+  assert.match(source, /if \(activeProjectIsGit !== true\) setGitPanelOpen\(false\)/);
 });

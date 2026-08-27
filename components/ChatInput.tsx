@@ -11,7 +11,10 @@ import {
   mergeRestoredSubmissionText,
   rekeyDraft as rekeyStoredDraft,
   setDraft,
+  type ChatDraftCommand,
+  type ChatDraftCommandKind,
   type ChatDraftImage,
+  type ChatDraftMention,
 } from "@/lib/draft-store";
 import {
   MAX_ATTACHED_IMAGE_BYTES,
@@ -160,6 +163,8 @@ type SlashCommandPaletteItem = SlashCommandInfo | {
 };
 
 type SlashCommandSource = SlashCommandPaletteItem["source"];
+type SelectedSlashCommand = ChatDraftCommand;
+type SelectedAtMention = ChatDraftMention;
 
 const BUILTIN_SLASH_COMMANDS: SlashCommandPaletteItem[] = [
   { name: "compact", description: "chat.commandCompact", source: "builtin" },
@@ -197,6 +202,64 @@ function slashMatchRank(command: SlashCommandPaletteItem, query: string, t: (key
 
 function getSlashDescription(command: SlashCommandPaletteItem, t: (key: string) => string): string {
   return command.source === "builtin" ? t(command.description) : command.description ?? "";
+}
+
+export function getSlashCommandTagKind(command: SlashCommandPaletteItem): ChatDraftCommandKind {
+  if (command.source === "skill") return "skill";
+
+  const sourceInfo = "sourceInfo" in command ? command.sourceInfo : undefined;
+  const source = `${sourceInfo?.source ?? ""} ${sourceInfo?.path ?? ""}`.toLowerCase();
+  if (source.includes("mcp")) return "mcp";
+  if (command.source === "extension" && (sourceInfo?.origin === "package" || source.includes("plugin"))) return "plugin";
+  return "command";
+}
+
+const COMMAND_TAG_STYLES: Record<ChatDraftCommandKind, { background: string; border: string; color: string }> = {
+  command: { background: "rgba(59, 130, 246, 0.12)", border: "rgba(59, 130, 246, 0.36)", color: "rgb(37, 99, 235)" },
+  skill: { background: "rgba(16, 185, 129, 0.12)", border: "rgba(16, 185, 129, 0.36)", color: "rgb(5, 150, 105)" },
+  mcp: { background: "rgba(245, 158, 11, 0.13)", border: "rgba(245, 158, 11, 0.38)", color: "rgb(180, 83, 9)" },
+  plugin: { background: "rgba(236, 72, 153, 0.12)", border: "rgba(236, 72, 153, 0.36)", color: "rgb(190, 24, 93)" },
+};
+
+const AT_MENTION_TAG_STYLE = {
+  background: "rgba(6, 182, 212, 0.12)",
+  border: "rgba(6, 182, 212, 0.36)",
+  color: "rgb(8, 145, 178)",
+};
+
+export function parseSelectedAtMentions(text: string): SelectedAtMention[] | null {
+  const mentions: SelectedAtMention[] = [];
+  let cursor = 0;
+  while (cursor < text.length) {
+    while (cursor < text.length && /\s/.test(text[cursor])) cursor += 1;
+    if (cursor >= text.length) break;
+    const match = /^(?:@"[^"\n]+"(?::\d+(?:-\d+)?)?|@[^\s"]+)/.exec(text.slice(cursor));
+    if (!match) return null;
+    const end = cursor + match[0].length;
+    if (end < text.length && !/\s/.test(text[end])) return null;
+    mentions.push({ text: match[0] });
+    cursor = end;
+  }
+  return mentions.length > 0 ? mentions : null;
+}
+
+export function parseSelectedAtMention(text: string): SelectedAtMention | null {
+  const mentions = parseSelectedAtMentions(text);
+  return mentions?.length === 1 ? mentions[0] : null;
+}
+
+export function buildComposerMessage(
+  value: string,
+  selectedSlashCommand: SelectedSlashCommand | null,
+  selectedAtMentions: SelectedAtMention[],
+): string {
+  const args = [
+    ...selectedAtMentions.map((mention) => mention.text),
+    value.trim(),
+  ].filter(Boolean).join(" ");
+  return selectedSlashCommand
+    ? `/${selectedSlashCommand.name}${args ? ` ${args}` : ""}`
+    : args;
 }
 
 // Skill slash commands are named "skill:<skillName>"; look the skill up in the
@@ -255,8 +318,9 @@ export function canRestoreUserMessage(
   value: string,
   attachedImageCount: number,
   pendingImageCount: number,
+  selectedTagCount = 0,
 ): boolean {
-  return !value.trim() && attachedImageCount === 0 && pendingImageCount === 0;
+  return !value.trim() && attachedImageCount === 0 && pendingImageCount === 0 && selectedTagCount === 0;
 }
 
 export function getUserMessageText(message: UserMessage): string {
@@ -398,6 +462,12 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const { t } = useI18n();
   const isMobile = useIsMobile();
   const [value, setValue] = useState(() => (draftKey ? getDraft(draftKey)?.value ?? "" : ""));
+  const [selectedSlashCommand, setSelectedSlashCommand] = useState<SelectedSlashCommand | null>(() => (
+    draftKey ? getDraft(draftKey)?.selectedCommand ?? null : null
+  ));
+  const [selectedAtMentions, setSelectedAtMentions] = useState<SelectedAtMention[]>(() => (
+    draftKey ? getDraft(draftKey)?.selectedMentions ?? [] : []
+  ));
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
   const [modelDropdownRect, setModelDropdownRect] = useState<{ top: number; left: number; width: number } | null>(null);
   const [modelFilter, setModelFilter] = useState("");
@@ -449,9 +519,13 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const draftKeyRef = useRef(draftKey);
   const valueRef = useRef(value);
   const attachedImagesRef = useRef(attachedImages);
+  const selectedSlashCommandRef = useRef<SelectedSlashCommand | null>(selectedSlashCommand);
+  const selectedAtMentionsRef = useRef<SelectedAtMention[]>(selectedAtMentions);
   const pendingImageCountRef = useRef(0);
   valueRef.current = value;
   attachedImagesRef.current = attachedImages;
+  selectedSlashCommandRef.current = selectedSlashCommand;
+  selectedAtMentionsRef.current = selectedAtMentions;
 
   useImperativeHandle(ref, () => ({
     insertIfEmpty(text: string) {
@@ -460,6 +534,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       if (current.trim()) return;
       valueRef.current = text;
       setValue(text);
+      setSelectedSlashCommand(null);
+      setSelectedAtMentions([]);
       setAtQuery(null);
       requestAnimationFrame(() => {
         if (!ta) return;
@@ -471,13 +547,16 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     replaceMessage(message: UserMessage) {
       const ta = textareaRef.current;
       const current = ta ? ta.value : value;
-      if (!canRestoreUserMessage(current, attachedImagesRef.current.length, pendingImageCountRef.current)) return;
+      const selectedTagCount = selectedAtMentionsRef.current.length + (selectedSlashCommandRef.current ? 1 : 0);
+      if (!canRestoreUserMessage(current, attachedImagesRef.current.length, pendingImageCountRef.current, selectedTagCount)) return;
 
       const restoredText = getUserMessageText(message);
       const restoredImages = draftImagesToAttachedImages(getUserMessageDraftImages(message));
       valueRef.current = restoredText;
       attachedImagesRef.current = restoredImages;
       setValue(restoredText);
+      setSelectedSlashCommand(null);
+      setSelectedAtMentions([]);
       setAtQuery(null);
       setHistoryMenuOpen(false);
       setAttachedImages((prev) => {
@@ -500,6 +579,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       const combined = [text, current].filter((t) => t.trim()).join("\n\n");
       valueRef.current = combined;
       setValue(combined);
+      setSelectedSlashCommand(null);
+      setSelectedAtMentions([]);
       setAtQuery(null);
       requestAnimationFrame(() => {
         if (!ta) return;
@@ -519,6 +600,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       const currentDraft = {
         value: valueRef.current,
         images: attachedImagesRef.current.map(imageToDraftImage),
+        ...(selectedSlashCommandRef.current && { selectedCommand: selectedSlashCommandRef.current }),
+        ...(selectedAtMentionsRef.current.length && { selectedMentions: selectedAtMentionsRef.current }),
       };
       const moved = rekeyStoredDraft(previousKey, nextKey, currentDraft) ?? { value: "", images: [] };
       const unchanged = moved.value === currentDraft.value
@@ -526,6 +609,12 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         && moved.images.every((image, index) => (
           image.data === currentDraft.images[index]?.data
           && image.mimeType === currentDraft.images[index]?.mimeType
+        ))
+        && moved.selectedCommand?.name === currentDraft.selectedCommand?.name
+        && moved.selectedCommand?.kind === currentDraft.selectedCommand?.kind
+        && (moved.selectedMentions?.length ?? 0) === (currentDraft.selectedMentions?.length ?? 0)
+        && (moved.selectedMentions ?? []).every((mention, index) => (
+          mention.text === currentDraft.selectedMentions?.[index]?.text
         ));
       draftKeyRef.current = nextKey;
       if (unchanged) return;
@@ -534,6 +623,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       valueRef.current = moved.value;
       attachedImagesRef.current = movedImages;
       setValue(moved.value);
+      setSelectedSlashCommand(moved.selectedCommand ?? null);
+      setSelectedAtMentions(moved.selectedMentions ?? []);
       setAttachedImages((current) => {
         current.forEach(revokeImagePreview);
         return movedImages;
@@ -584,6 +675,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         valueRef.current = restored;
         return restored;
       });
+      setSelectedSlashCommand(null);
+      setSelectedAtMentions([]);
       setAtQuery(null);
       setHistoryMenuOpen(false);
       if (images?.length) {
@@ -606,6 +699,13 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       });
     },
     insertText(text: string) {
+      const mentions = parseSelectedAtMentions(text);
+      if (mentions) {
+        setSelectedAtMentions((current) => [...current, ...mentions]);
+        setAtQuery(null);
+        requestAnimationFrame(() => textareaRef.current?.focus());
+        return;
+      }
       const ta = textareaRef.current;
       if (!ta) {
         setValue((v) => v + (v ? " " : "") + text);
@@ -694,6 +794,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const clearInput = useCallback(() => {
     valueRef.current = "";
     setValue("");
+    setSelectedSlashCommand(null);
+    setSelectedAtMentions([]);
     setAtQuery(null);
     setHistoryMenuOpen(false);
     if (draftKey) clearDraft(draftKey);
@@ -709,8 +811,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     setDraft(draftKey, {
       value,
       images: attachedImages.map(imageToDraftImage),
+      ...(selectedSlashCommand && { selectedCommand: selectedSlashCommand }),
+      ...(selectedAtMentions.length && { selectedMentions: selectedAtMentions }),
     });
-  }, [attachedImages, draftKey, value]);
+  }, [attachedImages, draftKey, selectedAtMentions, selectedSlashCommand, value]);
 
   useEffect(() => {
     const previousDraftKey = draftKeyRef.current;
@@ -720,6 +824,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       setDraft(previousDraftKey, {
         value: valueRef.current,
         images: attachedImagesRef.current.map(imageToDraftImage),
+        ...(selectedSlashCommand && { selectedCommand: selectedSlashCommand }),
+        ...(selectedAtMentions.length && { selectedMentions: selectedAtMentions }),
       });
     }
 
@@ -730,13 +836,15 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     valueRef.current = nextValue;
     attachedImagesRef.current = nextImages;
     setValue(nextValue);
+    setSelectedSlashCommand(draft?.selectedCommand ?? null);
+    setSelectedAtMentions(draft?.selectedMentions ?? []);
     setAtQuery(null);
     setHistoryMenuOpen(false);
     setAttachedImages((prev) => {
       prev.forEach(revokeImagePreview);
       return nextImages;
     });
-  }, [draftKey]);
+  }, [draftKey, selectedAtMentions, selectedSlashCommand]);
 
   useEffect(() => {
     const ta = textareaRef.current;
@@ -752,7 +860,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   }, []);
 
   const handleSend = useCallback(async () => {
-    const msg = value.trim();
+    const msg = buildComposerMessage(value, selectedSlashCommand, selectedAtMentions);
     if (!msg && !attachedImages.length) return;
     if (isStreaming) return;
     onAudioUnlock?.();
@@ -765,9 +873,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     }
     clearInput();
     onSend(msg, attachedImages.length ? attachedImages : undefined);
-  }, [value, attachedImages, isStreaming, onBuiltinCommand, onSend, clearInput, onAudioUnlock]);
+  }, [value, attachedImages, isStreaming, onBuiltinCommand, onSend, clearInput, onAudioUnlock, selectedAtMentions, selectedSlashCommand]);
 
-  const slashQuery = value.startsWith("/") && !/\s/.test(value.slice(1))
+  const slashQuery = !selectedSlashCommand && value.startsWith("/") && !/\s/.test(value.slice(1))
     ? value.slice(1).toLowerCase()
     : null;
 
@@ -796,7 +904,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const slashCommandCountLabel = filteredSlashCommands.length === 1
     ? t(slashQuery ? "chat.match" : "chat.command")
     : t(slashQuery ? "chat.matches" : "chat.commands", { count: filteredSlashCommands.length });
-  const hasInputText = Boolean(value.trim());
+  const hasInputText = Boolean(value.trim()) || selectedSlashCommand !== null || selectedAtMentions.length > 0;
   const canQueueStreamingMessage = hasInputText || attachedImages.length > 0;
 
   // ── @ file autocomplete ──────────────────────────────────────────────────
@@ -904,20 +1012,20 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       after = after.slice(1);
     }
     const insert = buildAtInsertText(entry.path, entry.isDir, atQuery.quoted);
-    const newValue = before + insert.text + after;
-    const newPos = before.length + insert.cursorOffset;
+    const mention = parseSelectedAtMention(insert.text);
+    if (mention) setSelectedAtMentions((current) => [...current, mention]);
+    const newValue = before + after;
+    valueRef.current = newValue;
     setValue(newValue);
-    // setValue alone does not fire onChange — re-derive the token here. Files
-    // end with a space (token closes, menu hides); directories end with "/"
-    // before the caret (token stays open for drill-down into the directory).
-    setAtQuery(extractAtQuery(newValue.slice(0, newPos)));
+    setAtQuery(null);
     requestAnimationFrame(() => {
       const el = textareaRef.current;
       if (!el) return;
+      const newPos = before.length;
       el.focus();
       el.setSelectionRange(newPos, newPos);
       el.style.height = "auto";
-      el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+      if (newValue) el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
     });
   }, [atQuery, value]);
 
@@ -953,6 +1061,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
 
   const applyHistoryInput = useCallback((text: string) => {
     setValue(text);
+    setSelectedSlashCommand(null);
     setHistoryMenuOpen(false);
     setHistoryActiveIndex(0);
     setAtQuery(null);
@@ -967,22 +1076,32 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   }, []);
 
   const applySlashCommand = useCallback((command: SlashCommandPaletteItem) => {
-    const nextValue = `/${command.name} `;
-    setValue(nextValue);
+    setSelectedSlashCommand({ name: command.name, kind: getSlashCommandTagKind(command) });
+    setValue("");
     setSlashMenuOpen(false);
     setSlashActiveIndex(0);
     requestAnimationFrame(() => {
       const ta = textareaRef.current;
       if (!ta) return;
       ta.focus();
-      ta.setSelectionRange(nextValue.length, nextValue.length);
+      ta.setSelectionRange(0, 0);
       ta.style.height = "auto";
       ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
     });
   }, []);
 
+  const removeSelectedSlashCommand = useCallback(() => {
+    setSelectedSlashCommand(null);
+    requestAnimationFrame(() => textareaRef.current?.focus());
+  }, []);
+
+  const removeSelectedAtMention = useCallback((index: number) => {
+    setSelectedAtMentions((current) => current.filter((_, mentionIndex) => mentionIndex !== index));
+    requestAnimationFrame(() => textareaRef.current?.focus());
+  }, []);
+
   const sendQueued = useCallback((mode: "steer" | "followup") => {
-    const msg = value.trim();
+    const msg = buildComposerMessage(value, selectedSlashCommand, selectedAtMentions);
     if (!msg && !attachedImages.length) return;
     onAudioUnlock?.();
     const streamingBehavior = mode === "steer" ? "steer" : "followUp";
@@ -997,7 +1116,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     } else if (mode === "followup" && onFollowUp) {
       onFollowUp(msg, attachedImages.length ? attachedImages : undefined);
     }
-  }, [value, attachedImages, onPromptWithStreamingBehavior, onSteer, onFollowUp, clearInput, onAudioUnlock]);
+  }, [value, attachedImages, onPromptWithStreamingBehavior, onSteer, onFollowUp, clearInput, onAudioUnlock, selectedAtMentions, selectedSlashCommand]);
 
   const getNextSlashIndex = useCallback((direction: "up" | "down" | "left" | "right") => {
     const lastIndex = displayedSlashCommands.length - 1;
@@ -1054,6 +1173,25 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
 
       if (sendShortcut && (isComposing || recentlyComposed)) {
         if (recentlyComposed) e.preventDefault();
+        return;
+      }
+
+      // Tags sit immediately before the editor. With an empty editor,
+      // Backspace removes the nearest mention first, then the command tag.
+      if (
+        e.key === "Backspace" &&
+        !isComposing &&
+        (selectedAtMentions.length > 0 || selectedSlashCommand) &&
+        value.length === 0 &&
+        e.currentTarget.selectionStart === 0 &&
+        e.currentTarget.selectionEnd === 0
+      ) {
+        e.preventDefault();
+        if (selectedAtMentions.length > 0) {
+          removeSelectedAtMention(selectedAtMentions.length - 1);
+        } else {
+          removeSelectedSlashCommand();
+        }
         return;
       }
 
@@ -1164,7 +1302,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         }
       }
     },
-    [isMobile, isStreaming, onSteer, onFollowUp, onAbort, slashMenuOpen, slashQuery, displayedSlashCommands, slashActiveIndex, applySlashCommand, sendQueued, handleSend, getNextSlashIndex, atMenuOpen, atQuery, atMatches, atActiveIndex, applyAtCompletion, historyMenuOpen, inputHistory, historyActiveIndex, applyHistoryInput, value]
+    [isMobile, isStreaming, onSteer, onFollowUp, onAbort, slashMenuOpen, slashQuery, displayedSlashCommands, slashActiveIndex, applySlashCommand, sendQueued, handleSend, getNextSlashIndex, atMenuOpen, atQuery, atMatches, atActiveIndex, applyAtCompletion, historyMenuOpen, inputHistory, historyActiveIndex, applyHistoryInput, value, selectedAtMentions, selectedSlashCommand, removeSelectedAtMention, removeSelectedSlashCommand]
   );
 
   const handleInput = useCallback(() => {
@@ -1935,6 +2073,96 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               WebkitUserSelect: "none",
             }}
           />
+          {selectedSlashCommand && (() => {
+            const tagStyle = COMMAND_TAG_STYLES[selectedSlashCommand.kind];
+            return (
+              <span
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 4,
+                  flexShrink: 1,
+                  minWidth: 0,
+                  maxWidth: "min(42%, 320px)",
+                  padding: "4px 5px 4px 8px",
+                  border: `1px solid ${tagStyle.border}`,
+                  borderRadius: 6,
+                  background: tagStyle.background,
+                  color: tagStyle.color,
+                  fontFamily: "var(--font-mono)",
+                  fontSize: 12,
+                  lineHeight: 1.2,
+                }}
+                title={`/${selectedSlashCommand.name}`}
+              >
+                <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  /{selectedSlashCommand.name}
+                </span>
+                <button
+                  type="button"
+                  onClick={removeSelectedSlashCommand}
+                  aria-label={`Remove /${selectedSlashCommand.name}`}
+                  title="Remove command"
+                  style={{
+                    width: 16,
+                    height: 16,
+                    flexShrink: 0,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    padding: 0,
+                    border: "none",
+                    borderRadius: 4,
+                    background: "transparent",
+                    color: "currentColor",
+                    cursor: "pointer",
+                    opacity: 0.8,
+                  }}
+                  onMouseDown={(e) => e.stopPropagation()}
+                >
+                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
+                    <line x1="2" y1="2" x2="8" y2="8" />
+                    <line x1="8" y1="2" x2="2" y2="8" />
+                  </svg>
+                </button>
+              </span>
+            );
+          })()}
+          {selectedAtMentions.length > 0 && (
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 6, minWidth: 0, maxWidth: "min(52%, 440px)", overflowX: "auto", flexShrink: 1 }}>
+              {selectedAtMentions.map((mention, index) => (
+                <span
+                  key={`${mention.text}:${index}`}
+                  title={mention.text}
+                  style={{
+                    display: "inline-flex", alignItems: "center", gap: 4,
+                    minWidth: 0, maxWidth: 220, flexShrink: 0,
+                    padding: "4px 5px 4px 8px",
+                    border: `1px solid ${AT_MENTION_TAG_STYLE.border}`,
+                    borderRadius: 6,
+                    background: AT_MENTION_TAG_STYLE.background,
+                    color: AT_MENTION_TAG_STYLE.color,
+                    fontFamily: "var(--font-mono)", fontSize: 12, lineHeight: 1.2,
+                  }}
+                >
+                  <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{mention.text}</span>
+                  <button
+                    type="button"
+                    onClick={() => removeSelectedAtMention(index)}
+                    aria-label={`Remove ${mention.text}`}
+                    title="Remove mention"
+                    style={{ width: 16, height: 16, flexShrink: 0, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: 0, border: "none", borderRadius: 4, background: "transparent", color: "currentColor", cursor: "pointer", opacity: 0.8 }}
+                    onMouseDown={(event) => event.stopPropagation()}
+                  >
+                    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
+                      <line x1="2" y1="2" x2="8" y2="8" />
+                      <line x1="8" y1="2" x2="2" y2="8" />
+                    </svg>
+                  </button>
+                </span>
+              ))}
+            </span>
+          )}
           <textarea
             ref={textareaRef}
             value={value}

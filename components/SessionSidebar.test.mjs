@@ -66,7 +66,22 @@ test("manual and lifecycle refreshes bypass the server session-list cache", () =
 
 test("does not expose disk-backed actions for transient sessions", () => {
   assert.match(sessionItemSource, /if \(session\.transient\) return;/);
-  assert.match(sessionItemSource, /\{hovered && !session\.transient && \(/);
+  assert.match(sessionItemSource, /\{\(hovered \|\| titleStatus\) && !session\.transient && \(/);
+});
+
+test("offers the custom path picker beside the project path field", () => {
+  assert.match(source, /aria-label=\{t\("sidebar\.customPath"\)\}[\s\S]*?handleCustomPathClick\(\)/);
+  assert.match(source, /M15\.5 10\.5v5M13 13h5/);
+});
+
+test("hides the branch selector after a project resolves as non-Git", () => {
+  assert.match(source, /const worktreeGuide = selectedCwd\s*&& worktreeState\?\.isGit/);
+  assert.doesNotMatch(source, /label: t\("sidebar\.gitRepoRootOnly"\)/);
+});
+
+test("reports the selected project's resolved Git state to the shell", () => {
+  assert.match(source, /onProjectGitStateChange\?: \(isGit: boolean \| null\) => void/);
+  assert.match(source, /worktreeState\?\.forCwd === selectedCwd \? worktreeState\.isGit : null/);
 });
 
 test("keeps successfully added projects in removable local history", () => {
