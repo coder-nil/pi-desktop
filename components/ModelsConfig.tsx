@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useI18n } from "@/hooks/useI18n";
+import { SelectPicker } from "./SelectPicker";
 import type { ModelCatalogPreset, ModelCatalogRecommendation } from "@/lib/model-catalog";
 import type { DiscoveredModel } from "@/lib/model-discovery";
 import {
@@ -294,13 +295,8 @@ function NumInput({ value, onChange, placeholder }: { value: string; onChange: (
 
 function Select({ value, onChange, options, required }: { value: string; onChange: (v: string) => void; options: readonly string[]; required?: boolean }) {
   const { t } = useI18n();
-  return (
-    <select value={value} onChange={(e) => onChange(e.target.value)}
-      style={{ ...inputStyle, color: value ? "var(--text)" : "var(--text-dim)" }}>
-       {!required && <option value="">— {t("i18n.default")} / none —</option>}
-      {options.map((o) => <option key={o} value={o}>{o}</option>)}
-    </select>
-  );
+  const emptyOptionLabel = `- ${t("i18n.default")} / none -`;
+  return <SelectPicker options={options} value={value} placeholder={required ? options[0] ?? "" : emptyOptionLabel} ariaLabel="API" emptyOptionLabel={required ? undefined : emptyOptionLabel} onChange={onChange} style={{ ...inputStyle, height: 30, padding: "0 8px", fontFamily: "var(--font-mono)" }} />;
 }
 
 function Check({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {

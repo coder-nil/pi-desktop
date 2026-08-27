@@ -14,6 +14,7 @@ import type { SessionSearchMatch } from "@/lib/session-search";
 import { useI18n } from "@/hooks/useI18n";
 import { DirectoryPicker } from "./DirectoryPicker";
 import { FileExplorer, type FileExplorerHandle } from "./FileExplorer";
+import { BranchPicker } from "./BranchPicker";
 
 declare global {
   interface Window {
@@ -2233,6 +2234,7 @@ function CreateBranchDialog({ value, busy, onChange, onCancel, onConfirm }: { va
   const { t } = useI18n();
   const inputRef = useRef<HTMLInputElement>(null);
   useEffect(() => { inputRef.current?.focus(); }, []);
+  useEffect(() => { const handleKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape" && !busy) { event.preventDefault(); event.stopPropagation(); onCancel(); } }; document.addEventListener("keydown", handleKeyDown, true); return () => document.removeEventListener("keydown", handleKeyDown, true); }, [busy, onCancel]);
   return (
     <div role="presentation" onClick={(event) => { if (!busy && event.target === event.currentTarget) onCancel(); }} style={{ position: "fixed", inset: 0, zIndex: 1100, display: "flex", alignItems: "center", justifyContent: "center", padding: 16, background: "rgba(0,0,0,.4)" }}>
       <div role="dialog" aria-modal="true" aria-labelledby="create-branch-title" style={{ width: 360, maxWidth: "100%", border: "1px solid var(--border)", borderRadius: 8, background: "var(--bg-panel)", boxShadow: "0 12px 36px rgba(0,0,0,.24)" }}>
@@ -2253,6 +2255,7 @@ function RenameBranchDialog({ value, busy, onChange, onCancel, onConfirm }: { va
   const { t } = useI18n();
   const inputRef = useRef<HTMLInputElement>(null);
   useEffect(() => { inputRef.current?.focus(); inputRef.current?.select(); }, []);
+  useEffect(() => { const handleKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape" && !busy) { event.preventDefault(); event.stopPropagation(); onCancel(); } }; document.addEventListener("keydown", handleKeyDown, true); return () => document.removeEventListener("keydown", handleKeyDown, true); }, [busy, onCancel]);
   return (
     <div role="presentation" onClick={(event) => { if (!busy && event.target === event.currentTarget) onCancel(); }} style={{ position: "fixed", inset: 0, zIndex: 1100, display: "flex", alignItems: "center", justifyContent: "center", padding: 16, background: "rgba(0,0,0,.4)" }}>
       <div role="dialog" aria-modal="true" aria-labelledby="rename-branch-title" style={{ width: 360, maxWidth: "100%", border: "1px solid var(--border)", borderRadius: 8, background: "var(--bg-panel)", boxShadow: "0 12px 36px rgba(0,0,0,.24)" }}>
@@ -2271,6 +2274,7 @@ function RenameBranchDialog({ value, busy, onChange, onCancel, onConfirm }: { va
 
 function DeleteBranchDialog({ state, busy, error, onCancel, onConfirm }: { state: DeleteBranchDialogState; busy: boolean; error: string | null; onCancel: () => void; onConfirm: () => void }) {
   const { t } = useI18n();
+  useEffect(() => { const handleKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape" && !busy) { event.preventDefault(); event.stopPropagation(); onCancel(); } }; document.addEventListener("keydown", handleKeyDown, true); return () => document.removeEventListener("keydown", handleKeyDown, true); }, [busy, onCancel]);
   const title = state.remote ? t("sidebar.deleteRemoteBranch") : t("sidebar.deleteLocalBranch");
   const description = state.remote
     ? t("sidebar.deleteBranchDescription", { branch: state.branch })
@@ -2299,6 +2303,7 @@ function DeleteBranchDialog({ state, busy, error, onCancel, onConfirm }: { state
 function MergeBranchDialog({ source, branches, value, busy, error, onChange, onCancel, onConfirm }: { source: string; branches: string[]; value: string; busy: boolean; error: string | null; onChange: (value: string) => void; onCancel: () => void; onConfirm: () => void }) {
   const { t } = useI18n();
   const targets = branches.filter((branch) => branch !== source);
+  useEffect(() => { const handleKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape" && !busy) { event.preventDefault(); event.stopPropagation(); onCancel(); } }; document.addEventListener("keydown", handleKeyDown, true); return () => document.removeEventListener("keydown", handleKeyDown, true); }, [busy, onCancel]);
   return (
     <div role="presentation" onClick={(event) => { if (!busy && event.target === event.currentTarget) onCancel(); }} style={{ position: "fixed", inset: 0, zIndex: 1100, display: "flex", alignItems: "center", justifyContent: "center", padding: 16, background: "rgba(0,0,0,.4)" }}>
       <div role="dialog" aria-modal="true" aria-labelledby="merge-branch-title" style={{ width: 360, maxWidth: "100%", border: "1px solid var(--border)", borderRadius: 8, background: "var(--bg-panel)", boxShadow: "0 12px 36px rgba(0,0,0,.24)" }}>
@@ -2306,10 +2311,7 @@ function MergeBranchDialog({ source, branches, value, busy, error, onChange, onC
           <div id="merge-branch-title" style={{ color: "var(--text)", fontSize: 14, fontWeight: 700 }}>{t("sidebar.mergeBranchTitle")}</div>
           <div style={{ marginTop: 8, color: "var(--text-muted)", fontSize: 12, lineHeight: 1.5 }}>{t("sidebar.mergeBranchDescription", { branch: source })}</div>
           <label style={{ display: "block", marginTop: 14, color: "var(--text-dim)", fontSize: 11 }}>{t("sidebar.mergeTargetBranch")}</label>
-          <select value={value} onChange={(event) => onChange(event.target.value)} disabled={busy} style={{ width: "100%", height: 32, marginTop: 6, padding: "0 8px", border: "1px solid var(--border)", borderRadius: 5, outline: "none", background: "var(--bg)", color: "var(--text)", fontFamily: "var(--font-mono)", fontSize: 12 }}>
-            <option value="">{t("sidebar.selectBranch")}</option>
-            {targets.map((branch) => <option key={branch} value={branch}>{branch}</option>)}
-          </select>
+          <div style={{ marginTop: 6 }}><BranchPicker branches={targets} value={value} disabled={busy} placeholder={t("sidebar.selectBranch")} onChange={onChange} /></div>
           {error && <div role="alert" style={{ marginTop: 10, color: "#ef4444", fontSize: 11, lineHeight: 1.45 }}>{error}</div>}
         </div>
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 6, padding: "10px 18px", borderTop: "1px solid var(--border)" }}>

@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { useI18n } from "@/hooks/useI18n";
 
 export function ProjectTrustDialog({
@@ -16,6 +17,18 @@ export function ProjectTrustDialog({
   onConfirm: () => void;
 }) {
   const { t } = useI18n();
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !busy) {
+        event.preventDefault();
+        event.stopPropagation();
+        onCancel();
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown, true);
+    return () => document.removeEventListener("keydown", handleKeyDown, true);
+  }, [busy, onCancel]);
 
   return (
     <div

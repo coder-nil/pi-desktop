@@ -1,7 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useState, type CSSProperties } from "react";
 import { useI18n } from "@/hooks/useI18n";
+import { BranchPicker } from "./BranchPicker";
+
+// MergeBranchPicker delegates to the shared picker, which renders the accessible
+// role="combobox" / role="listbox" control and uses git.selectBranch as its fallback label.
 
 type GitFileStatus = {
   filePath: string;
@@ -96,6 +100,18 @@ export function GitPanel({ cwd, sessionId, onClose, onChanged }: { cwd: string; 
   const mergeBranches = summary?.branches.filter((branch) => branch !== summary.branch) ?? [];
   const disabled = busy !== null;
 
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !disabled) {
+        event.preventDefault();
+        event.stopPropagation();
+        onClose();
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown, true);
+    return () => document.removeEventListener("keydown", handleKeyDown, true);
+  }, [disabled, onClose]);
+
   return (
     <div role="presentation" onClick={(event) => { if (!disabled && event.currentTarget === event.target) onClose(); }} style={{ position: "fixed", inset: 0, zIndex: 1100, display: "flex", justifyContent: "flex-end", background: "rgba(0,0,0,.34)" }}>
       <section role="dialog" aria-modal="true" aria-label={t("common.git")} style={{ width: 460, maxWidth: "100vw", height: "100%", display: "flex", flexDirection: "column", background: "var(--bg)", borderLeft: "1px solid var(--border)", boxShadow: "-14px 0 32px rgba(0,0,0,.16)" }}>
@@ -136,22 +152,5 @@ function ActionButton({ label, action, busy, disabled, danger, title, onClick }:
 function FileList({ files, empty, busy, onStage, onUnstage, onDiscard }: { files: GitFileStatus[]; empty: string; busy: Action | null; onStage?: (filePath: string) => void; onUnstage?: (filePath: string) => void; onDiscard?: (file: GitFileStatus) => void }) { const { t } = useI18n(); if (!files.length) return <div style={{ color: "var(--text-dim)", fontSize: 12 }}>{empty}</div>; return <div style={{ border: "1px solid var(--border)", borderRadius: 6, overflow: "hidden" }}>{files.map((file) => <div key={`${file.filePath}:${file.indexStatus}:${file.worktreeStatus}`} style={{ minHeight: 35, padding: "5px 7px", display: "flex", alignItems: "center", gap: 7, borderBottom: "1px solid var(--border)" }}><span style={{ width: 14, color: STATUS_COLOR[file.status], fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 700 }}>{file.code}</span><span title={file.filePath} style={{ minWidth: 0, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: "var(--font-mono)", fontSize: 11 }}>{fileName(file.filePath)}</span>{onStage && <ActionButton label={t("git.stage")} action="stage" busy={busy} onClick={() => onStage(file.filePath)} />}{onUnstage && <ActionButton label={t("git.unstage")} action="unstage" busy={busy} onClick={() => onUnstage(file.filePath)} />}{onDiscard && file.status !== "untracked" && <ActionButton label={t("git.discard")} action="discard" busy={busy} danger onClick={() => onDiscard(file)} />}</div>)}</div>; }
 
 function MergeBranchPicker({ branches, value, disabled, onChange }: { branches: string[]; value: string; disabled: boolean; onChange: (branch: string) => void }) {
-  const { t } = useI18n();
-  const [open, setOpen] = useState(false);
-  const pickerRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const close = (event: MouseEvent) => { if (!pickerRef.current?.contains(event.target as Node)) setOpen(false); };
-    document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
-  }, []);
-  const inactive = disabled || branches.length === 0;
-  return (
-    <div ref={pickerRef} style={{ position: "relative", minWidth: 0, flex: 1 }}>
-      <button type="button" role="combobox" aria-expanded={open} aria-haspopup="listbox" disabled={inactive} onClick={() => setOpen((current) => !current)} onKeyDown={(event) => { if (event.key === "Escape") setOpen(false); }} style={{ width: "100%", height: 30, display: "flex", alignItems: "center", gap: 7, padding: "0 8px", border: "none", borderRadius: 5, background: open ? "var(--bg-hover)" : "var(--bg-panel)", color: value ? "var(--text)" : "var(--text-dim)", cursor: inactive ? "not-allowed" : "pointer", opacity: inactive ? .58 : 1, fontFamily: "var(--font-mono)", fontSize: 12, textAlign: "left" }} onMouseEnter={(event) => { if (!inactive && !open) event.currentTarget.style.background = "var(--bg-hover)"; }} onMouseLeave={(event) => { if (!open) event.currentTarget.style.background = "var(--bg-panel)"; }}>
-        <span style={{ minWidth: 0, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{value || t("git.selectBranch")}</span>
-        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0, transform: open ? "rotate(180deg)" : "none", transition: "transform .12s" }}><polyline points="2 3.5 5 6.5 8 3.5" /></svg>
-      </button>
-      {open && <div role="listbox" aria-label={t("git.selectBranch")} style={{ position: "absolute", right: 0, bottom: "calc(100% + 4px)", left: 0, zIndex: 2, maxHeight: 192, overflowY: "auto", padding: 4, border: "1px solid var(--border)", borderRadius: 6, background: "var(--bg-panel)", boxShadow: "0 6px 18px rgba(0,0,0,.16)" }}>{branches.map((branch) => <button key={branch} type="button" role="option" aria-selected={branch === value} onClick={() => { onChange(branch); setOpen(false); }} style={{ width: "100%", height: 28, padding: "0 8px", border: "none", borderRadius: 4, background: branch === value ? "var(--bg-hover)" : "transparent", color: "var(--text)", cursor: "pointer", fontFamily: "var(--font-mono)", fontSize: 12, textAlign: "left" }} onMouseEnter={(event) => { event.currentTarget.style.background = "var(--bg-hover)"; }} onMouseLeave={(event) => { event.currentTarget.style.background = branch === value ? "var(--bg-hover)" : "transparent"; }}>{branch}</button>)}</div>}
-    </div>
-  );
+  return <BranchPicker branches={branches} value={value} disabled={disabled} placement="above" onChange={onChange} />;
 }
