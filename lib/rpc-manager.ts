@@ -1,4 +1,5 @@
-import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
+import type { StreamFn, ThinkingLevel } from "@earendil-works/pi-agent-core";
+import type { FetchFunction } from "@earendil-works/pi-ai";
 import { createAgentSessionFromServices, createAgentSessionServices, getAgentDir, initTheme, SessionManager, SettingsManager, Theme } from "@earendil-works/pi-coding-agent";
 import { KeybindingsManager as TuiKeybindingsManager, TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
 import { randomUUID } from "crypto";
@@ -91,6 +92,75 @@ type ExtensionCommandContextActionsLike = {
 type ExtensionBindingOptions = {
   forceEmptySystemPrompt?: boolean;
 };
+
+type ProviderRetrySettingsManager = {
+  applyOverrides: (overrides: {
+    retry: { enabled: boolean; provider: { maxRetries: number } };
+  }) => void;
+};
+
+type FetchRetryConfigurableAgent = {
+  streamFunction: StreamFn;
+};
+
+const DESKTOP_PROVIDER_REQUEST_MAX_RETRIES = 5;
+const configuredProviderRetryAgents = new WeakSet<object>();
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
+}
+
+function waitForProviderRetry(delayMs: number, signal: AbortSignal | null): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException("Request aborted", "AbortError"));
+      return;
+    }
+    const timer = setTimeout(resolve, delayMs);
+    signal?.addEventListener("abort", () => {
+      clearTimeout(timer);
+      reject(new DOMException("Request aborted", "AbortError"));
+    }, { once: true });
+  });
+}
+
+function withProviderRequestRetry(fetchImpl: FetchFunction): FetchFunction {
+  return async (input, init) => {
+    const signal = init?.signal ?? (input instanceof Request ? input.signal : null);
+    for (let retry = 0; ; retry++) {
+      if (signal?.aborted) throw new DOMException("Request aborted", "AbortError");
+      try {
+        // A Request body is one-shot, so every retry must use a fresh clone.
+        const response = await fetchImpl(input instanceof Request ? input.clone() : input, init);
+        if (response.ok || retry >= DESKTOP_PROVIDER_REQUEST_MAX_RETRIES) return response;
+        await response.body?.cancel().catch(() => {});
+      } catch (error) {
+        if (signal?.aborted || isAbortError(error) || retry >= DESKTOP_PROVIDER_REQUEST_MAX_RETRIES) throw error;
+      }
+      await waitForProviderRetry(500 * 2 ** retry, signal);
+    }
+  };
+}
+
+function configureDesktopProviderRetry(session: AgentSessionLike): void {
+  const settingsManager = session.settingsManager as unknown as ProviderRetrySettingsManager;
+  settingsManager.applyOverrides({
+    // Keep retries at the HTTP request boundary, never at the Agent turn.
+    retry: {
+      enabled: false,
+      provider: { maxRetries: 0 },
+    },
+  });
+
+  const agent = session.agent as unknown as FetchRetryConfigurableAgent;
+  if (configuredProviderRetryAgents.has(agent)) return;
+  const originalStreamFunction = agent.streamFunction;
+  agent.streamFunction = (model, context, options) => originalStreamFunction(model, context, {
+    ...options,
+    fetch: withProviderRequestRetry(options?.fetch ?? globalThis.fetch),
+  });
+  configuredProviderRetryAgents.add(agent);
+}
 
 const RUNNING_STATE_EVENT_TYPES = new Set([
   "agent_start",
@@ -362,6 +432,7 @@ export class AgentSessionWrapper {
         this.inner.extensionRunner.setUIContext?.(this.createExtensionUiContext(), "rpc");
       },
     });
+    configureDesktopProviderRetry(this.inner);
     this.applyForcedEmptySystemPrompt();
   }
 
@@ -1679,6 +1750,7 @@ export async function startRpcSession(
       ...(initial.scopedModels.length > 0 ? { scopedModels: initial.scopedModels } : {}),
       ...(toolsOption !== undefined ? { tools: toolsOption } : {}),
     });
+    configureDesktopProviderRetry(inner);
 
     const persistedPreferences = await persistExplicitStartupPreferences(
       services.settingsManager,

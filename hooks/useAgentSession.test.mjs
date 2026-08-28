@@ -214,18 +214,15 @@ test("streaming submissions cannot be stranded in an idle direct queue", () => {
   assert.doesNotMatch(queueSource, /type: "follow_up"/);
 });
 
-test("post-accept prompt errors schedule up to five automatic retries", () => {
+test("post-accept prompt errors preserve the submitted prompt for an explicit retry", () => {
   const promptErrorSource = source.slice(
     source.indexOf('case "prompt_error"'),
     source.indexOf('case "extension_error"'),
   );
 
-  assert.match(source, /const AUTO_PROMPT_RETRY_MAX_ATTEMPTS = 5/);
-  assert.match(source, /const scheduleAutomaticPromptRetry = useCallback/);
-  assert.match(promptErrorSource, /scheduleAutomaticPromptRetry\(errorMessage\)/);
+  assert.doesNotMatch(source, /AUTO_PROMPT_RETRY_MAX_ATTEMPTS/);
+  assert.doesNotMatch(source, /scheduleAutomaticPromptRetry/);
   assert.match(promptErrorSource, /setPromptFailure/);
-  assert.match(source, /retryCurrentPromptRef\.current\?\.\(prompt\)/);
-  assert.match(source, /automaticRetry: true/);
   assert.doesNotMatch(promptErrorSource, /restoreSubmission/);
 });
 
@@ -238,7 +235,7 @@ test("a failed prompt can be explicitly retried without restoring it to the draf
   assert.match(source, /const retryablePromptRef = useRef<RetryablePrompt \| null>\(null\)/);
   assert.match(source, /retryablePromptRef\.current = \{[\s\S]*?message,[\s\S]*?images:/);
   assert.match(retrySource, /void handleSend\(prompt\.message, prompt\.images\)/);
-  assert.match(retrySource, /cancelAutomaticPromptRetry\(\)/);
+  assert.doesNotMatch(retrySource, /automaticRetry/);
   assert.doesNotMatch(retrySource, /restoreSubmission/);
   assert.match(chatWindowSource, /promptFailure=\{promptFailure\}/);
   assert.match(chatInputSource, /promptFailure && onRetryPrompt/);

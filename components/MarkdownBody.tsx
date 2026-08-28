@@ -4,7 +4,12 @@ import { useMemo, type MouseEvent } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import { resolveLocalFileHref } from "@/lib/file-links";
 import { encodeFilePathForApi } from "@/lib/file-paths";
-import { markdownRehypePlugins, markdownRemarkPlugins, normalizeDisplayMath } from "@/lib/markdown";
+import {
+  markdownRehypePlugins,
+  markdownRehypePluginsWithoutRaw,
+  markdownRemarkPlugins,
+  normalizeDisplayMath,
+} from "@/lib/markdown";
 import { MermaidBlock, CodeBlock } from "./MermaidBlock";
 
 interface MarkdownBodyProps {
@@ -13,10 +18,16 @@ interface MarkdownBodyProps {
   isStreaming?: boolean;
   cwd?: string;
   onOpenFile?: (filePath: string) => void;
+  allowHtml?: boolean;
 }
 
-export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile }: MarkdownBodyProps) {
-  const normalizedMarkdown = useMemo(() => normalizeDisplayMath(children), [children]);
+export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile, allowHtml = true }: MarkdownBodyProps) {
+  const normalizedMarkdown = useMemo(() => {
+    const normalized = normalizeDisplayMath(children);
+    // remark treats raw HTML nodes as non-renderable without rehypeRaw. Encode
+    // their opening delimiter so user-authored XML/HTML remains visible text.
+    return allowHtml ? normalized : normalized.replaceAll("<", "&lt;");
+  }, [allowHtml, children]);
   // Stable renderer identities keep stateful blocks mounted across message hover updates.
   const components = useMemo<Components>(() => ({
     code({ className, children, ...props }) {
@@ -92,7 +103,7 @@ export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile
     <div className={["markdown-body", className].filter(Boolean).join(" ")}>
       <ReactMarkdown
         remarkPlugins={markdownRemarkPlugins}
-        rehypePlugins={markdownRehypePlugins}
+        rehypePlugins={allowHtml ? markdownRehypePlugins : markdownRehypePluginsWithoutRaw}
         components={components}
       >
         {normalizedMarkdown}

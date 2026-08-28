@@ -340,6 +340,14 @@ export const markdownRehypePlugins: ReactMarkdownOptions["rehypePlugins"] = [
   [rehypeKatex, { throwOnError: false, strict: false }],
 ];
 
+// User-authored messages should display XML, HTML snippets, and angle-bracket
+// placeholders literally. Assistant output and file previews retain raw HTML
+// support through markdownRehypePlugins above.
+export const markdownRehypePluginsWithoutRaw: ReactMarkdownOptions["rehypePlugins"] = [
+  [rehypeSanitize, markdownSanitizeSchema],
+  [rehypeKatex, { throwOnError: false, strict: false }],
+];
+
 export const markdownPreviewRehypePlugins: ReactMarkdownOptions["rehypePlugins"] = [
   rehypeRaw,
   [rehypeSanitize, markdownSanitizeSchema],

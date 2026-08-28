@@ -1295,8 +1295,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       if (sendShortcut) {
         e.preventDefault();
         if (isStreaming && (onSteer || onFollowUp)) {
-          // Default Enter sends as steer if available, else followup
-          sendQueued(onSteer ? "steer" : "followup");
+          // Enter steers by default; Alt+Enter explicitly queues a follow-up.
+          sendQueued(e.altKey && onFollowUp ? "followup" : onSteer ? "steer" : "followup");
         } else {
           handleSend();
         }
@@ -2219,7 +2219,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 <button
                   onClick={() => sendQueued("steer")}
                   disabled={!canQueueStreamingMessage}
-                  title="Interrupt the current run and inject this message now"
+                  title="Interrupt the current run and inject this message now (Enter)"
                   style={{
                     display: "flex", alignItems: "center", gap: 5,
                     padding: "7px 12px",
@@ -2242,7 +2242,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 <button
                   onClick={() => sendQueued("followup")}
                   disabled={!canQueueStreamingMessage}
-                  title="Queue this message after the agent finishes"
+                  title="Queue this message after the agent finishes (Alt+Enter)"
                   style={{
                     display: "flex", alignItems: "center", gap: 5,
                     padding: "7px 12px",

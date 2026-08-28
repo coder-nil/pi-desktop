@@ -11,11 +11,12 @@ const jiti = createJiti(import.meta.url, {
 const { MarkdownBody } = await jiti.import("./MarkdownBody.tsx");
 const { normalizeDisplayMath } = await jiti.import("../lib/markdown.ts");
 
-function renderMarkdown(markdown) {
+function renderMarkdown(markdown, props = {}) {
   return renderToStaticMarkup(
     React.createElement(MarkdownBody, {
       cwd: "/home/me/project",
       onOpenFile() {},
+      ...props,
     }, markdown),
   );
 }
@@ -35,6 +36,17 @@ test("keeps local file markdown links in the app", () => {
 
   assert.match(html, /<a href="components\/MarkdownBody\.tsx">file<\/a>/);
   assert.doesNotMatch(html, /target=|rel=|\snode=/);
+});
+
+test("renders user XML snippets as literal text", () => {
+  const html = renderMarkdown(
+    "<dependency>\n  <artifactId>iflorens-mdm-api</artifactId>\n</dependency>",
+    { allowHtml: false },
+  );
+
+  assert.match(html, /&lt;dependency&gt;/);
+  assert.match(html, /&lt;artifactId&gt;iflorens-mdm-api&lt;\/artifactId&gt;/);
+  assert.doesNotMatch(html, /<dependency>/);
 });
 
 test("keeps single-tilde CJK numeric ranges literal instead of striking them", () => {
