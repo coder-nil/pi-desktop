@@ -73,7 +73,7 @@ async function pngFromSvg(svg, destination, size) {
     .toFile(destination);
 }
 
-async function makeIcns(svg) {
+async function makeIcns() {
   const icnsInput = join(publicIcons, "icon-512.png");
   const icnsOutput = join(tempRoot, "icon.icns");
   await execFileAsync("sips", ["-s", "format", "icns", icnsInput, "--out", icnsOutput]);
@@ -126,7 +126,7 @@ await pngFromSvg(iconSvg, join(publicIcons, "apple-touch-icon.png"), 180);
 await pngFromSvg(iconSvg, join(tauriIcons, "32x32.png"), 32);
 await pngFromSvg(iconSvg, join(tauriIcons, "128x128.png"), 128);
 await pngFromSvg(iconSvg, join(tauriIcons, "128x128@2x.png"), 256);
-await makeIcns(iconSvg);
+await makeIcns();
 await makeIco(iconSvg);
 
 await sharp(Buffer.from(inputMarkSvg()))

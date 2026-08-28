@@ -1006,7 +1006,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     } finally {
       setWtBusy(false);
     }
-  }, [t, wtBusy]);
+  }, [wtBusy]);
 
   const handleRemoveWorktree = useCallback(async (path: string, force: boolean) => {
     if (!worktreeState || wtBusy) return;

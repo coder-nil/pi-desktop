@@ -46,6 +46,8 @@ export interface SkillInfo {
     scope?: string;
   };
   install?: SkillInstallInfo;
+  usageCount?: number;
+  lastUsedAt?: string;
 }
 
 export interface SkillsResponse {

@@ -17,7 +17,7 @@
 
 ## 快速开始
 
-推荐从 [GitHub Releases 页面](https://github.com/agegr/pi-desktop/releases)下载最新桌面应用。选择对应平台的安装包并启动即可，最终用户不需要安装 Node.js 或 npm。
+推荐从 [GitHub Releases 页面](https://github.com/coder-nil/pi-desktop/releases)下载最新桌面应用。选择对应平台的安装包并启动即可，最终用户不需要安装 Node.js 或 npm。
 
 ### macOS 首次打开（无需付费证书）
 
@@ -34,7 +34,7 @@ xattr -dr com.apple.quarantine "/Applications/Pi Desktop.app"
 如果需要从源码编译，先准备 Node.js 22.19.0 或更高版本、Rust 和 Tauri CLI 2.8.4：
 
 ```bash
-git clone https://github.com/agegr/pi-desktop.git
+git clone https://github.com/coder-nil/pi-desktop.git
 cd pi-desktop
 npm ci
 cargo install tauri-cli --version 2.8.4 --locked

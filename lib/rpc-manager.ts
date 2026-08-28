@@ -15,6 +15,7 @@ import {
 import { cacheSessionPath, invalidateSessionListCache } from "./session-reader";
 import { getProjectTrustStatus, projectTrustReloadOptions } from "./project-trust";
 import { persistExplicitStartupPreferences } from "./startup-preferences";
+import { findSkillInvocation, recordSkillUsage } from "./skills-store";
 import type { SlashCommandInfo } from "@earendil-works/pi-coding-agent";
 import type { AgentSessionLike, ExtensionUiContextLike, ToolInfo } from "./pi-types";
 import type {
@@ -352,6 +353,18 @@ export class AgentSessionWrapper {
     return release;
   }
 
+  private async reloadResourcesBeforePrompt(): Promise<void> {
+    this.extensionStatuses.clear();
+    this.resetExtensionWidgetsForReload();
+    this.syncProjectTrust();
+    await this.inner.reload({
+      beforeSessionStart: () => {
+        this.inner.extensionRunner.setUIContext?.(this.createExtensionUiContext(), "rpc");
+      },
+    });
+    this.applyForcedEmptySystemPrompt();
+  }
+
   private resetIdleTimer(): void {
     if (this.idleTimer) clearTimeout(this.idleTimer);
     this.idleTimer = setTimeout(() => {
@@ -420,6 +433,15 @@ export class AgentSessionWrapper {
           }
           const promptImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
           const streamingBehavior = command.streamingBehavior as "steer" | "followUp" | undefined;
+          // AgentSession snapshots skills into its system prompt. Refresh that snapshot
+          // before every new run so local SKILL.md changes apply without restarting.
+          if (!streamingBehavior && !this.inner.isStreaming) {
+            await this.reloadResourcesBeforePrompt();
+          }
+          const skillInvocation = findSkillInvocation(
+            command.message as string,
+            this.inner.resourceLoader.getSkills().skills,
+          );
           let preflightAccepted = false;
           let preflightSettled = false;
           let promptSettled = false;
@@ -492,6 +514,13 @@ export class AgentSessionWrapper {
           });
 
           await preflight;
+          if (skillInvocation) {
+            try {
+              recordSkillUsage(skillInvocation);
+            } catch (error) {
+              console.error("[pi-desktop] failed to record skill usage:", error instanceof Error ? error.message : error);
+            }
+          }
           return null;
         } finally {
           releaseAdmission();

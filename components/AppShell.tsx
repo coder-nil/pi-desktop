@@ -873,11 +873,16 @@ export function AppShell() {
 
   const handleViewFullHistory = useCallback(() => {
     if (!selectedSession) return;
-    window.open(
-      `/api/sessions/${encodeURIComponent(selectedSession.id)}/export?inline=1`,
-      "_blank",
-      "noopener,noreferrer",
-    );
+    const exportPath = `/api/sessions/${encodeURIComponent(selectedSession.id)}/export?inline=1`;
+    // Tauri's macOS WebView does not create a child window for window.open().
+    // The desktop shell injects its loopback API origin, so navigate this
+    // WebView directly; browser back returns to the selected conversation.
+    if (window.__PI_WEB_API_ORIGIN__) {
+      // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- loopback export page outside the Tauri app origin
+      window.location.href = `${window.__PI_WEB_API_ORIGIN__.replace(/\/$/, "")}${exportPath}&desktop=1&returnTo=${encodeURIComponent(window.location.href)}`;
+      return;
+    }
+    window.open(exportPath, "_blank", "noopener,noreferrer");
   }, [selectedSession]);
 
   // Show chat area if a session is selected, or if we have a cwd to start a new session in

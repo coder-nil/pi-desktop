@@ -17,12 +17,12 @@
 
 ## クイックスタート
 
-推奨される方法は、[GitHub Releases ページ](https://github.com/agegr/pi-desktop/releases)から最新のデスクトップアプリをダウンロードすることです。お使いのプラットフォームのパッケージを選んで起動してください。Node.js と npm は必要ありません。
+推奨される方法は、[GitHub Releases ページ](https://github.com/coder-nil/pi-desktop/releases)から最新のデスクトップアプリをダウンロードすることです。お使いのプラットフォームのパッケージを選んで起動してください。Node.js と npm は必要ありません。
 
 ソースからビルドする場合は、Node.js 22.19.0 以降、Rust、Tauri CLI 2.8.4 を用意します：
 
 ```bash
-git clone https://github.com/agegr/pi-desktop.git
+git clone https://github.com/coder-nil/pi-desktop.git
 cd pi-desktop
 npm ci
 cargo install tauri-cli --version 2.8.4 --locked

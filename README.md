@@ -19,7 +19,7 @@ UI version: `alpha.2`
 
 ## Quick Start
 
-The recommended way to use Pi Desktop is to download the latest desktop application from the [GitHub Releases page](https://github.com/agegr/pi-desktop/releases). Choose the package for your platform and launch the installed application; Node.js and npm are not required.
+The recommended way to use Pi Desktop is to download the latest desktop application from the [GitHub Releases page](https://github.com/coder-nil/pi-desktop/releases). Choose the package for your platform and launch the installed application; Node.js and npm are not required.
 
 ### Opening on macOS without a paid certificate
 
@@ -36,7 +36,7 @@ Each macOS release includes a matching `SHA256SUMS-macos-*.txt` file. Download i
 If you prefer to build from source, use the instructions below. Pi Desktop requires Node.js 22.19.0 or newer, Rust, and Tauri CLI 2.8.4:
 
 ```bash
-git clone https://github.com/agegr/pi-desktop.git
+git clone https://github.com/coder-nil/pi-desktop.git
 cd pi-desktop
 npm ci
 cargo install tauri-cli --version 2.8.4 --locked

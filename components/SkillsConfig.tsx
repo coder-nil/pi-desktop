@@ -717,6 +717,7 @@ export function SkillsConfig({
   const { t } = useI18n();
   const [skills, setSkills] = useState<Skill[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [toggling, setToggling] = useState<Set<string>>(new Set());
@@ -730,40 +731,76 @@ export function SkillsConfig({
   const [projectResourcesLoaded, setProjectResourcesLoaded] = useState(true);
   const [dormantGroupsOpen, setDormantGroupsOpen] = useState<Record<string, boolean>>({});
 
-  const loadSkills = useCallback(async () => {
-    setLoading(true);
+  const applySkills = useCallback((response: SkillsResponse) => {
+    const list = response.skills;
+    setSkills(list);
+    setProjectResourcesLoaded(response.projectResourcesLoaded);
+    setSelected((current) => {
+      if (current && list.some((skill) => skill.filePath === current)) return current;
+      const initialSkill = list.find((skill) => !skill.disableModelInvocation) ?? list[0];
+      if (initialSkill?.disableModelInvocation) {
+        setDormantGroupsOpen((groups) => ({
+          ...groups,
+          [skillGroupLabel(initialSkill)]: true,
+        }));
+      }
+      return initialSkill?.filePath ?? null;
+    });
+  }, []);
+
+  const loadSkills = useCallback(async (keepCachedSkills = false) => {
+    setRefreshing(true);
     setError(null);
     try {
-      const res = await fetch(`/api/skills?cwd=${encodeURIComponent(cwd)}`);
+      const res = await fetch(`/api/skills?cwd=${encodeURIComponent(cwd)}`, {
+        cache: "no-store",
+      });
       const d = (await res.json()) as Partial<SkillsResponse> & { error?: string };
       if (!res.ok || d.error) throw new Error(d.error ?? `HTTP ${res.status}`);
-      const list = d.skills ?? [];
-      setSkills(list);
-      setProjectResourcesLoaded(d.projectResourcesLoaded ?? true);
-      if (list.length > 0 && !selected) {
-        const initialSkill = list.find((skill) => !skill.disableModelInvocation) ?? list[0];
-        setSelected(initialSkill.filePath);
-        if (initialSkill.disableModelInvocation) {
-          setDormantGroupsOpen((current) => ({
-            ...current,
-            [skillGroupLabel(initialSkill)]: true,
-          }));
-        }
-      }
-      return list;
+      const response: SkillsResponse = {
+        skills: d.skills ?? [],
+        diagnostics: d.diagnostics ?? [],
+        projectResourcesLoaded: d.projectResourcesLoaded ?? true,
+      };
+      applySkills(response);
+      return response.skills;
     } catch (e) {
-      setError(String(e));
+      if (!keepCachedSkills) setError(String(e));
       return [];
     } finally {
+      setRefreshing(false);
       setLoading(false);
     }
-  }, [cwd, selected]);
+  }, [applySkills, cwd]);
 
   useEffect(() => {
     setUpdateStatuses({});
     setUpdateError(null);
-    void loadSkills();
-  }, [cwd]); // eslint-disable-line react-hooks/exhaustive-deps
+    let disposed = false;
+    const load = async () => {
+      try {
+        const res = await fetch(`/api/skills?cwd=${encodeURIComponent(cwd)}&cache=1`, {
+          cache: "no-store",
+        });
+        const cached = (await res.json()) as Partial<SkillsResponse> & { cacheHit?: boolean };
+        if (!disposed && res.ok && cached.cacheHit && Array.isArray(cached.skills)) {
+          applySkills({
+            skills: cached.skills,
+            diagnostics: cached.diagnostics ?? [],
+            projectResourcesLoaded: cached.projectResourcesLoaded ?? true,
+          });
+          setLoading(false);
+        }
+      } finally {
+        if (!disposed) void loadSkills();
+      }
+    };
+    setSkills([]);
+    setSelected(null);
+    setLoading(true);
+    void load();
+    return () => { disposed = true; };
+  }, [applySkills, cwd, loadSkills]);
 
   const checkForUpdates = useCallback(async (skill?: Skill) => {
     const targets = skill
@@ -938,12 +975,33 @@ export function SkillsConfig({
             flexShrink: 0,
           }}
         >
-          <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <span
               style={{ fontSize: 15, fontWeight: 700, color: "var(--text)" }}
             >
                {t("common.skills")}
             </span>
+            {refreshing && (
+              <span
+                title={t("i18n.loading")}
+                aria-label={t("i18n.loading")}
+                style={{ display: "flex", color: "var(--text-muted)" }}
+              >
+                <svg
+                  width="13"
+                  height="13"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                  style={{ animation: "spin 0.8s linear infinite" }}
+                  aria-hidden="true"
+                >
+                  <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+                </svg>
+              </span>
+            )}
             <code
               style={{
                 fontSize: 11,
@@ -1137,6 +1195,19 @@ export function SkillsConfig({
                         >
                           {skill.name}
                         </span>
+                        {(skill.usageCount ?? 0) > 0 && (
+                          <span
+                            title={`${skill.usageCount} uses`}
+                            style={{
+                              color: "var(--text-dim)",
+                              fontFamily: "var(--font-mono)",
+                              fontSize: 10,
+                              flexShrink: 0,
+                            }}
+                          >
+                            {skill.usageCount}
+                          </span>
+                        )}
                         {(() => {
                           const key = updateKey(skill);
                           const status = key ? updateStatuses[key] : undefined;

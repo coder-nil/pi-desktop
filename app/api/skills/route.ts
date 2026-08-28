@@ -5,6 +5,12 @@ import path from "path";
 import { getAgentDir, parseFrontmatter } from "@earendil-works/pi-coding-agent";
 import { loadSkillsWithInstallInfo } from "@/lib/skills-service";
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
+import {
+  clearSkillsCache,
+  enrichSkillsWithUsage,
+  getCachedSkills,
+  replaceCachedSkills,
+} from "@/lib/skills-store";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +20,7 @@ export const dynamic = "force-dynamic";
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const cwd = searchParams.get("cwd");
+  const cachedOnly = searchParams.get("cache") === "1";
   if (!cwd) return NextResponse.json({ error: "cwd required" }, { status: 400 });
 
   try {
@@ -21,7 +28,16 @@ export async function GET(req: Request) {
     if (!isExistingFilePathAllowed(cwd, allowedRoots)) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 });
     }
-    return NextResponse.json(await loadSkillsWithInstallInfo(cwd));
+    if (cachedOnly) {
+      const cached = getCachedSkills(cwd);
+      return NextResponse.json({
+        ...(cached ?? { skills: [], diagnostics: [], projectResourcesLoaded: true }),
+        cacheHit: Boolean(cached),
+      });
+    }
+    const response = enrichSkillsWithUsage(await loadSkillsWithInstallInfo(cwd));
+    replaceCachedSkills(cwd, response);
+    return NextResponse.json(response);
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });
   }
@@ -66,6 +82,7 @@ export async function PATCH(req: Request) {
     }
 
     writeFileSync(filePath, updated, "utf8");
+    clearSkillsCache();
     return NextResponse.json({ success: true });
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });

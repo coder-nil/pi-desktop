@@ -2,7 +2,7 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Pi Desktop",
   "version": "0.84.2-alpha.2",
-  "identifier": "com.agegr.pi-desktop",
+  "identifier": "com.coder-nil.pi-desktop",
   "build": {
     "frontendDist": "frontend"
   },

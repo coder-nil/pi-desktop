@@ -214,6 +214,26 @@ function patchExportHtml(html: string): string {
   return html;
 }
 
+function getDesktopReturnUrl(value: string | null): string | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    if (url.protocol === "tauri:" && url.hostname === "localhost") return url.href;
+    if (url.protocol === "http:" && url.hostname === "127.0.0.1") return url.href;
+  } catch {
+    // Ignore malformed return URLs and retain the browser history fallback.
+  }
+  return null;
+}
+
+function addDesktopReturnHandler(html: string, returnUrl: string | null): string {
+  const returnAction = returnUrl
+    ? `location.replace(${JSON.stringify(returnUrl)})`
+    : "history.back()";
+  const handler = `<script>document.addEventListener("keydown",function(event){if(event.key==="Escape")${returnAction}})</script>`;
+  return html.replace("</body>", `${handler}</body>`);
+}
+
 async function exportSession(filePath: string, outputPath: string): Promise<void> {
   const cliPath = await getPiCliPath();
   if (cliPath) {
@@ -243,7 +263,10 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const inline = new URL(req.url).searchParams.get("inline") === "1";
+  const searchParams = new URL(req.url).searchParams;
+  const inline = searchParams.get("inline") === "1";
+  const desktop = searchParams.get("desktop") === "1";
+  const desktopReturnUrl = getDesktopReturnUrl(searchParams.get("returnTo"));
 
   try {
     const filePath = await resolveSessionPath(id);
@@ -262,7 +285,9 @@ export async function GET(
       await exportSession(filePath, outputPath);
 
       const html = readFileSync(outputPath, "utf8");
-      const patchedHtml = patchExportHtml(html);
+      const patchedHtml = desktop
+        ? addDesktopReturnHandler(patchExportHtml(html), desktopReturnUrl)
+        : patchExportHtml(html);
       return new Response(patchedHtml, {
         headers: {
           "Content-Type": "text/html; charset=utf-8",
