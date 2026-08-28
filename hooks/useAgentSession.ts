@@ -157,6 +157,8 @@ const PROMPT_SETTLE_INITIAL_DELAY_MS = 800;
 const PROMPT_SETTLE_POLL_MS = 600;
 const PROMPT_SETTLE_MAX_MS = 20_000;
 const EVENT_STREAM_IDLE_GRACE_MS = 30_000;
+const AUTO_PROMPT_RETRY_MAX_ATTEMPTS = 5;
+const AUTO_PROMPT_RETRY_BASE_DELAY_MS = 1_000;
 const AGENT_STATE_RECONCILE_MS = 15_000;
 const BASH_STATE_RECONCILE_MS = 1_000;
 const EVENT_STREAM_READY_TIMEOUT_MS = 60_000;
@@ -346,6 +348,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const thinkingLevelOverrideRef = useRef<Exclude<ThinkingLevelOption, "auto"> | null>(null);
   const promptRunIdRef = useRef(0);
   const retryablePromptRef = useRef<RetryablePrompt | null>(null);
+  const autoPromptRetryAttemptRef = useRef(0);
+  const autoPromptRetryRunIdRef = useRef<number | null>(null);
+  const autoPromptRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const retryCurrentPromptRef = useRef<((prompt: RetryablePrompt) => void) | null>(null);
   const retrySessionKeyRef = useRef(session?.id ?? newSessionDraftKey);
   const optimisticUserMessageKeyRef = useRef<string | null>(null);
   const modelSwitchPendingRef = useRef(false);
@@ -814,9 +820,50 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     agentRunningRef.current = false;
     setAgentRunning(false);
     setAgentPhase(null);
-    setRetryInfo(null);
+    if (autoPromptRetryRunIdRef.current !== promptRunIdRef.current) setRetryInfo(null);
     dispatch({ type: "end" });
     return wasRunning;
+  }, []);
+
+  const cancelAutomaticPromptRetry = useCallback(() => {
+    if (autoPromptRetryTimerRef.current) {
+      clearTimeout(autoPromptRetryTimerRef.current);
+      autoPromptRetryTimerRef.current = null;
+    }
+    autoPromptRetryRunIdRef.current = null;
+    setRetryInfo(null);
+  }, []);
+
+  const scheduleAutomaticPromptRetry = useCallback((errorMessage: string) => {
+    const prompt = retryablePromptRef.current;
+    const runId = promptRunIdRef.current;
+    if (!prompt || autoPromptRetryRunIdRef.current === runId) return false;
+    if (autoPromptRetryAttemptRef.current >= AUTO_PROMPT_RETRY_MAX_ATTEMPTS) return false;
+
+    autoPromptRetryAttemptRef.current += 1;
+    const attempt = autoPromptRetryAttemptRef.current;
+    const delayMs = AUTO_PROMPT_RETRY_BASE_DELAY_MS * 2 ** (attempt - 1);
+    autoPromptRetryRunIdRef.current = runId;
+    setRetryInfo({ attempt, maxAttempts: AUTO_PROMPT_RETRY_MAX_ATTEMPTS, errorMessage });
+
+    const retryWhenIdle = () => {
+      if (
+        !sessionHookMountedRef.current
+        || autoPromptRetryRunIdRef.current !== runId
+        || promptRunIdRef.current !== runId
+      ) return;
+      if (agentRunningRef.current || bashRunningRef.current) {
+        autoPromptRetryTimerRef.current = setTimeout(retryWhenIdle, 100);
+        return;
+      }
+      autoPromptRetryTimerRef.current = null;
+      autoPromptRetryRunIdRef.current = null;
+      setRetryInfo(null);
+      retryCurrentPromptRef.current?.(prompt);
+    };
+
+    autoPromptRetryTimerRef.current = setTimeout(retryWhenIdle, delayMs);
+    return true;
   }, []);
 
   const notifyPromptStage = useCallback((runId: number) => {
@@ -1124,8 +1171,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       case "prompt_error":
         {
           const errorMessage = (event.errorMessage as string | undefined) ?? "Command failed";
-          addNotice({ type: "error", message: errorMessage });
-          if (rpcPromptPendingRef.current && retryablePromptRef.current) {
+          if (rpcPromptPendingRef.current && scheduleAutomaticPromptRetry(errorMessage)) {
+            setPromptFailure(null);
+          } else {
+            addNotice({ type: "error", message: errorMessage });
             setPromptFailure(errorMessage);
           }
         }
@@ -1275,10 +1324,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         handleExtensionUiRequest(event as ExtensionUiRequest);
         break;
     }
-  }, [addNotice, cancelEventStreamGrace, handleExtensionUiRequest, loadSession, notifyPromptStage, onAgentEnd, scheduleEventStreamClose, scrollToBottom, settleUiStage]);
+  }, [addNotice, cancelEventStreamGrace, handleExtensionUiRequest, loadSession, notifyPromptStage, onAgentEnd, scheduleAutomaticPromptRetry, scheduleEventStreamClose, scrollToBottom, settleUiStage]);
   handleAgentEventRef.current = handleAgentEvent;
 
-  const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {
+  const handleSend = useCallback(async (
+    message: string,
+    images?: AttachedImage[],
+    options?: { automaticRetry?: boolean },
+  ) => {
     const trimmedMessage = message.trim();
     if (!trimmedMessage && !images?.length) return;
     if (agentRunningRef.current || bashRunningRef.current) {
@@ -1299,6 +1352,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       return;
     }
 
+    if (!options?.automaticRetry) {
+      cancelAutomaticPromptRetry();
+      autoPromptRetryAttemptRef.current = 0;
+    }
     const promptRunId = promptRunIdRef.current + 1;
     setPromptFailure(null);
     retryablePromptRef.current = {
@@ -1409,13 +1466,19 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setAgentPhase(null);
       dispatch({ type: "end" });
     }
-  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, cancelEventStreamGrace, closeEvents, composerDraftKey, reconcileAgentState, restoreSubmission]);
+  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, cancelAutomaticPromptRetry, cancelEventStreamGrace, closeEvents, composerDraftKey, reconcileAgentState, restoreSubmission]);
+
+  retryCurrentPromptRef.current = (prompt) => {
+    void handleSend(prompt.message, prompt.images, { automaticRetry: true });
+  };
 
   const handleRetryPrompt = useCallback(() => {
     const prompt = retryablePromptRef.current;
     if (!prompt || agentRunningRef.current || bashRunningRef.current) return;
+    cancelAutomaticPromptRetry();
+    autoPromptRetryAttemptRef.current = 0;
     void handleSend(prompt.message, prompt.images);
-  }, [handleSend]);
+  }, [cancelAutomaticPromptRetry, handleSend]);
 
   const executeBash = useCallback(async (command: string, excludeFromContext: boolean) => {
     if (agentRunningRef.current || bashRunningRef.current) return;
@@ -1446,6 +1509,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   executeBashRef.current = executeBash;
 
   const handleAbort = useCallback(async () => {
+    cancelAutomaticPromptRetry();
     const sid = sessionIdRef.current;
     if (!sid) return;
     if (bashRunningRef.current) {
@@ -1461,7 +1525,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } catch (e) {
       console.error("Failed to abort:", e);
     }
-  }, []);
+  }, [cancelAutomaticPromptRetry]);
 
   const handleFork = useCallback(async (entryId: string) => {
     if (bashRunningRef.current) return;
@@ -1835,6 +1899,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     sessionHookMountedRef.current = true;
     setPromptFailure(null);
     retryablePromptRef.current = null;
+    autoPromptRetryAttemptRef.current = 0;
     if (session) {
       sessionIdRef.current = session.id;
       loadSession(session.id, true, true).then((agentState) => {
@@ -1884,6 +1949,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         liveFollowFrameRef.current = null;
       }
       bashRecoveryIdRef.current += 1;
+      cancelAutomaticPromptRetry();
       cancelEventStreamGrace();
       closeEvents();
     };
@@ -1896,7 +1962,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     retrySessionKeyRef.current = sessionKey;
     setPromptFailure(null);
     retryablePromptRef.current = null;
-  }, [session?.id, newSessionDraftKey]);
+    autoPromptRetryAttemptRef.current = 0;
+    cancelAutomaticPromptRetry();
+  }, [cancelAutomaticPromptRetry, session?.id, newSessionDraftKey]);
 
   useEffect(() => {
     onSystemPromptChange?.(systemPrompt);
