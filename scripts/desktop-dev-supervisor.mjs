@@ -19,6 +19,7 @@ const child = spawn(process.execPath, [nextEntry, "dev", "-H", "127.0.0.1", "-p"
     ...process.env,
     HOSTNAME: "127.0.0.1",
     PORT: port,
+    PI_WEB_BUILD_TARGET: "desktop-dev",
     PI_WEB_HOSTNAME: "127.0.0.1",
     PI_WEB_NO_OPEN: "1",
   },

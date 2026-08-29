@@ -4,6 +4,7 @@ import typescript from "eslint-config-next/typescript";
 const eslintConfig = [
   {
     ignores: [
+      ".next-desktop-dev/**",
       ".next-desktop-frontend/**",
       "desktop-dist/**",
       "src-tauri/target/**",

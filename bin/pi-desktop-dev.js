@@ -2,6 +2,13 @@
 "use strict";
 
 /* eslint-disable @typescript-eslint/no-require-imports */
+const { getUnsupportedNodeVersionMessage, isNodeVersionSupported } = require("./node-version");
+
+if (!isNodeVersionSupported(process.versions.node)) {
+  console.error(getUnsupportedNodeVersionMessage(process.versions.node));
+  process.exit(1);
+}
+
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");

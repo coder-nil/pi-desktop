@@ -4,6 +4,13 @@ import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 
 const configDir = dirname(fileURLToPath(import.meta.url));
+const buildTarget = process.env.PI_WEB_BUILD_TARGET;
+const isDesktopFrontendBuild = buildTarget === "desktop-frontend";
+const distDir = isDesktopFrontendBuild
+  ? ".next-desktop-frontend"
+  : buildTarget === "desktop-dev"
+    ? ".next-desktop-dev"
+    : ".next";
 let piVersion = "unknown";
 let packageVersion = "0.0.0";
 try {
@@ -16,8 +23,8 @@ try {
 } catch { /* package not found, use default */ }
 
 const nextConfig: NextConfig = {
-  output: process.env.PI_WEB_BUILD_TARGET === "desktop-frontend" ? "export" : "standalone",
-  distDir: process.env.PI_WEB_BUILD_TARGET === "desktop-frontend" ? ".next-desktop-frontend" : ".next",
+  output: isDesktopFrontendBuild ? "export" : "standalone",
+  distDir,
   outputFileTracingRoot: configDir,
   images: { unoptimized: true },
   serverExternalPackages: [
@@ -29,7 +36,7 @@ const nextConfig: NextConfig = {
   ],
   allowedDevOrigins: ["127.0.0.1", "192.168.*.*"],
   async headers() {
-    if (process.env.PI_WEB_BUILD_TARGET === "desktop-frontend") return [];
+    if (isDesktopFrontendBuild) return [];
     return [
       {
         source: "/",

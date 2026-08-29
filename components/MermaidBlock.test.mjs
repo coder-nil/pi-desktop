@@ -73,6 +73,8 @@ test("CodeBlock highlights code when not streaming", () => {
 
   assert.match(html, /class="token/);
   assert.match(html, /const/);
+  assert.match(html, /background-color:color-mix/);
+  assert.doesNotMatch(html, /(?:^|;)background:/);
 });
 
 test("CodeBlock renders plain text without tokenization while streaming", () => {

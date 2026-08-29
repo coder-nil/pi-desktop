@@ -44,7 +44,8 @@ next-env.d.ts
 
 # desktop build artifacts
 /desktop-dist/
-/\.next-desktop-frontend/
+/.next-desktop-dev/
+/.next-desktop-frontend/
 /.desktop-api-*/
 /.desktop-proxy-*.ts
 /src-tauri/target/
