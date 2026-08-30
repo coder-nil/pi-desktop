@@ -3,6 +3,7 @@ import {
   toClientAgentEvent,
   type AgentEventLike,
 } from "./agent-event-wire";
+import { diagnosticErrorMessage, logAgentDiagnostic } from "./agent-diagnostics";
 
 export interface AgentEventStreamSession {
   readonly isStreaming: boolean;
@@ -100,6 +101,10 @@ export function createAgentEventStream(
           snapshotPublished = true;
         } catch (error) {
           if (closed) return;
+          logAgentDiagnostic("error", "agent_event_stream_start_failed", {
+            sessionId,
+            errorMessage: diagnosticErrorMessage(error),
+          });
           encode({
             type: "startup_error",
             errorMessage: `Failed to start agent: ${errorMessage(error)}`,

@@ -27,6 +27,7 @@ import type {
   SessionMessageEntry,
 } from "./types";
 import { createHeadlessCustomUiTui, DEFAULT_CUSTOM_UI_COLUMNS, type HeadlessCustomUiTui } from "./custom-ui-terminal";
+import { diagnosticErrorMessage, logAgentDiagnostic } from "./agent-diagnostics";
 
 // ============================================================================
 // Types
@@ -95,7 +96,7 @@ type ExtensionBindingOptions = {
 
 type ProviderRetrySettingsManager = {
   applyOverrides: (overrides: {
-    retry: { enabled: boolean; provider: { maxRetries: number } };
+    retry: { enabled?: boolean; provider: { maxRetries: number } };
   }) => void;
 };
 
@@ -145,9 +146,9 @@ function withProviderRequestRetry(fetchImpl: FetchFunction): FetchFunction {
 function configureDesktopProviderRetry(session: AgentSessionLike): void {
   const settingsManager = session.settingsManager as unknown as ProviderRetrySettingsManager;
   settingsManager.applyOverrides({
-    // Keep retries at the HTTP request boundary, never at the Agent turn.
+    // HTTP retries cover failures before headers. Keep the agent retry policy
+    // intact as it is also needed for streams that fail after headers arrive.
     retry: {
-      enabled: false,
       provider: { maxRetries: 0 },
     },
   });
@@ -186,6 +187,37 @@ export interface RpcSessionStartOptions {
 }
 
 const CODING_TOOL_NAMES = ["read", "bash", "edit", "write", "grep", "find", "ls"];
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function assistantUsageSummary(value: unknown): Record<string, number> | undefined {
+  if (!isRecord(value)) return undefined;
+  const keys = ["input", "output", "cacheRead", "cacheWrite", "totalTokens"];
+  const usage: Record<string, number> = {};
+  for (const key of keys) {
+    if (typeof value[key] === "number") usage[key] = value[key];
+  }
+  return Object.keys(usage).length > 0 ? usage : undefined;
+}
+
+function assistantContentSummary(value: unknown): { contentTypes: string[]; toolNames: string[] } {
+  if (!Array.isArray(value)) return { contentTypes: [], toolNames: [] };
+  const contentTypes = new Set<string>();
+  const toolNames = new Set<string>();
+  for (const block of value) {
+    if (!isRecord(block)) continue;
+    if (typeof block.type === "string") contentTypes.add(block.type);
+    if (block.type === "toolCall") {
+      const name = typeof block.name === "string"
+        ? block.name
+        : (typeof block.toolName === "string" ? block.toolName : undefined);
+      if (name) toolNames.add(name);
+    }
+  }
+  return { contentTypes: [...contentTypes], toolNames: [...toolNames] };
+}
 
 // Extensions require a complete Theme, while the web UI applies its own styling.
 class PlainTextTheme extends Theme {
@@ -286,6 +318,7 @@ export class AgentSessionWrapper {
 
   start(): void {
     this.unsubscribe = this.inner.subscribe((event: AgentEvent) => {
+      this.logEventDiagnostic(event);
       if (event.type === "agent_end") {
         invalidateSessionListCache();
       }
@@ -304,7 +337,9 @@ export class AgentSessionWrapper {
 
   beginExtensionBinding(options: ExtensionBindingOptions = {}): void {
     void this.ensureExtensionsBound(options).catch((err) => {
-      console.error("[pi-desktop] failed to dispatch session_start to extensions:", err instanceof Error ? err.message : err);
+      this.logDiagnostic("error", "extension_binding_failed", {
+        errorMessage: diagnosticErrorMessage(err),
+      });
     });
   }
 
@@ -343,12 +378,19 @@ export class AgentSessionWrapper {
             notifyType: "warning",
             message: "Extension requested shutdown, but shutdown is not supported in Pi Desktop.",
           } as ExtensionUiRequest as AgentEvent),
-          onError: (error) => this.emit({
-            type: "extension_error",
-            extensionPath: error.extensionPath,
-            event: error.event,
-            error: error.error,
-          }),
+          onError: (error) => {
+            this.logDiagnostic("error", "extension_failed", {
+              extensionPath: error.extensionPath,
+              extensionEvent: error.event,
+              errorMessage: error.error,
+            });
+            this.emit({
+              type: "extension_error",
+              extensionPath: error.extensionPath,
+              event: error.event,
+              error: error.error,
+            });
+          },
         });
       } else {
         this.inner.extensionRunner.setUIContext?.(uiContext, "rpc");
@@ -405,11 +447,91 @@ export class AgentSessionWrapper {
       try {
         listener(event);
       } catch (error) {
-        console.error(
-          `[pi-desktop] failed to deliver ${event.type} event:`,
-          error instanceof Error ? error.message : error,
-        );
+        this.logDiagnostic("error", "agent_event_delivery_failed", {
+          agentEvent: event.type,
+          errorMessage: diagnosticErrorMessage(error),
+        });
       }
+    }
+  }
+
+  private diagnosticContext(): Record<string, unknown> {
+    const model = this.inner.model;
+    let cwd: string | undefined;
+    try {
+      cwd = this.cwd;
+    } catch {
+      cwd = undefined;
+    }
+    return {
+      sessionId: this.inner.sessionId,
+      cwd,
+      provider: model?.provider,
+      model: model?.id,
+    };
+  }
+
+  private logDiagnostic(
+    level: "error" | "warn",
+    event: string,
+    details: Record<string, unknown> = {},
+  ): void {
+    logAgentDiagnostic(level, event, { ...this.diagnosticContext(), ...details });
+  }
+
+  private logEventDiagnostic(event: AgentEvent): void {
+    if (event.type === "message_end" && isRecord(event.message)) {
+      const message = event.message;
+      if (message.role === "assistant" && message.stopReason === "error") {
+        this.logDiagnostic("error", "provider_message_error", {
+          api: message.api,
+          provider: message.provider,
+          model: message.model,
+          responseModel: message.responseModel,
+          responseId: message.responseId,
+          stopReason: message.stopReason,
+          rawStopReason: message.rawStopReason,
+          errorMessage: message.errorMessage ?? "Provider message ended with an error",
+          usage: assistantUsageSummary(message.usage),
+          ...assistantContentSummary(message.content),
+        });
+      }
+      return;
+    }
+
+    if (event.type === "auto_retry_start") {
+      this.logDiagnostic("warn", "provider_retry_scheduled", {
+        attempt: event.attempt,
+        maxAttempts: event.maxAttempts,
+        delayMs: event.delayMs,
+        errorMessage: event.errorMessage,
+      });
+      return;
+    }
+
+    if (event.type === "auto_retry_end" && event.success === false) {
+      this.logDiagnostic("error", "provider_retry_exhausted", {
+        attempt: event.attempt,
+        errorMessage: event.finalError ?? "Provider retries exhausted",
+      });
+      return;
+    }
+
+    if (event.type === "compaction_end" && event.errorMessage) {
+      this.logDiagnostic("error", "compaction_failed", {
+        reason: event.reason,
+        aborted: event.aborted,
+        willRetry: event.willRetry,
+        errorMessage: event.errorMessage,
+      });
+      return;
+    }
+
+    if (event.type === "tool_execution_end" && event.isError === true) {
+      this.logDiagnostic("warn", "tool_execution_failed", {
+        toolCallId: event.toolCallId,
+        toolName: event.toolName,
+      });
     }
   }
 
@@ -444,7 +566,9 @@ export class AgentSessionWrapper {
         return;
       }
       void this.shutdown().catch((error) => {
-        console.error("[pi-desktop] failed to shut down idle session:", error instanceof Error ? error.message : error);
+        this.logDiagnostic("error", "idle_session_shutdown_failed", {
+          errorMessage: diagnosticErrorMessage(error),
+        });
       });
     }, 10 * 60 * 1000);
   }
@@ -554,6 +678,11 @@ export class AgentSessionWrapper {
               },
             });
           } catch (error) {
+            this.logDiagnostic("error", "prompt_failed", {
+              accepted: false,
+              streamingBehavior,
+              errorMessage: diagnosticErrorMessage(error),
+            });
             finishPrompt();
             throw error;
           }
@@ -565,6 +694,11 @@ export class AgentSessionWrapper {
             finishPrompt();
             if (!streamingBehavior) this.emit({ type: "prompt_done" });
           }, (error) => {
+            this.logDiagnostic("error", "prompt_failed", {
+              accepted: preflightAccepted,
+              streamingBehavior,
+              errorMessage: diagnosticErrorMessage(error),
+            });
             rejectPreflight(error);
             finishPrompt();
             invalidateSessionListCache();
@@ -578,10 +712,9 @@ export class AgentSessionWrapper {
               if (!streamingBehavior) this.emit({ type: "prompt_done" });
             }
           }).catch((error) => {
-            console.error(
-              "[pi-desktop] prompt completion handler failed:",
-              error instanceof Error ? error.message : error,
-            );
+            this.logDiagnostic("error", "prompt_completion_handler_failed", {
+              errorMessage: diagnosticErrorMessage(error),
+            });
           });
 
           await preflight;
@@ -589,7 +722,10 @@ export class AgentSessionWrapper {
             try {
               recordSkillUsage(skillInvocation);
             } catch (error) {
-              console.error("[pi-desktop] failed to record skill usage:", error instanceof Error ? error.message : error);
+              this.logDiagnostic("error", "skill_usage_record_failed", {
+                skillName: skillInvocation.name,
+                errorMessage: diagnosticErrorMessage(error),
+              });
             }
           }
           return null;
@@ -903,10 +1039,9 @@ export class AgentSessionWrapper {
         try {
           await this.waitForExtensionsBound();
         } catch (error) {
-          console.error(
-            "[pi-desktop] extension binding failed before session shutdown:",
-            error instanceof Error ? error.message : error,
-          );
+          this.logDiagnostic("error", "extension_binding_failed_before_shutdown", {
+            errorMessage: diagnosticErrorMessage(error),
+          });
         }
         await this.inner.extensionRunner.emit?.({ type: "session_shutdown", reason: "quit" });
       } finally {

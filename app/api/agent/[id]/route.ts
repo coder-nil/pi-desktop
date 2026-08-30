@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { diagnosticErrorMessage, logAgentDiagnostic } from "@/lib/agent-diagnostics";
 import { resolveSessionPath } from "@/lib/session-reader";
 import { startRpcSession, getRpcSession } from "@/lib/rpc-manager";
 
@@ -39,6 +40,12 @@ export async function POST(
 
     return NextResponse.json({ success: true, data: result });
   } catch (error) {
+    logAgentDiagnostic("error", "agent_command_failed", {
+      sessionId: id,
+      commandType,
+      promptAccepted,
+      errorMessage: diagnosticErrorMessage(error),
+    });
     return NextResponse.json({
       error: error instanceof Error ? error.message : String(error),
       ...(commandType === "prompt" && !promptAccepted
@@ -64,6 +71,10 @@ export async function GET(
     const state = await session.send({ type: "get_state" });
     return NextResponse.json({ running: true, state });
   } catch (error) {
+    logAgentDiagnostic("error", "agent_state_failed", {
+      sessionId: id,
+      errorMessage: diagnosticErrorMessage(error),
+    });
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }
 }
