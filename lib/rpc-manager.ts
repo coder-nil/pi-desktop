@@ -13,6 +13,7 @@ import {
   createProjectCommandBashOperations,
   preferUserBashExtension,
 } from "./project-command-env";
+import { createSystemTimeExtension } from "./system-time-tool";
 import { cacheSessionPath, invalidateSessionListCache } from "./session-reader";
 import { getProjectTrustStatus, projectTrustReloadOptions } from "./project-trust";
 import { persistExplicitStartupPreferences } from "./startup-preferences";
@@ -1852,6 +1853,7 @@ export async function startRpcSession(
       settingsManager,
       resourceLoaderOptions: {
         extensionFactories: [
+          createSystemTimeExtension(),
           createProjectCommandBashExtension({
             cwd: sessionCwd,
             settings: settingsManager,
