@@ -1,6 +1,8 @@
 export interface DiscoveredModel {
   id: string;
   name?: string;
+  contextWindow?: number;
+  maxTokens?: number;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -9,6 +11,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function cleanString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function positiveInteger(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : undefined;
 }
 
 function modelFromValue(value: unknown): DiscoveredModel | null {
@@ -25,7 +31,19 @@ function modelFromValue(value: unknown): DiscoveredModel | null {
   const name = cleanString(value.display_name)
     ?? cleanString(value.displayName)
     ?? (cleanString(value.id) || cleanString(value.model) ? cleanString(value.name) : undefined);
-  return name && name !== id ? { id, name } : { id };
+  const metadata = isRecord(value.metadata) ? value.metadata : undefined;
+  const contextWindow = positiveInteger(metadata?.context_window)
+    ?? positiveInteger(value.context_window)
+    ?? positiveInteger(value.contextWindow);
+  const maxTokens = positiveInteger(metadata?.max_output_tokens)
+    ?? positiveInteger(value.max_output_tokens)
+    ?? positiveInteger(value.maxTokens);
+  return {
+    id,
+    ...(name && name !== id ? { name } : {}),
+    ...(contextWindow ? { contextWindow } : {}),
+    ...(maxTokens ? { maxTokens } : {}),
+  };
 }
 
 function listFromResponse(value: unknown): unknown[] {

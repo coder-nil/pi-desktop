@@ -8,6 +8,7 @@ import { resolveVisibleModels, selectInitialModelScope } from "@/lib/model-scope
 import { projectTrustReloadOptions } from "@/lib/project-trust";
 import { getRpcSession, startRpcSession } from "@/lib/rpc-manager";
 import { resolveSessionPath } from "@/lib/session-reader";
+import { createDesktopModelRuntime, refreshDesktopProviderCatalogs } from "@/lib/desktop-providers";
 
 async function validateCwd(cwd: unknown): Promise<string> {
   if (typeof cwd !== "string" || !cwd.trim() || (!cwd.startsWith("/") && !isWindowsAbsolutePath(cwd))) throw new Error("cwd must be an absolute path");
@@ -36,11 +37,17 @@ export async function POST(request: NextRequest) {
     } else {
       const agentDir = getAgentDir();
       const trustReloadOptions = projectTrustReloadOptions(cwd, agentDir);
+      const modelRuntime = await createDesktopModelRuntime({
+        authPath: `${agentDir}/auth.json`,
+        modelsPath: `${agentDir}/models.json`,
+      });
       const services = await createAgentSessionServices({
         cwd,
         agentDir,
+        modelRuntime,
         ...(trustReloadOptions ? { resourceLoaderReloadOptions: trustReloadOptions } : {}),
       });
+      await refreshDesktopProviderCatalogs(services.modelRuntime).catch(() => {});
       const scope = await resolveVisibleModels(
         services.modelRuntime,
         services.settingsManager.getEnabledModels(),

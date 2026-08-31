@@ -3,5 +3,8 @@
   "identifier": "default",
   "description": "Minimum permissions for the Pi Desktop window",
   "windows": ["main"],
-  "permissions": []
+  "remote": {
+    "urls": ["http://127.0.0.1:*"]
+  },
+  "permissions": ["notification:default"]
 }

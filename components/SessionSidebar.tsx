@@ -103,9 +103,8 @@ interface Props {
   onExplorerRefresh?: () => void;
   onAtMention?: (relativePath: string, isDir: boolean) => void;
   onAtMentions?: (relativePaths: string[]) => void;
-  /** Fired when a session that is not currently selected finishes running.
-   *  Lets the app play a cross-workspace completion tone. */
-  onBackgroundTaskDone?: () => void;
+  /** Fired when sessions that are not currently selected finish running. */
+  onBackgroundTaskDone?: (sessions: SessionInfo[]) => void;
   onRunningSessionIdsChange?: (ids: Set<string>) => void;
   onProjectGitStateChange?: (isGit: boolean | null) => void;
   onGenerateTitle?: (sessionId: string) => void;
@@ -597,6 +596,21 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     };
   }, []);
 
+  // Keep receiving completion changes while the window is in the background.
+  // Visible-tab polling above remains a fallback for browsers that interrupt SSE.
+  useEffect(() => {
+    const events = new EventSource("/api/agent/running/events");
+    events.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data) as { runningSessionIds?: string[] };
+        setRunningSessionIds(new Set(data.runningSessionIds ?? []));
+      } catch {
+        // Ignore malformed frames; EventSource reconnects after transient failures.
+      }
+    };
+    return () => events.close();
+  }, []);
+
   useEffect(() => {
     onRunningSessionIdsChange?.(runningSessionIds);
   }, [onRunningSessionIdsChange, runningSessionIds]);
@@ -621,7 +635,12 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       loadSessions(false, true);
     }
     if (completedInBackground.length > 0) {
-      onBackgroundTaskDone?.();
+      onBackgroundTaskDone?.(
+        completedInBackground.flatMap((id) => {
+          const session = allSessions.find((candidate) => candidate.id === id);
+          return session ? [session] : [];
+        }),
+      );
     }
 
     previousRunningSessionIdsRef.current = runningSessionIds;

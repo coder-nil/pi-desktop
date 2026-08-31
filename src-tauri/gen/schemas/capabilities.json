@@ -1,1 +1,1 @@
-{"default":{"identifier":"default","description":"Minimum permissions for the Pi Desktop window","local":true,"windows":["main"],"permissions":[]}}
+{"default":{"identifier":"default","description":"Minimum permissions for the Pi Desktop window","remote":{"urls":["http://127.0.0.1:*"]},"local":true,"windows":["main"],"permissions":["notification:default"]}}

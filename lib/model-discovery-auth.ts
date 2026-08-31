@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { createDesktopModelRuntime } from "./desktop-providers";
 
 export interface ModelDiscoveryAuth {
   apiKey?: string;
@@ -25,6 +25,7 @@ export async function resolveModelDiscoveryAuth(
   try {
     tempDir = mkdtempSync(join(tmpdir(), "pi-desktop-model-discovery-"));
     const modelsPath = join(tempDir, "models.json");
+    const authPath = join(tempDir, "auth.json");
     const discoveryModelId = "__pi_web_model_discovery__";
     writeFileSync(modelsPath, JSON.stringify({
       providers: {
@@ -35,7 +36,7 @@ export async function resolveModelDiscoveryAuth(
       },
     }, null, 2), "utf8");
 
-    const modelRuntime = await ModelRuntime.create({ modelsPath });
+    const modelRuntime = await createDesktopModelRuntime({ authPath, modelsPath });
     const loadError = modelRuntime.getError();
     if (loadError) throw new Error(loadError);
     const model = modelRuntime.getModel(providerName, discoveryModelId);

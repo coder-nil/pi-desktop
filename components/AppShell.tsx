@@ -24,6 +24,7 @@ import {
   shouldShowBrowserNotification,
   showBrowserNotification,
 } from "@/lib/browser-notifications";
+import { isDesktopShell, showDesktopNotification } from "@/lib/desktop-notifications";
 import { getInitialNavigation } from "@/lib/initial-navigation";
 import {
   clearLastOpen,
@@ -78,9 +79,6 @@ export function AppShell() {
   // is not mounted. ChatWindow receives the audio callbacks as props.
   const { soundEnabled, onSoundToggle, playDoneSound, unlockAudio, soundEnabledRef } = useAudio();
   const notifiedAttentionRequestIdsRef = useRef(new Set<string>());
-  const handleBackgroundTaskDone = useCallback(() => {
-    if (soundEnabledRef.current) playDoneSound();
-  }, [playDoneSound, soundEnabledRef]);
   const [selectedSession, setSelectedSession] = useState<SessionInfo | null>(null);
   const [runningSessionIds, setRunningSessionIds] = useState<Set<string>>(() => new Set());
   const handleRunningSessionIdsChange = useCallback((ids: Set<string>) => {
@@ -675,6 +673,10 @@ export function AppShell() {
     body: string;
     tag?: string;
   }) => {
+    if (isDesktopShell()) {
+      showDesktopNotification({ title, body });
+      return;
+    }
     if (!("Notification" in window)) return;
 
     const fire = () => {
@@ -698,6 +700,19 @@ export function AppShell() {
     }
   }, [handleSelectSession]);
 
+  const handleBackgroundTaskDone = useCallback((sessions: SessionInfo[]) => {
+    if (soundEnabledRef.current) playDoneSound();
+    if (!shouldShowBrowserNotification()) return;
+    for (const session of sessions) {
+      deliverSessionNotification({
+        targetSession: session,
+        title: session.name ?? translate("i18n.sessionComplete"),
+        body: translate("i18n.taskFinished"),
+        tag: `pi-session-complete:${session.id}`,
+      });
+    }
+  }, [deliverSessionNotification, playDoneSound, soundEnabledRef, translate]);
+
   const handleAgentEnd = useCallback(() => {
     setRefreshKey((k) => k + 1);
     setExplorerRefreshKey((k) => k + 1);
@@ -709,6 +724,7 @@ export function AppShell() {
       targetSession,
       title: targetSession?.name ?? translate("i18n.sessionComplete"),
       body: translate("i18n.taskFinished"),
+      tag: targetSession ? `pi-session-complete:${targetSession.id}` : undefined,
     });
   }, [deliverSessionNotification, hydrateSelectedSession, selectedSession, translate]);
 

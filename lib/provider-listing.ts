@@ -27,6 +27,8 @@ export interface ProviderListingInput {
   id: string;
   /** Provider display name (`provider.name`). */
   name: string;
+  /** API endpoint used to derive a favicon for providers without a bundled icon. */
+  baseUrl?: string;
   /** True when the provider declares an API-key login method. */
   hasApiKeyLogin: boolean;
   /** True when the provider declares an OAuth login method. */
@@ -43,6 +45,7 @@ export interface ProviderListingInput {
 export interface ApiKeyProviderListing {
   id: string;
   displayName: string;
+  baseUrl?: string;
   configured: boolean;
   source?: string;
   modelCount: number;
@@ -53,6 +56,7 @@ export interface ApiKeyProviderListing {
 export interface OAuthProviderListing {
   id: string;
   name: string;
+  baseUrl?: string;
   usesCallbackServer: boolean;
   loggedIn: boolean;
   /** True when the same provider can also be authenticated with an API key. */
@@ -90,6 +94,7 @@ export function buildApiKeyProviderList(
     result.push({
       id: provider.id,
       displayName: provider.name,
+      ...(provider.baseUrl ? { baseUrl: provider.baseUrl } : {}),
       configured,
       ...(configured && provider.status.source ? { source: provider.status.source } : {}),
       modelCount: provider.modelCount,
@@ -109,6 +114,7 @@ export function buildOAuthProviderList(
     result.push({
       id: provider.id,
       name: OAUTH_DISPLAY_NAMES[provider.id] ?? provider.oauthName ?? provider.name,
+      ...(provider.baseUrl ? { baseUrl: provider.baseUrl } : {}),
       usesCallbackServer: false,
       loggedIn: provider.credentialType === "oauth",
       supportsApiKey: provider.hasApiKeyLogin,

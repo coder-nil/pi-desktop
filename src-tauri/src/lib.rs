@@ -379,6 +379,7 @@ fn force_kill(child: &mut Child) {
 
 pub fn run() {
     let app = tauri::Builder::default()
+        .plugin(tauri_plugin_notification::init())
         .manage(ServerState(Mutex::new(None)))
         .setup(|app| {
             let handle = app.handle().clone();

@@ -355,6 +355,17 @@ test("routes blocking extension requests through deduplicated browser attention 
   assert.match(appShellSource, /onAttentionNeeded=\{handleAttentionNeeded\}/);
 });
 
+test("delivers task-completion notifications only while the app lacks focus", () => {
+  const completionSource = appShellSource.slice(
+    appShellSource.indexOf("  const handleAgentEnd = useCallback"),
+    appShellSource.indexOf("  const handleAttentionNeeded = useCallback"),
+  );
+
+  assert.match(completionSource, /if \(!shouldShowBrowserNotification\(\)\) return/);
+  assert.match(completionSource, /tag: targetSession \? `pi-session-complete:\$\{targetSession\.id\}` : undefined/);
+  assert.match(appShellSource, /if \(isDesktopShell\(\)\) \{[\s\S]*?showDesktopNotification\(\{ title, body \}\)/);
+});
+
 test("keeps live following cancellable when the user scrolls away from the tail", () => {
   const streamUpdateSource = source.slice(
     source.indexOf('case "message_start"'),

@@ -11,6 +11,7 @@ import {
 import { resolveVisibleModels, selectInitialModelScope } from "@/lib/model-scope";
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
 import { projectTrustReloadOptions } from "@/lib/project-trust";
+import { createDesktopModelRuntime, refreshDesktopProviderCatalogs } from "@/lib/desktop-providers";
 
 export const dynamic = "force-dynamic";
 
@@ -37,11 +38,17 @@ async function loadModels(cwd: string): Promise<ModelsData> {
   // runs a repository's .pi/extensions factories, so honor project trust here
   // too (see lib/project-trust.ts, #236).
   const trustReloadOptions = projectTrustReloadOptions(cwd, agentDir);
+  const modelRuntime = await createDesktopModelRuntime({
+    authPath: resolve(agentDir, "auth.json"),
+    modelsPath: resolve(agentDir, "models.json"),
+  });
   const services = await createAgentSessionServices({
     cwd,
     agentDir,
+    modelRuntime,
     ...(trustReloadOptions ? { resourceLoaderReloadOptions: trustReloadOptions } : {}),
   });
+  await refreshDesktopProviderCatalogs(services.modelRuntime).catch(() => {});
   const modelError = services.modelRuntime.getError();
   const settings: SettingsManager = services.settingsManager;
   // `enabledModels` supports globs and fuzzy patterns, so resolve it the same

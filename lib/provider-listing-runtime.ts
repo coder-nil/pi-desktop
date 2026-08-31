@@ -25,6 +25,7 @@ export async function collectProviderListingInputs(
   return modelRuntime.getProviders().map((provider) => ({
     id: provider.id,
     name: provider.name,
+    ...(provider.baseUrl ? { baseUrl: provider.baseUrl } : {}),
     hasApiKeyLogin: Boolean(provider.auth.apiKey?.login),
     hasOAuth: Boolean(provider.auth.oauth),
     ...(provider.auth.oauth?.name ? { oauthName: provider.auth.oauth.name } : {}),

@@ -102,6 +102,7 @@ const PROVIDER_ICONS: Record<string, { Icon: IconComponent; hasColor: boolean }>
 interface OAuthProvider {
   id: string;
   name: string;
+  baseUrl?: string;
   usesCallbackServer: boolean;
   loggedIn: boolean;
   /** Provider also accepts an API key, so it appears in both picker sections. */
@@ -111,6 +112,7 @@ interface OAuthProvider {
 interface ApiKeyProvider {
   id: string;
   displayName: string;
+  baseUrl?: string;
   configured: boolean;
   source?: string;
   modelCount: number;
@@ -1711,36 +1713,81 @@ function ApiKeyDetail({ provider, onRefresh }: { provider: ApiKeyProvider; onRef
 
 // ── Provider icon ─────────────────────────────────────────────────────────────
 
-function ProviderIcon({ id, size }: { id: string; size: number }) {
+function faviconUrl(baseUrl?: string): string | undefined {
+  if (!baseUrl) return undefined;
+  try {
+    return `${new URL(baseUrl).origin}/favicon.ico`;
+  } catch {
+    return undefined;
+  }
+}
+
+const PROVIDER_ICON_URLS: Record<string, string> = {
+  apisets: "https://coding.apisets.com/favicon.svg",
+};
+
+function ProviderInitials({ id, size }: { id: string; size: number }) {
+  const label = id
+    .split(/[-_]/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase() || "?";
+  return (
+    <span
+      aria-hidden="true"
+      style={{
+        width: size,
+        height: size,
+        border: "1px solid var(--border)",
+        borderRadius: 4,
+        color: "var(--text-dim)",
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        flexShrink: 0,
+        fontSize: Math.max(8, Math.floor(size * 0.42)),
+        fontWeight: 700,
+        lineHeight: 1,
+      }}
+    >
+      {label}
+    </span>
+  );
+}
+
+function FaviconIcon({ id, baseUrl, size }: { id: string; baseUrl: string; size: number }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) return <ProviderInitials id={id} size={size} />;
+
+  return (
+    <img
+      src={baseUrl}
+      alt=""
+      width={size}
+      height={size}
+      onError={() => setFailed(true)}
+      style={{
+        width: size,
+        height: size,
+        border: "1px solid var(--border)",
+        borderRadius: 4,
+        flexShrink: 0,
+        objectFit: "contain",
+      }}
+    />
+  );
+}
+
+function ProviderIcon({ id, baseUrl, size }: { id: string; baseUrl?: string; size: number }) {
   const pi = PROVIDER_ICONS[id];
   if (!pi) {
-    const label = id
-      .split(/[-_]/)
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((part) => part[0])
-      .join("")
-      .toUpperCase() || "?";
-    return (
-      <span
-        aria-hidden="true"
-        style={{
-          width: size,
-          height: size,
-          border: "1px solid var(--border)",
-          borderRadius: 4,
-          color: "var(--text-dim)",
-          display: "inline-flex",
-          alignItems: "center",
-          justifyContent: "center",
-          flexShrink: 0,
-          fontSize: Math.max(8, Math.floor(size * 0.42)),
-          fontWeight: 700,
-          lineHeight: 1,
-        }}
-      >
-        {label}
-      </span>
+    const favicon = PROVIDER_ICON_URLS[id] ?? faviconUrl(baseUrl);
+    return favicon ? (
+      <FaviconIcon id={id} baseUrl={favicon} size={size} />
+    ) : (
+      <ProviderInitials id={id} size={size} />
     );
   }
   // Color icons: self-colored SVG, no wrapper needed
@@ -1856,7 +1903,7 @@ function AddProviderPicker({
                     <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text)", lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</div>
                     <div style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>OAuth</div>
                   </div>
-                  <ProviderIcon id={p.id} size={28} />
+                  <ProviderIcon id={p.id} baseUrl={p.baseUrl} size={28} />
                 </button>
               ))}
 
@@ -1873,7 +1920,7 @@ function AddProviderPicker({
                     <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text)", lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.displayName}</div>
                     <div style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>{p.modelCount} models</div>
                   </div>
-                  <ProviderIcon id={p.id} size={28} />
+                  <ProviderIcon id={p.id} baseUrl={p.baseUrl} size={28} />
                 </button>
               ))}
 
@@ -2003,7 +2050,12 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
       for (const discoveredModel of discovered) {
         if (existingIds.has(discoveredModel.id)) continue;
         existingIds.add(discoveredModel.id);
-        models.push({ id: discoveredModel.id, name: discoveredModel.name });
+        models.push({
+          id: discoveredModel.id,
+          ...(discoveredModel.name ? { name: discoveredModel.name } : {}),
+          ...(discoveredModel.contextWindow ? { contextWindow: discoveredModel.contextWindow } : {}),
+          ...(discoveredModel.maxTokens ? { maxTokens: discoveredModel.maxTokens } : {}),
+        });
       }
       return { ...prev, providers: { ...(prev.providers ?? {}), [providerName]: { ...provider, models } } };
     });
@@ -2133,7 +2185,7 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
                     onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = "var(--bg-hover)"; }}
                     onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = "none"; }}
                   >
-                    <ProviderIcon id={p.id} size={16} />
+                    <ProviderIcon id={p.id} baseUrl={p.baseUrl} size={16} />
                     <span style={{ fontSize: 12, color: "var(--text)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
                   </div>
                 );
@@ -2150,7 +2202,7 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
                     onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = "var(--bg-hover)"; }}
                     onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = "none"; }}
                   >
-                    <ProviderIcon id={p.id} size={16} />
+                    <ProviderIcon id={p.id} baseUrl={p.baseUrl} size={16} />
                     <span style={{ fontSize: 12, color: "var(--text)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.displayName}</span>
                   </div>
                 );
