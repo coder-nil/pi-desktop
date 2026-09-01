@@ -9,7 +9,7 @@ const jiti = createJiti(import.meta.url, {
   jsx: { runtime: "automatic" },
   tsconfigPaths: true,
 });
-const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, buildComposerMessage, canRestoreUserMessage, filterModelOptions, getSlashCommandTagKind, getUpwardMenuMaxHeight, getUserMessageText, getUserMessageDraftImages, parseSelectedAtMention, parseSelectedAtMentions } = await jiti.import("./ChatInput.tsx");
+const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, buildComposerMessage, buildSkillMenuGroups, canRestoreUserMessage, filterModelOptions, getSlashCommandTagKind, getUpwardMenuMaxHeight, getUserMessageText, getUserMessageDraftImages, parseSelectedAtMention, parseSelectedAtMentions } = await jiti.import("./ChatInput.tsx");
 const { clearDraft, getDraft, mergeRestoredSubmissionDraft, mergeRestoredSubmissionText, rekeyDraft, setDraft } = await jiti.import("../lib/draft-store.ts");
 const { I18nProvider } = await jiti.import("../hooks/useI18n.tsx");
 const source = await readFile(new URL("./ChatInput.tsx", import.meta.url), "utf8");
@@ -35,6 +35,34 @@ test("classifies slash command tags by resource kind", () => {
   assert.equal(getSlashCommandTagKind({ name: "inspect", description: "", source: "extension", sourceInfo: { path: "/tmp/mcp-server.ts", source: "mcp", scope: "user", origin: "top-level" } }), "mcp");
   assert.equal(getSlashCommandTagKind({ name: "deploy", description: "", source: "extension", sourceInfo: { path: "/tmp/pi-plugin/index.ts", source: "pi-plugin", scope: "user", origin: "package" } }), "plugin");
   assert.equal(getSlashCommandTagKind({ name: "reload", description: "", source: "builtin" }), "command");
+});
+
+test("groups searchable skills by source and keeps dormant skills last", () => {
+  const makeSkill = (name, description, source, scope, disableModelInvocation = false) => ({
+    name,
+    description,
+    filePath: `/tmp/${name}/SKILL.md`,
+    baseDir: `/tmp/${name}`,
+    disableModelInvocation,
+    sourceInfo: { source, scope },
+  });
+  const groups = buildSkillMenuGroups([
+    makeSkill("project-review", "Review project code", "project", "project"),
+    makeSkill("imagegen", "Generate images", "official", "user"),
+    makeSkill("dormant-docs", "Write documentation", "user", "user", true),
+    makeSkill("active-docs", "Search documentation", "user", "user"),
+  ], "");
+
+  assert.deepEqual(groups.map((group) => group.id), ["official", "project", "global"]);
+  assert.deepEqual(groups.find((group) => group.id === "global").skills.map((skill) => skill.name), [
+    "active-docs",
+    "dormant-docs",
+  ]);
+  assert.deepEqual(
+    buildSkillMenuGroups(groups.flatMap((group) => group.skills), "generate")
+      .flatMap((group) => group.skills.map((skill) => skill.name)),
+    ["imagegen"],
+  );
 });
 
 test("turns completed @ references into removable composer tags", () => {

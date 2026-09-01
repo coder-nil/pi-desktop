@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { sendAgentCommand } from "@/lib/agent-client";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import type { PluginCatalogEntry } from "@/lib/plugin-catalog";
 import type { PluginPackageInfo, PluginsResponse } from "@/lib/api-types";
 import { useI18n } from "@/hooks/useI18n";
 
@@ -285,6 +286,235 @@ function SegmentedScope({
   );
 }
 
+function PluginCatalogPanel({
+  scope,
+  onScopeChange,
+  projectResourcesLoaded,
+  installedPackages,
+  busySource,
+  actionError,
+  actionMessage,
+  onInstall,
+}: {
+  scope: PluginScope;
+  onScopeChange: (scope: PluginScope) => void;
+  projectResourcesLoaded: boolean;
+  installedPackages: PluginPackageInfo[];
+  busySource: string | null;
+  actionError: string | null;
+  actionMessage: string | null;
+  onInstall: (source: string) => void;
+}) {
+  const { locale, t } = useI18n();
+  const [query, setQuery] = useState("");
+  const [plugins, setPlugins] = useState<PluginCatalogEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [nextFrom, setNextFrom] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const [translatingNames, setTranslatingNames] = useState<Set<string>>(() => new Set());
+
+  const translateMissingDescriptions = useCallback(async (entries: PluginCatalogEntry[], signal?: AbortSignal) => {
+    const missing = entries.filter((entry) => locale === "zh-CN"
+      ? entry.descriptionLanguage !== "zh-CN" && !entry.descriptionZh
+      : entry.descriptionLanguage !== "en" && !entry.descriptionEn);
+    if (missing.length === 0) return;
+    const names = new Set(missing.map((entry) => entry.name));
+    setTranslatingNames((current) => new Set([...current, ...names]));
+    try {
+      const response = await fetch("/api/plugins/catalog/translate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          targetLanguage: locale,
+          plugins: missing.map(({ name, description }) => ({ name, description })),
+        }),
+        signal,
+      });
+      const data = await response.json() as {
+        translations?: Record<string, Pick<PluginCatalogEntry, "descriptionZh" | "descriptionZhSource" | "descriptionEn" | "descriptionEnSource">>;
+      };
+      if (!response.ok || !data.translations) return;
+      setPlugins((current) => current.map((plugin) => {
+        const translation = data.translations?.[plugin.name];
+        return translation ? { ...plugin, ...translation } : plugin;
+      }));
+    } catch (err) {
+      if (!(err instanceof DOMException && err.name === "AbortError")) {
+        console.warn("Failed to translate plugin descriptions:", err);
+      }
+    } finally {
+      setTranslatingNames((current) => new Set([...current].filter((name) => !names.has(name))));
+    }
+  }, [locale]);
+
+  const load = useCallback(async (from: number, append: boolean, signal?: AbortSignal) => {
+    if (append) setLoadingMore(true);
+    else setLoading(true);
+    setError(null);
+    try {
+      const params = new URLSearchParams({ q: query, from: String(from), size: "40" });
+      const response = await fetch(`/api/plugins/catalog?${params.toString()}`, { signal });
+      const data = await response.json() as {
+        plugins?: PluginCatalogEntry[];
+        from?: number;
+        size?: number;
+        hasMore?: boolean;
+        error?: string;
+      };
+      if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
+      const incoming = data.plugins ?? [];
+      setPlugins((current) => {
+        if (!append) return incoming;
+        const seen = new Set(current.map((plugin) => plugin.name));
+        return [...current, ...incoming.filter((plugin) => !seen.has(plugin.name))];
+      });
+      const pageFrom = data.from ?? from;
+      setNextFrom(pageFrom + (data.size ?? 40));
+      setHasMore(Boolean(data.hasMore));
+      void translateMissingDescriptions(incoming, signal);
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      if (append) setLoadingMore(false);
+      else setLoading(false);
+    }
+  }, [query, translateMissingDescriptions]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      setPlugins([]);
+      setNextFrom(0);
+      setHasMore(false);
+      void load(0, false, controller.signal);
+    }, query ? 260 : 0);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [load, query]);
+
+  const isInstalled = useCallback((plugin: PluginCatalogEntry) => installedPackages.some((pkg) => (
+    pkg.packageName === plugin.name || pkg.source === plugin.source || pkg.source.startsWith(`${plugin.source}@`)
+  )), [installedPackages]);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14, maxWidth: 700 }}>
+      <div>
+        <div style={{ fontSize: 15, fontWeight: 700, color: "var(--text)" }}>{t("i18n.discoverPlugins")}</div>
+        <div style={{ fontSize: 12, color: "var(--text-dim)", marginTop: 4, lineHeight: 1.45 }}>
+          {t("i18n.pluginCatalogIntro")}
+        </div>
+      </div>
+
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{t("i18n.installTo")}</span>
+        <SegmentedScope
+          value={scope}
+          projectResourcesLoaded={projectResourcesLoaded}
+          onChange={onScopeChange}
+        />
+      </div>
+
+      <div style={{ position: "relative" }}>
+        <input
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder={t("i18n.searchPlugins")}
+          aria-label={t("i18n.searchPlugins")}
+          style={{
+            width: "100%",
+            height: 36,
+            padding: "0 11px 0 34px",
+            border: "1px solid var(--border)",
+            borderRadius: 6,
+            background: "var(--bg-panel)",
+            color: "var(--text)",
+            fontSize: 13,
+            outline: "none",
+          }}
+        />
+        <span aria-hidden="true" style={{ position: "absolute", left: 11, top: 8, color: "var(--text-dim)", fontSize: 16 }}>⌕</span>
+      </div>
+
+      {actionMessage && <div role="status" style={{ fontSize: 12, color: "#16a34a" }}>{actionMessage}</div>}
+      {actionError && <div role="alert" style={{ fontSize: 12, color: "#ef4444", whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{actionError}</div>}
+
+      {loading ? (
+        <div style={{ padding: "20px 4px", color: "var(--text-muted)", fontSize: 12 }}>{t("i18n.pluginCatalogLoading")}</div>
+      ) : error ? (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, color: "#ef4444", fontSize: 12 }}>
+          <span style={{ overflowWrap: "anywhere" }}>{error}</span>
+          <button type="button" onClick={() => void load(0, false)} style={buttonStyle()}>{t("i18n.retry")}</button>
+        </div>
+      ) : plugins.length === 0 ? (
+        <div style={{ padding: "20px 4px", color: "var(--text-dim)", fontSize: 12 }}>{t("i18n.noPluginMatches")}</div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", borderTop: "1px solid var(--border)" }}>
+          {plugins.map((plugin) => {
+            const installed = isInstalled(plugin);
+            const busy = busySource === plugin.source;
+            const localizedDescription = locale === "zh-CN"
+              ? plugin.descriptionLanguage === "zh-CN" ? plugin.description : plugin.descriptionZh
+              : plugin.descriptionLanguage === "en" ? plugin.description : plugin.descriptionEn;
+            const machineTranslated = locale === "zh-CN"
+              ? plugin.descriptionZhSource === "machine"
+              : plugin.descriptionEnSource === "machine";
+            const showOriginal = Boolean(localizedDescription && localizedDescription !== plugin.description);
+            return (
+              <div key={plugin.name} style={{ display: "flex", gap: 12, alignItems: "flex-start", padding: "13px 0", borderBottom: "1px solid var(--border)" }}>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+                    <span style={{ fontFamily: "var(--font-mono)", fontSize: 13, fontWeight: 650, color: "var(--text)" }}>{plugin.name}</span>
+                    {plugin.version && <span style={{ fontSize: 10, color: "var(--text-dim)" }}>v{plugin.version}</span>}
+                  </div>
+                  <div style={{ marginTop: 5, fontSize: 12, color: "var(--text)", lineHeight: 1.45 }}>
+                    {localizedDescription ?? (
+                      <span style={{ color: "var(--text-dim)" }}>
+                        {translatingNames.has(plugin.name) ? t("i18n.translatingDescription") : t("i18n.noLocalizedDescription")}
+                      </span>
+                    )}
+                    {machineTranslated && (
+                      <span style={{ marginLeft: 7, fontSize: 10, color: "var(--text-dim)" }}>{t("i18n.machineTranslated")}</span>
+                    )}
+                  </div>
+                  {showOriginal && (
+                    <div style={{ marginTop: 4, fontSize: 11, color: "var(--text-muted)", lineHeight: 1.4 }}>
+                      {plugin.description}
+                    </div>
+                  )}
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 6, fontSize: 10, color: "var(--text-dim)" }}>
+                    {plugin.publisher && <span>{plugin.publisher}</span>}
+                    <a href={plugin.npmUrl} target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)", textDecoration: "none" }}>npm ↗</a>
+                    {plugin.repositoryUrl && <a href={plugin.repositoryUrl} target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)", textDecoration: "none" }}>source ↗</a>}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  disabled={installed || busy || (scope === "project" && !projectResourcesLoaded)}
+                  onClick={() => onInstall(plugin.source)}
+                  title={scope === "project" && !projectResourcesLoaded ? t("trust.projectScopeUnavailable") : undefined}
+                  style={{ ...buttonStyle(installed || busy), flexShrink: 0, minWidth: 68, color: installed ? "var(--text-dim)" : "white", background: installed ? "none" : "var(--accent)", borderColor: installed ? "var(--border)" : "var(--accent)" }}
+                >
+                  {busy ? t("i18n.installing") : installed ? t("i18n.installed") : t("i18n.install")}
+                </button>
+              </div>
+            );
+          })}
+          {hasMore && (
+            <button type="button" onClick={() => void load(nextFrom, true)} disabled={loadingMore} style={{ ...buttonStyle(loadingMore), alignSelf: "center", marginTop: 12 }}>
+              {loadingMore ? t("i18n.pluginCatalogLoading") : t("i18n.loadMorePlugins")}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AddPluginPanel({
   cwd,
   source,
@@ -292,9 +522,12 @@ function AddPluginPanel({
   projectResourcesLoaded,
   busy,
   actionError,
+  actionMessage,
   onSourceChange,
   onScopeChange,
   onInstall,
+  installedPackages,
+  onCatalogInstall,
 }: {
   cwd: string;
   source: string;
@@ -302,20 +535,32 @@ function AddPluginPanel({
   projectResourcesLoaded: boolean;
   busy: boolean;
   actionError: string | null;
+  actionMessage: string | null;
   onSourceChange: (value: string) => void;
   onScopeChange: (scope: PluginScope) => void;
   onInstall: () => void;
+  installedPackages: PluginPackageInfo[];
+  onCatalogInstall: (source: string) => void;
 }) {
   const { t } = useI18n();
-  const inputRef = useRef<HTMLInputElement>(null);
   const examples = ["npm:@scope/pi-plugin", "git:https://github.com/user/repo", "/absolute/path/to/plugin"];
 
-  useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
-
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 18, maxWidth: 660, minHeight: "100%" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 22, maxWidth: 700, minHeight: "100%" }}>
+      <PluginCatalogPanel
+        scope={scope}
+        onScopeChange={onScopeChange}
+        projectResourcesLoaded={projectResourcesLoaded}
+        installedPackages={installedPackages}
+        busySource={busy && source ? source : null}
+        actionError={actionError}
+        actionMessage={actionMessage}
+        onInstall={onCatalogInstall}
+      />
+
+      <details style={{ borderTop: "1px solid var(--border)", paddingTop: 14 }}>
+        <summary style={{ cursor: "pointer", color: "var(--text-muted)", fontSize: 12, fontWeight: 600 }}>{t("i18n.manualPluginInstall")}</summary>
+        <div style={{ display: "flex", flexDirection: "column", gap: 14, marginTop: 14 }}>
       <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text)" }}>
@@ -357,7 +602,6 @@ function AddPluginPanel({
         </label>
         <input
           id="plugin-source"
-          ref={inputRef}
           value={source}
           onChange={(e) => onSourceChange(e.target.value)}
           onPaste={(e) => {
@@ -388,11 +632,6 @@ function AddPluginPanel({
       </div>
 
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-        <SegmentedScope
-          value={scope}
-          projectResourcesLoaded={projectResourcesLoaded}
-          onChange={onScopeChange}
-        />
         <button
           type="button"
           onClick={onInstall}
@@ -451,6 +690,8 @@ function AddPluginPanel({
           {actionError}
         </div>
       )}
+        </div>
+      </details>
     </div>
   );
 }
@@ -704,8 +945,8 @@ export function PluginsConfig({
     }
   }, [cwd]);
 
-  const installPlugin = useCallback(async () => {
-    const source = normalizePluginSourceInput(installSource).trim();
+  const installPlugin = useCallback(async (sourceOverride?: string) => {
+    const source = normalizePluginSourceInput(sourceOverride ?? installSource).trim();
     if (!source) return;
     setInstallSource(source);
     const key = `${installScope}\0${source}`;
@@ -1020,9 +1261,15 @@ export function PluginsConfig({
                 projectResourcesLoaded={projectResourcesLoaded}
                 busy={addBusy}
                 actionError={actionError}
+                actionMessage={actionMessage}
                 onSourceChange={setInstallSource}
                 onScopeChange={setInstallScope}
                 onInstall={installPlugin}
+                installedPackages={packages}
+                onCatalogInstall={(source) => {
+                  setInstallSource(source);
+                  void installPlugin(source);
+                }}
               />
             ) : loading ? null : selectedPackage ? (
               <PackageDetail

@@ -2,7 +2,7 @@
 
 import React, { useRef, useState, useCallback, useEffect, useLayoutEffect, useImperativeHandle, forwardRef, KeyboardEvent } from "react";
 import type { BuiltinSlashCommandResult, CompactResultInfo, QueuedMessages, SlashCommandInfo } from "@/hooks/useAgentSession";
-import type { SkillsResponse } from "@/lib/api-types";
+import type { SkillInfo, SkillsResponse } from "@/lib/api-types";
 import type { TextContent, UserMessage } from "@/lib/types";
 import {
   clearDraft,
@@ -165,6 +165,12 @@ type SlashCommandPaletteItem = SlashCommandInfo | {
 type SlashCommandSource = SlashCommandPaletteItem["source"];
 type SelectedSlashCommand = ChatDraftCommand;
 type SelectedAtMention = ChatDraftMention;
+type SkillMenuGroupId = "official" | "project" | "global" | "other";
+
+export interface SkillMenuGroup {
+  id: SkillMenuGroupId;
+  skills: SkillInfo[];
+}
 
 const BUILTIN_SLASH_COMMANDS: SlashCommandPaletteItem[] = [
   { name: "compact", description: "chat.commandCompact", source: "builtin" },
@@ -267,6 +273,35 @@ export function buildComposerMessage(
 function isDormantSkillCommand(command: SlashCommandPaletteItem, dormancy: Record<string, boolean>): boolean {
   if (command.source !== "skill" || !command.name.startsWith("skill:")) return false;
   return dormancy[command.name.slice("skill:".length)] === true;
+}
+
+function getSkillMenuGroupId(skill: SkillInfo): SkillMenuGroupId {
+  const source = skill.sourceInfo?.source?.toLowerCase() ?? "";
+  const scope = skill.sourceInfo?.scope?.toLowerCase() ?? "";
+  const normalizedPath = skill.filePath.replaceAll("\\", "/").toLowerCase();
+  if (
+    source === "builtin" ||
+    source === "sdk" ||
+    source === "system" ||
+    source === "official" ||
+    source.includes("official") ||
+    normalizedPath.includes("/.codex/skills/.system/")
+  ) return "official";
+  if (scope === "project" || source === "project") return "project";
+  if (scope === "user" || source === "user") return "global";
+  return "other";
+}
+
+export function buildSkillMenuGroups(skills: SkillInfo[], query: string): SkillMenuGroup[] {
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const filtered = skills
+    .filter((skill) => !normalizedQuery || `${skill.name} ${skill.description}`.toLocaleLowerCase().includes(normalizedQuery))
+    .sort((a, b) => Number(a.disableModelInvocation) - Number(b.disableModelInvocation)
+      || MODEL_OPTION_COLLATOR.compare(a.name, b.name));
+  const groupOrder: SkillMenuGroupId[] = ["official", "project", "global", "other"];
+  return groupOrder
+    .map((id) => ({ id, skills: filtered.filter((skill) => getSkillMenuGroupId(skill) === id) }))
+    .filter((group) => group.skills.length > 0);
 }
 
 export function buildSlashCommandLayout(
@@ -498,6 +533,14 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const skillDormancy = cwd && skillDormancyState?.cwd === cwd
     ? skillDormancyState.values
     : {};
+  const [skillMenuOpen, setSkillMenuOpen] = useState(false);
+  const [skillFilter, setSkillFilter] = useState("");
+  const [skillMenuState, setSkillMenuState] = useState<{
+    cwd: string;
+    skills: SkillInfo[];
+  } | null>(null);
+  const [skillMenuLoading, setSkillMenuLoading] = useState(false);
+  const [skillMenuError, setSkillMenuError] = useState<string | null>(null);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -506,6 +549,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const thinkingDropdownRef = useRef<HTMLDivElement>(null);
   const controlsMenuRef = useRef<HTMLDivElement>(null);
   const historyMenuRef = useRef<HTMLDivElement>(null);
+  const skillMenuRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isComposingRef = useRef(false);
   const lastCompositionEndAtRef = useRef(0);
@@ -1090,6 +1134,33 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     });
   }, []);
 
+  const loadSkillMenu = useCallback(async () => {
+    if (!cwd) return;
+    const requestCwd = cwd;
+    setSkillMenuLoading(true);
+    setSkillMenuError(null);
+    try {
+      const res = await fetch(`/api/skills?cwd=${encodeURIComponent(requestCwd)}`);
+      if (!res.ok) throw new Error(`skills fetch failed: ${res.status}`);
+      const data = await res.json() as Partial<SkillsResponse>;
+      setSkillMenuState({ cwd: requestCwd, skills: data.skills ?? [] });
+    } catch (error) {
+      setSkillMenuError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSkillMenuLoading(false);
+    }
+  }, [cwd]);
+
+  const applySkill = useCallback((skill: SkillInfo) => {
+    applySlashCommand({
+      name: `skill:${skill.name}`,
+      description: skill.description,
+      source: "skill",
+    });
+    setSkillMenuOpen(false);
+    setSkillFilter("");
+  }, [applySlashCommand]);
+
   const removeSelectedSlashCommand = useCallback(() => {
     setSelectedSlashCommand(null);
     requestAnimationFrame(() => textareaRef.current?.focus());
@@ -1366,6 +1437,12 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   }, [slashMenuOpen, cwd]);
 
   useEffect(() => {
+    setSkillMenuOpen(false);
+    setSkillFilter("");
+    setSkillMenuError(null);
+  }, [cwd]);
+
+  useEffect(() => {
     if (slashActiveIndex >= displayedSlashCommands.length) {
       setSlashActiveIndex(Math.max(0, displayedSlashCommands.length - 1));
     }
@@ -1463,6 +1540,15 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     return thinkingLevelMap[lvl] ?? lvl;
   })();
   const toolPresetLabel = Object.entries(TOOL_PRESET_MAP).find(([, v]) => v === (toolPreset ?? "default"))?.[0] ?? "default";
+  const skillMenuSkills = cwd && skillMenuState?.cwd === cwd ? skillMenuState.skills : [];
+  const skillMenuGroups = buildSkillMenuGroups(skillMenuSkills, skillFilter);
+  const skillMenuMatchCount = skillMenuGroups.reduce((count, group) => count + group.skills.length, 0);
+  const skillMenuGroupLabels: Record<SkillMenuGroupId, string> = {
+    official: t("chat.officialSkills"),
+    project: t("chat.projectSkills"),
+    global: t("chat.globalSkills"),
+    other: t("chat.otherSkills"),
+  };
 
   // Close dropdowns on outside click
   useEffect(() => {
@@ -1485,6 +1571,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       }
       if (historyMenuRef.current && !historyMenuRef.current.contains(e.target as Node) && !textareaRef.current?.contains(e.target as Node)) {
         setHistoryMenuOpen(false);
+      }
+      if (skillMenuRef.current && !skillMenuRef.current.contains(e.target as Node)) {
+        setSkillMenuOpen(false);
+        setSkillFilter("");
       }
     };
     document.addEventListener("mousedown", handler);
@@ -2083,7 +2173,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   gap: 4,
                   flexShrink: 1,
                   minWidth: 0,
-                  maxWidth: "min(42%, 320px)",
+                  maxWidth: isMobile ? "min(34%, 112px)" : "min(42%, 320px)",
                   padding: "4px 5px 4px 8px",
                   border: `1px solid ${tagStyle.border}`,
                   borderRadius: 6,
@@ -2189,7 +2279,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             onInput={handleInput}
             onPaste={handlePaste}
             placeholder={
-              isStreaming && (onSteer || onFollowUp)
+              isMobile && selectedSlashCommand
+                ? t("chat.commandArgsPlaceholder")
+                : isStreaming && (onSteer || onFollowUp)
                 ? t("chat.steerPlaceholder")
                 : isStreaming ? t("chat.agentPlaceholder")
                 : t("chat.messagePlaceholder")
@@ -2267,11 +2359,15 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             <button
               onClick={handleSend}
               disabled={!value.trim() && !attachedImages.length}
+              title={t("chat.send")}
+              aria-label={t("chat.send")}
               style={{
                 flexShrink: 0,
                 alignSelf: "flex-end",
-                display: "flex", alignItems: "center", gap: 6,
-                padding: "7px 14px",
+                display: "flex", alignItems: "center", justifyContent: "center", gap: isMobile ? 0 : 6,
+                width: isMobile ? 36 : undefined,
+                height: isMobile ? 36 : undefined,
+                padding: isMobile ? 0 : "7px 14px",
                 background: (value.trim() || attachedImages.length) ? "var(--accent)" : "var(--bg-panel)",
                 border: "none",
                 borderRadius: 8,
@@ -2288,7 +2384,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 <line x1="2" y1="7" x2="11" y2="7" />
                 <polyline points="7.5 3 12 7 7.5 11" />
               </svg>
-              {t("chat.send")}
+              {!isMobile && t("chat.send")}
             </button>
           )}
           </div>
@@ -2340,6 +2436,198 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 <polyline points="21 15 16 10 5 21" />
               </svg>
             </button>
+            <div ref={skillMenuRef} style={{ position: "relative", flexShrink: 0 }}>
+              <button
+                type="button"
+                disabled={!cwd}
+                title={t("chat.chooseSkill")}
+                aria-label={t("chat.chooseSkill")}
+                aria-expanded={skillMenuOpen}
+                onClick={() => {
+                  const nextOpen = !skillMenuOpen;
+                  setSkillMenuOpen(nextOpen);
+                  setSlashMenuOpen(false);
+                  setHistoryMenuOpen(false);
+                  setModelDropdownOpen(false);
+                  setModelFilter("");
+                  if (nextOpen) void loadSkillMenu();
+                  else setSkillFilter("");
+                }}
+                style={{
+                  height: 32,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 6,
+                  padding: "0 9px",
+                  background: skillMenuOpen ? "var(--bg-hover)" : "none",
+                  border: "none",
+                  borderRadius: 9,
+                  color: skillMenuOpen ? "var(--text)" : "var(--text-muted)",
+                  cursor: cwd ? "pointer" : "not-allowed",
+                  opacity: cwd ? 1 : 0.45,
+                  fontSize: 12,
+                  fontWeight: 500,
+                  whiteSpace: "nowrap",
+                  transition: "background 0.12s, color 0.12s",
+                }}
+                onMouseEnter={(e) => {
+                  if (!cwd) return;
+                  e.currentTarget.style.background = "var(--bg-hover)";
+                  e.currentTarget.style.color = "var(--text)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = skillMenuOpen ? "var(--bg-hover)" : "none";
+                  e.currentTarget.style.color = skillMenuOpen ? "var(--text)" : "var(--text-muted)";
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M9.5 3 8.2 6.2 5 7.5l3.2 1.3L9.5 12l1.3-3.2L14 7.5l-3.2-1.3L9.5 3Z" />
+                  <path d="m17.5 11-1 2.5L14 14.5l2.5 1 1 2.5 1-2.5 2.5-1-2.5-1-1-2.5Z" />
+                  <path d="m6 14-.8 2.2L3 17l2.2.8L6 20l.8-2.2L9 17l-2.2-.8L6 14Z" />
+                </svg>
+                <span>{t("chat.skills")}</span>
+              </button>
+
+              {skillMenuOpen && (
+                <div
+                  role="dialog"
+                  aria-label={t("chat.chooseSkill")}
+                  style={{
+                    position: "absolute",
+                    left: isMobile ? -48 : -34,
+                    bottom: "calc(100% + 8px)",
+                    zIndex: 500,
+                    width: "min(560px, calc(100vw - 32px))",
+                    maxHeight: "min(58vh, 460px)",
+                    display: "flex",
+                    flexDirection: "column",
+                    overflow: "hidden",
+                    background: "var(--bg)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 8,
+                    boxShadow: "0 -6px 20px rgba(0,0,0,0.12)",
+                  }}
+                >
+                  <div style={{ padding: 10, borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 8 }}>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text)" }}>
+                        {t("chat.skillsAvailable", { count: skillMenuSkills.length })}
+                      </span>
+                      {skillMenuLoading && (
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" style={{ animation: "spin 0.8s linear infinite", color: "var(--text-dim)" }} aria-hidden="true">
+                          <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+                        </svg>
+                      )}
+                    </div>
+                    <div style={{ position: "relative" }}>
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true" style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)", color: "var(--text-dim)", pointerEvents: "none" }}>
+                        <circle cx="11" cy="11" r="7" />
+                        <path d="m20 20-4-4" />
+                      </svg>
+                      <input
+                        value={skillFilter}
+                        onChange={(e) => setSkillFilter(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Escape") {
+                            setSkillMenuOpen(false);
+                            setSkillFilter("");
+                            requestAnimationFrame(() => textareaRef.current?.focus());
+                          }
+                        }}
+                        placeholder={t("chat.searchSkills")}
+                        aria-label={t("chat.searchSkills")}
+                        autoFocus
+                        autoComplete="off"
+                        spellCheck={false}
+                        style={{
+                          width: "100%",
+                          height: 32,
+                          boxSizing: "border-box",
+                          padding: "0 10px 0 29px",
+                          border: "1px solid var(--border)",
+                          borderRadius: 6,
+                          outline: "none",
+                          background: "var(--bg-panel)",
+                          color: "var(--text)",
+                          fontSize: 12,
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  <div style={{ minHeight: 0, overflowY: "auto", padding: 8 }}>
+                    {skillMenuError && skillMenuSkills.length === 0 ? (
+                      <div style={{ padding: "18px 12px", textAlign: "center" }}>
+                        <div style={{ color: "var(--text-muted)", fontSize: 12, marginBottom: 8 }}>{t("chat.skillsLoadFailed")}</div>
+                        <button
+                          type="button"
+                          onClick={() => void loadSkillMenu()}
+                          style={{ padding: "5px 10px", border: "1px solid var(--border)", borderRadius: 6, background: "var(--bg-panel)", color: "var(--text)", cursor: "pointer", fontSize: 12 }}
+                        >
+                          {t("chat.retryPrompt")}
+                        </button>
+                      </div>
+                    ) : !skillMenuLoading && skillMenuSkills.length === 0 ? (
+                      <div style={{ padding: "18px 12px", textAlign: "center", color: "var(--text-dim)", fontSize: 12 }}>
+                        {t("chat.noSkillsAvailable")}
+                      </div>
+                    ) : !skillMenuLoading && skillMenuMatchCount === 0 ? (
+                      <div style={{ padding: "18px 12px", textAlign: "center", color: "var(--text-dim)", fontSize: 12 }}>
+                        {t("chat.noMatchingSkills")}
+                      </div>
+                    ) : (
+                      skillMenuGroups.map((group) => (
+                        <section key={group.id} style={{ marginBottom: 10 }}>
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "4px 6px", color: "var(--text-dim)", fontSize: 10, fontWeight: 600, textTransform: "uppercase" }}>
+                            <span>{skillMenuGroupLabels[group.id]}</span>
+                            <span style={{ fontFamily: "var(--font-mono)", fontWeight: 500 }}>{group.skills.length}</span>
+                          </div>
+                          <div>
+                            {group.skills.map((skill) => (
+                              <button
+                                key={skill.filePath}
+                                type="button"
+                                onClick={() => applySkill(skill)}
+                                title={`/skill:${skill.name}`}
+                                style={{
+                                  width: "100%",
+                                  minWidth: 0,
+                                  display: "grid",
+                                  gridTemplateColumns: "minmax(0, 1fr) auto",
+                                  gap: "3px 10px",
+                                  padding: "8px 9px",
+                                  border: "none",
+                                  borderRadius: 6,
+                                  background: "transparent",
+                                  color: "var(--text)",
+                                  cursor: "pointer",
+                                  textAlign: "left",
+                                }}
+                                onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-hover)"; }}
+                                onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+                              >
+                                <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: "var(--font-mono)", fontSize: 12.5, fontWeight: 600, color: skill.disableModelInvocation ? "var(--text-muted)" : "var(--text)" }}>
+                                  {skill.name}
+                                </span>
+                                {skill.disableModelInvocation && (
+                                  <span style={{ alignSelf: "start", padding: "1px 5px", borderRadius: 4, background: "var(--bg-selected)", color: "var(--text-dim)", fontSize: 9, fontWeight: 600, textTransform: "uppercase" }}>
+                                    {t("chat.dormant")}
+                                  </span>
+                                )}
+                                <span style={{ gridColumn: "1 / -1", minWidth: 0, display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitLineClamp: 2, overflow: "hidden", color: "var(--text-dim)", fontSize: 11.5, lineHeight: 1.4 }}>
+                                  {skill.description}
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        </section>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
             {/* Model selector — visible always, disabled while the session or switch is busy */}
             {(modelOptions.length > 0 || currentName || modelError) && onModelChange && (
                 <div ref={dropdownRef} style={{ position: "relative", flex: isMobile ? "1 1 auto" : undefined, minWidth: 0 }}>
