@@ -2486,7 +2486,6 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   <path d="m17.5 11-1 2.5L14 14.5l2.5 1 1 2.5 1-2.5 2.5-1-2.5-1-1-2.5Z" />
                   <path d="m6 14-.8 2.2L3 17l2.2.8L6 20l.8-2.2L9 17l-2.2-.8L6 14Z" />
                 </svg>
-                <span>{t("chat.skills")}</span>
               </button>
 
               {skillMenuOpen && (

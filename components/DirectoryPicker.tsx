@@ -106,9 +106,6 @@ export function DirectoryPicker({ onCancel, onSelect, initialPath = "", busy = f
       role="dialog"
       aria-modal="true"
       aria-label={t("directoryPicker.selectDirectory")}
-      onClick={(event) => {
-        if (event.target === event.currentTarget && !busy) onCancel();
-      }}
       onKeyDown={(event) => {
         if (event.key === "Escape" && !busy) onCancel();
       }}

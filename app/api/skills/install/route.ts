@@ -4,10 +4,15 @@ import { runNpx } from "@/lib/npx";
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 import { getProjectTrustStatus } from "@/lib/project-trust";
+import { formatSkillCommandOutput } from "@/lib/skill-command-output";
+import { getSystemProxyEnvironment } from "@/lib/system-proxy";
 
 export const dynamic = "force-dynamic";
 
-const ANSI_RE = /\x1B\[[0-9;]*m/g;
+// The skills CLI allows five minutes for a repository clone. Do not cut that
+// operation short here, and leave a small margin for the remaining install work.
+const SKILLS_INSTALL_TIMEOUT_MS = 310_000;
+const SKILLS_OUTPUT_MAX_BUFFER = 8 * 1024 * 1024;
 
 // POST /api/skills/install  body: { package: string; scope: "global" | "project"; cwd?: string }
 export async function POST(req: Request) {
@@ -38,15 +43,17 @@ export async function POST(req: Request) {
     }
     const args = ["skills", "add", pkg.trim(), "-y", "--agent", "pi"];
     if (isGlobal) args.push("-g");
+    const systemProxyEnv = await getSystemProxyEnvironment();
 
     console.log(`[skills/install] running: npx ${args.join(" ")}`);
     const { stdout, stderr } = await runNpx(args, {
-      timeout: 60000,
+      timeout: SKILLS_INSTALL_TIMEOUT_MS,
+      maxBuffer: SKILLS_OUTPUT_MAX_BUFFER,
       cwd: !isGlobal && cwd ? cwd : undefined,
-      env: { ...process.env, FORCE_COLOR: "0" },
+      env: { ...process.env, ...systemProxyEnv, FORCE_COLOR: "0", GIT_TERMINAL_PROMPT: "0" },
     });
 
-    const output = (stdout + stderr).replace(ANSI_RE, "");
+    const output = formatSkillCommandOutput(stdout + stderr);
     const success = /Installation complete|Installed \d+ skill/.test(output);
     if (!success) {
       return NextResponse.json({ error: output.slice(-300) || "Install failed" }, { status: 500 });
@@ -54,7 +61,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ success: true, output });
   } catch (e: unknown) {
     const err = e as { stdout?: string; stderr?: string; message?: string };
-    const output = ((err.stdout ?? "") + (err.stderr ?? "")).replace(ANSI_RE, "");
+    const output = formatSkillCommandOutput((err.stdout ?? "") + (err.stderr ?? ""));
     return NextResponse.json({ error: output || (err.message ?? String(e)) }, { status: 500 });
   }
 }

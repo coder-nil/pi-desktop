@@ -20,6 +20,7 @@ export interface BrowserNotificationOptions {
   sessionUrl: string;
   onClick: () => void;
   tag?: string;
+  icon?: string;
 }
 
 export type NotificationDelivery = "service-worker" | "window" | null;
@@ -73,6 +74,7 @@ export async function showBrowserNotification(
   const notificationOptions: NotificationOptions = {
     body: options.body,
     ...(options.tag ? { tag: options.tag } : {}),
+    ...(options.icon ? { icon: options.icon } : {}),
   };
 
   if (environment.getServiceWorkerRegistration) {

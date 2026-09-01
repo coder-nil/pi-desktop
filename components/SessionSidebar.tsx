@@ -7,7 +7,6 @@ import { loadExplorerOpen, saveExplorerOpen } from "@/lib/file-explorer-state";
 import { dispatchSessionRowContextMenu } from "@/lib/session-row-context-menu";
 import { skillExpansionToCommand } from "@/lib/slash-display";
 import { getProjectActivity, getRecentProjects, sessionsForProject } from "@/lib/project-groups";
-import { addProjectHistory, getHiddenProjectHistory, hideProjectHistory, getProjectHistory, removeProjectHistory } from "@/lib/project-history";
 import { workspaceKeyOf } from "@/lib/workspace-memory";
 import { getFileName } from "@/lib/file-paths";
 import type { SessionSearchMatch } from "@/lib/session-search";
@@ -159,6 +158,13 @@ interface ValidatedProject {
   cwd: string;
   root: string;
   key: string;
+}
+
+interface AddedProject {
+  projectKey: string;
+  projectRoot: string;
+  cwd: string;
+  addedAt: string;
 }
 
 const UNREAD_SESSIONS_STORAGE_KEY = "pi-desktop:unread-session-ids";
@@ -451,8 +457,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [customPathError, setCustomPathError] = useState<string | null>(null);
   const [customPathValidating, setCustomPathValidating] = useState(false);
   const [validatedProject, setValidatedProject] = useState<ValidatedProject | null>(null);
-  const [projectHistory, setProjectHistory] = useState<string[]>([]);
-  const [hiddenProjectHistory, setHiddenProjectHistory] = useState<string[]>([]);
+  const [addedProjects, setAddedProjects] = useState<AddedProject[]>([]);
   const dropdownRef = useRef<HTMLDivElement>(null);
   // Worktree switcher state
   const [worktreeState, setWorktreeState] = useState<WorktreeState | null>(null);
@@ -480,6 +485,16 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const sessionRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const explorerRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileExplorerRef = useRef<FileExplorerHandle>(null);
+
+  const availableProjects = useMemo(() => {
+    const byKey = new Map(getRecentProjects(allSessions).map((project) => [project.key, project]));
+    for (const project of addedProjects) {
+      if (!byKey.has(project.projectKey)) {
+        byKey.set(project.projectKey, { key: project.projectKey, root: project.projectRoot });
+      }
+    }
+    return [...byKey.values()];
+  }, [allSessions, addedProjects]);
 
   const loadSessions = useCallback(async (showLoading = false, force = false) => {
     try {
@@ -667,6 +682,22 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   }, []);
 
   useEffect(() => {
+    const controller = new AbortController();
+    void fetch("/api/projects", { cache: "no-store", signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.json() as Promise<{ projects?: AddedProject[] }>;
+      })
+      .then((data) => {
+        if (!controller.signal.aborted) setAddedProjects(data.projects ?? []);
+      })
+      .catch(() => {
+        // Session-backed projects remain usable if this optional list cannot load.
+      });
+    return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
     const query = sessionSearch.trim();
     if (!query) {
       setSessionSearchResult({ query: "", matches: [] });
@@ -703,11 +734,6 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     };
   }, [sessionSearch]);
 
-  useEffect(() => {
-    setProjectHistory(getProjectHistory());
-    setHiddenProjectHistory(getHiddenProjectHistory());
-  }, []);
-
   const restoredRef = useRef(false);
   const initialReadyNotifiedRef = useRef(false);
 
@@ -735,10 +761,15 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     const match = allSessions.find((session) => (
       session.cwd === cwd || (session.projectRoot ?? session.cwd) === cwd
     ));
+    const addedProject = addedProjects.find((project) => (
+      project.cwd === cwd || project.projectRoot === cwd
+    ));
     return match
       ? projectSelection(match.projectRoot ?? match.cwd, workspaceKeyOf(match))
+      : addedProject
+        ? projectSelection(addedProject.projectRoot, addedProject.projectKey)
       : projectSelection(cwd, cwd);
-  }, [validatedProject, worktreeState, allSessions, projectSelection]);
+  }, [validatedProject, worktreeState, allSessions, addedProjects, projectSelection]);
 
   // A worktree/session refresh can hydrate the stable key without changing
   // cwd, so notify when either changes. The parent treats same-cwd key changes
@@ -844,15 +875,14 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           return;
         }
       }
-      const projects = getRecentProjects(allSessions);
-      if (projects.length > 0) {
-        setSelectedCwd(projects[0].root);
+      if (availableProjects.length > 0) {
+        setSelectedCwd(availableProjects[0].root);
         notifyReady(true);
         return;
       }
     }
     notifyReady(selectedCwd !== null);
-  }, [allSessions, initialLoadSettled, selectedCwd, initialSessionId, skipInitialProjectSelection, onSelectSession, onInitialRestoreDone]);
+  }, [allSessions, availableProjects, initialLoadSettled, selectedCwd, initialSessionId, skipInitialProjectSelection, onSelectSession, onInitialRestoreDone]);
 
   // Prefer an exact UI selection while a refetch is in flight. Once the
   // response catches up, the server-resolved path handles Windows case and
@@ -888,14 +918,22 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         setCustomPathError(data.error ?? `HTTP ${res.status}`);
         return;
       }
-      setValidatedProject({
+      const addedProject: AddedProject = {
+        projectKey: data.projectKey,
+        projectRoot: data.projectRoot,
         cwd: data.cwd,
-        root: data.projectRoot,
-        key: data.projectKey,
+        addedAt: new Date().toISOString(),
+      };
+      setValidatedProject({
+        cwd: addedProject.cwd,
+        root: addedProject.projectRoot,
+        key: addedProject.projectKey,
       });
-      setProjectHistory(addProjectHistory(data.projectRoot));
-      setHiddenProjectHistory(getHiddenProjectHistory());
-      setSelectedCwd(data.cwd);
+      setAddedProjects((previous) => [
+        addedProject,
+        ...previous.filter((project) => project.projectKey !== addedProject.projectKey),
+      ]);
+      setSelectedCwd(addedProject.cwd);
       setCustomPathOpen(false);
       setCustomPathValue("");
       setDropdownOpen(false);
@@ -1097,21 +1135,31 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     onNewSession?.(tempId, selectedCwd);
   }, [selectedCwd, onNewSession]);
 
-  const recentProjects = getRecentProjects(allSessions);
-  const showProjectFilter = recentProjects.length > 8;
-  const visibleProjects = recentProjects.filter((project) => (
-    !hiddenProjectHistory.includes(project.root)
-    && (!projectFilter.trim() || project.root.toLowerCase().includes(projectFilter.trim().toLowerCase()))
+  const showProjectFilter = availableProjects.length > 8;
+  const visibleProjects = availableProjects.filter((project) => (
+    !projectFilter.trim() || project.root.toLowerCase().includes(projectFilter.trim().toLowerCase())
   ));
-  const visibleProjectHistory = projectFilter.trim()
-    ? projectHistory.filter((path) => !hiddenProjectHistory.includes(path) && path.toLowerCase().includes(projectFilter.trim().toLowerCase()))
-    : projectHistory.filter((path) => !hiddenProjectHistory.includes(path));
+  const addedProjectKeys = useMemo(
+    () => new Set(addedProjects.map((project) => project.projectKey)),
+    [addedProjects],
+  );
 
-  const handleRemoveProjectHistory = useCallback((path: string, selected: boolean, nextPath: string | null) => {
-    setProjectHistory(removeProjectHistory(path));
-    setHiddenProjectHistory(hideProjectHistory(path));
-    if (selected) setSelectedCwd(nextPath);
-  }, []);
+  const handleRemoveAddedProject = useCallback(async (projectKey: string, selected: boolean, nextPath: string | null) => {
+    try {
+      const response = await fetch("/api/projects", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectKey }),
+      });
+      if (!response.ok) return;
+      setAddedProjects((previous) => previous.filter((project) => project.projectKey !== projectKey));
+      if (selected && !allSessions.some((session) => workspaceKeyOf(session) === projectKey)) {
+        setSelectedCwd(nextPath);
+      }
+    } catch {
+      // Keep the project visible when its persistent record could not be removed.
+    }
+  }, [allSessions]);
 
   // Sessions of every worktree in the selected project are shown together
   const selectedProject = projectFor(selectedCwd);
@@ -1372,12 +1420,12 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                       <PathLabel text={displayCwd(project.root, homeDir)} style={{ flex: 1 }} />
                       {showProjectActivity(projectActivity.get(project.key), t)}
                     </button>
-                    <button
+                    {addedProjectKeys.has(project.key) && <button
                       type="button"
-                      onClick={() => handleRemoveProjectHistory(
-                        project.root,
+                      onClick={() => void handleRemoveAddedProject(
+                        project.key,
                         project.key === selectedProject?.key,
-                        visibleProjects[index + 1]?.root ?? visibleProjectHistory[0] ?? visibleProjects[index - 1]?.root ?? null,
+                        visibleProjects[index + 1]?.root ?? visibleProjects[index - 1]?.root ?? null,
                       )}
                       title={t("sidebar.removeProjectHistory", { path: project.root })}
                       aria-label={t("sidebar.removeProjectHistory", { path: project.root })}
@@ -1386,48 +1434,11 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
                         <path d="m6 6 12 12M18 6 6 18" />
                       </svg>
-                    </button>
+                    </button>}
                   </div>
                 ))}
-                {visibleProjects.length === 0 && visibleProjectHistory.length === 0 && projectFilter.trim() && (
+                {visibleProjects.length === 0 && projectFilter.trim() && (
                    <div style={{ padding: "8px 10px", fontSize: 11, color: "var(--text-dim)" }}>{t("sidebar.noMatchingProjects")}</div>
-                )}
-                {visibleProjectHistory.length > 0 && (
-                  <>
-                    <div style={{ padding: "7px 10px 5px", borderTop: visibleProjects.length > 0 ? "1px solid var(--border)" : "none", color: "var(--text-dim)", fontSize: 10, fontWeight: 600 }}>
-                      {t("sidebar.projectHistory")}
-                    </div>
-                    {visibleProjectHistory.map((path, index) => (
-                      <div key={path} style={{ display: "flex", alignItems: "center", minWidth: 0, padding: "0 6px 0 10px" }}>
-                        <button
-                          type="button"
-                          onClick={() => void commitCustomPath(path)}
-                          title={path}
-                          style={{ flex: 1, minWidth: 0, padding: "8px 0", background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", textAlign: "left", fontSize: 11, fontFamily: "var(--font-mono)" }}
-                        >
-                          <PathLabel text={displayCwd(path, homeDir)} />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            handleRemoveProjectHistory(
-                              path,
-                              selectedCwd === path,
-                              visibleProjectHistory[index + 1] ?? visibleProjects[0]?.root ?? visibleProjectHistory[index - 1] ?? null,
-                            );
-                          }}
-                          title={t("sidebar.removeProjectHistory", { path })}
-                          aria-label={t("sidebar.removeProjectHistory", { path })}
-                          style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 24, height: 24, padding: 0, border: "none", borderRadius: 4, background: "transparent", color: "var(--text-dim)", cursor: "pointer", flexShrink: 0 }}
-                        >
-                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-                            <path d="m6 6 12 12M18 6 6 18" />
-                          </svg>
-                        </button>
-                      </div>
-                    ))}
-                  </>
                 )}
               </div>
 

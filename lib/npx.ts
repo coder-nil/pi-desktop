@@ -36,6 +36,7 @@ function findNpxCli(): string | null {
 
 export interface RunNpxOptions {
   timeout?: number;
+  maxBuffer?: number;
   cwd?: string;
   env?: NodeJS.ProcessEnv;
 }
@@ -56,6 +57,7 @@ export async function runNpx(args: string[], opts: RunNpxOptions = {}): Promise<
     : { command: "npx", commandArgs: args };
   return execFileAsync(command, commandArgs, {
     timeout: opts.timeout,
+    maxBuffer: opts.maxBuffer,
     cwd: opts.cwd,
     env: opts.env,
   });

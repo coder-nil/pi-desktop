@@ -15,7 +15,9 @@ test("renders Git panel text through i18n", () => {
 test("summarizes staged changes with or without a selected session", () => {
   assert.match(source, /sessionId: string \| null/);
   assert.match(source, /fetch\("\/api\/git\/commit-message"/);
+  assert.match(source, /JSON\.stringify\(\{ cwd, locale/);
   assert.match(source, /setMessage\(data\.message\)/);
+  assert.match(source, /rows=\{7\}/);
   assert.match(source, /git\.summarizeCommit/);
   assert.doesNotMatch(source, /if \(!sessionId\) return/);
   assert.doesNotMatch(source, /disabled=\{!sessionId \|\| staged\.length/);
@@ -29,4 +31,13 @@ test("selects a non-current local branch to merge with a custom picker", () => {
   assert.match(source, /role="listbox"/);
   assert.match(source, /git\.selectBranch/);
   assert.doesNotMatch(source, /<select value=\{mergeBranch\}/);
+});
+
+test("collects protocol-specific remote credentials without putting secrets in the remote URL", () => {
+  assert.match(source, /credentialKind: "https" \| "ssh" \| "none"/);
+  assert.match(source, /git\.httpsCredentials/);
+  assert.match(source, /git\.sshCredentials/);
+  assert.match(source, /type="password"/);
+  assert.match(source, /git\.rememberCredential/);
+  assert.doesNotMatch(source, /remote.*password/i);
 });

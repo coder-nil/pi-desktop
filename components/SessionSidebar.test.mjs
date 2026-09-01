@@ -86,10 +86,11 @@ test("reports the selected project's resolved Git state to the shell", () => {
   assert.match(source, /worktreeState\?\.forCwd === selectedCwd \? worktreeState\.isGit : null/);
 });
 
-test("keeps successfully added projects in removable local history", () => {
-  assert.match(source, /setProjectHistory\(addProjectHistory\(data\.projectRoot\)\)/);
-  assert.match(source, /visibleProjectHistory\.map\(\(path, index\) =>/);
-  assert.match(source, /handleRemoveProjectHistory\(\s*path,/);
+test("persists successfully added projects through the server directory list", () => {
+  assert.match(source, /fetch\("\/api\/projects", \{ cache: "no-store", signal: controller\.signal \}\)/);
+  assert.match(source, /setAddedProjects\(\(previous\) => \[/);
+  assert.match(source, /fetch\("\/api\/projects", \{[\s\S]*?method: "DELETE"/);
+  assert.match(source, /handleRemoveAddedProject\(\s*project\.key,/);
   assert.match(source, /project\.key === selectedProject\?\.key/);
   assert.match(source, /visibleProjects\[index \+ 1\]\?\.root/);
 });

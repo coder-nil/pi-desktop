@@ -46,7 +46,7 @@ test("keeps the session event stream open through the idle grace window", () => 
   assert.doesNotMatch(agentEndSource, /closeEvents\(\)/);
   assert.match(agentStartSource, /cancelEventStreamGrace\(\)/);
   assert.match(agentSettledSource, /scheduleEventStreamClose\(sid\)/);
-  assert.match(agentSettledSource, /onAgentEnd\?\.\(\)/);
+  assert.match(agentSettledSource, /notifyAgentEnd\(\)/);
   assert.match(promptDoneSource, /notifyPromptStage\(runId\)/);
   assert.match(promptDoneSource, /scheduleEventStreamClose\(sid\)/);
   assert.match(sendSource, /const definitivelyRejected = !promptRequestStarted/);
@@ -364,6 +364,8 @@ test("delivers task-completion notifications only while the app lacks focus", ()
   assert.match(completionSource, /if \(!shouldShowBrowserNotification\(\)\) return/);
   assert.match(completionSource, /tag: targetSession \? `pi-session-complete:\$\{targetSession\.id\}` : undefined/);
   assert.match(appShellSource, /if \(isDesktopShell\(\)\) \{[\s\S]*?showDesktopNotification\(\{ title, body \}\)/);
+  assert.match(appShellSource, /const NOTIFICATION_ICON = "\/icons\/icon-192\.png"/);
+  assert.match(completionSource, /summarizeNotificationPrompt\(recentPrompt\)/);
 });
 
 test("keeps live following cancellable when the user scrolls away from the tail", () => {

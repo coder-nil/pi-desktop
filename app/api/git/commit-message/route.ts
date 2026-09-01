@@ -1,7 +1,7 @@
 import fs from "fs";
 import { NextRequest, NextResponse } from "next/server";
 import { createAgentSessionServices, getAgentDir, type AgentSession } from "@earendil-works/pi-coding-agent";
-import { generateCommitMessage, generateCommitMessageWithModel } from "@/lib/commit-message";
+import { generateCommitMessage, generateCommitMessageWithModel, getGitCommitSkillInstructions, type CommitMessageLanguage } from "@/lib/commit-message";
 import { getAllowedFileRoots, isExistingFilePathAllowed, isFilePathAllowed, isWindowsAbsolutePath } from "@/lib/file-access";
 import { getStagedDiff } from "@/lib/git-manager";
 import { resolveVisibleModels, selectInitialModelScope } from "@/lib/model-scope";
@@ -20,9 +20,10 @@ async function validateCwd(cwd: unknown): Promise<string> {
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json() as { cwd?: unknown; sessionId?: unknown };
+    const body = await request.json() as { cwd?: unknown; sessionId?: unknown; locale?: unknown };
     const cwd = await validateCwd(body.cwd);
     const stagedDiff = await getStagedDiff(cwd);
+    const language: CommitMessageLanguage = body.locale === "zh-CN" ? "zh-CN" : "en";
     let message: string;
 
     if (typeof body.sessionId === "string" && body.sessionId) {
@@ -33,7 +34,7 @@ export async function POST(request: NextRequest) {
         ? { session: existing }
         : await startRpcSession(body.sessionId, filePath, undefined);
       await session.waitUntilReady?.();
-      message = await generateCommitMessage(session.inner as unknown as AgentSession, stagedDiff);
+      message = await generateCommitMessage(session.inner as unknown as AgentSession, stagedDiff, language);
     } else {
       const agentDir = getAgentDir();
       const trustReloadOptions = projectTrustReloadOptions(cwd, agentDir);
@@ -60,7 +61,8 @@ export async function POST(request: NextRequest) {
           : {}),
       });
       if (!initial.model) throw new Error("No available model configured for commit-message generation");
-      message = await generateCommitMessageWithModel(services.modelRuntime, initial.model, stagedDiff);
+      const gitCommitSkill = getGitCommitSkillInstructions(services.resourceLoader);
+      message = await generateCommitMessageWithModel(services.modelRuntime, initial.model, stagedDiff, gitCommitSkill, language);
     }
     return NextResponse.json({ message });
   } catch (error) {

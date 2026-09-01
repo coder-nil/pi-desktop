@@ -63,6 +63,16 @@ export function saveFileViewerState(
   const index = tabs.findIndex((tab) => tab.id === tabId);
   if (index === -1 || (tabs[index].viewerRevision ?? 0) !== viewerRevision) return tabs;
 
+  const currentState = tabs[index].viewerState;
+  if (
+    currentState?.displayMode === viewerState.displayMode &&
+    currentState.wrapLines === viewerState.wrapLines &&
+    currentState.scrollTop === viewerState.scrollTop &&
+    currentState.scrollLeft === viewerState.scrollLeft
+  ) {
+    return tabs;
+  }
+
   const next = [...tabs];
   next[index] = { ...next[index], viewerState };
   return next;

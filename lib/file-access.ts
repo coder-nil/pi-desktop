@@ -4,6 +4,7 @@ import path from "path";
 import { getAdditionalAllowedRoots, normalizeSlashes } from "./allowed-roots";
 import { isExistingPathWithinRoots, isPathWithinRoots } from "./path-security";
 import { listAllSessions } from "./session-reader";
+import { listAddedProjects } from "./added-projects-store";
 export { allowFileRoot, normalizeSlashes } from "./allowed-roots";
 export { isWindowsAbsolutePath } from "./paths";
 
@@ -23,6 +24,12 @@ export async function getAllowedFileRoots(): Promise<Set<string>> {
   if (cached && cached.expiresAt > now) return cached.roots;
 
   const sessions = await listAllSessions();
+  let addedProjects: ReturnType<typeof listAddedProjects> = [];
+  try {
+    addedProjects = listAddedProjects();
+  } catch {
+    // A directory-list cache failure must not block session-backed file access.
+  }
   const roots = new Set<string>();
   for (const s of sessions) {
     if (s.cwd) roots.add(normalizeSlashes(s.cwd));
@@ -43,6 +50,10 @@ export async function getAllowedFileRoots(): Promise<Set<string>> {
   }
 
   for (const root of getAdditionalAllowedRoots()) roots.add(root);
+  for (const project of addedProjects) {
+    roots.add(normalizeSlashes(project.projectRoot));
+    roots.add(normalizeSlashes(project.cwd));
+  }
 
   globalThis.__piAllowedRootsCache = { roots, expiresAt: now + ALLOWED_ROOTS_TTL_MS };
   return roots;

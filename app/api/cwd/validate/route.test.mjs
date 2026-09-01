@@ -15,7 +15,17 @@ const { projectIdentityKey } = await jiti.import("../../../../lib/project-identi
 
 test("validated cwd responses include server-resolved project identity", async (t) => {
   const cwd = await mkdtemp(path.join(os.tmpdir(), "pi-desktop-cwd-validate-"));
-  t.after(() => rm(cwd, { recursive: true, force: true }));
+  const agentDir = await mkdtemp(path.join(os.tmpdir(), "pi-desktop-agent-dir-"));
+  const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = agentDir;
+  t.after(() => {
+    if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+    return Promise.all([
+      rm(cwd, { recursive: true, force: true }),
+      rm(agentDir, { recursive: true, force: true }),
+    ]);
+  });
 
   const response = await POST(new Request("http://localhost/api/cwd/validate", {
     method: "POST",

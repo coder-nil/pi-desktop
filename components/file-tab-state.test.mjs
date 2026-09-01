@@ -42,6 +42,13 @@ test("saving viewer state updates only the matching revision", () => {
   assert.strictEqual(stale, saved);
 });
 
+test("saving an unchanged viewer state preserves the tab array", () => {
+  const tabs = [tabA, tabB];
+  const saved = saveFileViewerState(tabs, tabA.id, 0, { ...tabA.viewerState });
+
+  assert.strictEqual(saved, tabs);
+});
+
 test("opening an existing tab normally preserves its state and revision", () => {
   const tabs = [tabA, tabB];
   assert.strictEqual(openFileTab(tabs, openA), tabs);

@@ -137,7 +137,7 @@ export interface UseAgentSessionOptions {
   sessionRunning?: boolean;
   newSessionCwd: string | null;
   newSessionDraftKey: string | null;
-  onAgentEnd?: () => void;
+  onAgentEnd?: (recentPrompt: string | null) => void;
   onAttentionNeeded?: (request: BlockingExtensionUiRequest) => void;
   onSessionCreated?: (session: SessionInfo, sourceDraftKey: string) => void;
   onSessionForked?: (newSessionId: string) => void;
@@ -266,6 +266,20 @@ type SlashCommandsResponse = {
   commands?: SlashCommandInfo[];
 };
 
+function getUserMessageText(message: AgentMessage): string | null {
+  if (message.role !== "user") return null;
+  if (typeof message.content === "string") {
+    const text = message.content.trim();
+    return text || null;
+  }
+  const text = message.content
+    .filter((block) => block.type === "text")
+    .map((block) => block.text)
+    .join("\n")
+    .trim();
+  return text || null;
+}
+
 export function useAgentSession(opts: UseAgentSessionOptions) {
   const {
     session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked,
@@ -346,6 +360,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const thinkingLevelOverrideRef = useRef<Exclude<ThinkingLevelOption, "auto"> | null>(null);
   const promptRunIdRef = useRef(0);
   const retryablePromptRef = useRef<RetryablePrompt | null>(null);
+  const latestUserPromptRef = useRef<string | null>(null);
   const retrySessionKeyRef = useRef(session?.id ?? newSessionDraftKey);
   const optimisticUserMessageKeyRef = useRef<string | null>(null);
   const modelSwitchPendingRef = useRef(false);
@@ -819,12 +834,16 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     return wasRunning;
   }, []);
 
+  const notifyAgentEnd = useCallback(() => {
+    onAgentEnd?.(latestUserPromptRef.current);
+  }, [onAgentEnd]);
+
   const notifyPromptStage = useCallback((runId: number) => {
     if (notifiedPromptRunIdRef.current === runId) return false;
     notifiedPromptRunIdRef.current = runId;
-    onAgentEnd?.();
+    notifyAgentEnd();
     return true;
-  }, [onAgentEnd]);
+  }, [notifyAgentEnd]);
 
   const scheduleEventStreamClose = useCallback((sid: string) => {
     cancelEventStreamGrace();
@@ -901,11 +920,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (promptWasPending) {
         notifyPromptStage(runId);
       } else if (agentWasActive && wasRunning) {
-        onAgentEnd?.();
+        notifyAgentEnd();
       }
       if (sid) scheduleEventStreamClose(sid);
     }
-  }, [loadSession, notifyPromptStage, onAgentEnd, scheduleEventStreamClose, settleUiStage]);
+  }, [loadSession, notifyAgentEnd, notifyPromptStage, scheduleEventStreamClose, settleUiStage]);
 
   const waitForPromptSettlement = useCallback(async (sid: string, runId?: number) => {
     await delay(PROMPT_SETTLE_INITIAL_DELAY_MS);
@@ -1085,7 +1104,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           void loadSession(sid);
           scheduleEventStreamClose(sid);
         }
-        if (wasRunning) onAgentEnd?.();
+        if (wasRunning) notifyAgentEnd();
         break;
       }
       case "prompt_done":
@@ -1184,6 +1203,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           // already appended it optimistically. Consume only the still-adjacent
           // optimistic bubble; later same-text queue deliveries must render.
           const delivered = normalizeToolCalls(completed);
+          latestUserPromptRef.current = getUserMessageText(delivered);
           const deliveredKey = userMessageKey(delivered);
           const optimisticKey = optimisticUserMessageKeyRef.current;
           optimisticUserMessageKeyRef.current = null;
@@ -1275,7 +1295,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         handleExtensionUiRequest(event as ExtensionUiRequest);
         break;
     }
-  }, [addNotice, cancelEventStreamGrace, handleExtensionUiRequest, loadSession, notifyPromptStage, onAgentEnd, scheduleEventStreamClose, scrollToBottom, settleUiStage]);
+  }, [addNotice, cancelEventStreamGrace, handleExtensionUiRequest, loadSession, notifyAgentEnd, notifyPromptStage, scheduleEventStreamClose, scrollToBottom, settleUiStage]);
   handleAgentEventRef.current = handleAgentEvent;
 
   const handleSend = useCallback(async (
@@ -1319,6 +1339,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         : message,
       timestamp: Date.now(),
     };
+    latestUserPromptRef.current = getUserMessageText(userMsg);
     setMessages((prev) => [...prev, userMsg]);
     optimisticUserMessageKeyRef.current = userMessageKey(userMsg);
     promptRunIdRef.current = promptRunId;

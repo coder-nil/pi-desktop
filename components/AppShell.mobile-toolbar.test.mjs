@@ -63,7 +63,7 @@ test("places trust warnings below the mobile toolbar and the file toggle in tool
 
 test("shows Git controls only for a resolved Git project", () => {
   assert.match(source, /onProjectGitStateChange=\{setActiveProjectIsGit\}/);
-  assert.match(source, /filter\(\(\{ id \}\) => id !== "git" \|\| activeProjectIsGit === true\)/);
+  assert.match(source, /filter\(\(\{\s*id\s*\}\) => id !== "git" \|\| activeProjectIsGit === true\)/);
   assert.match(source, /gitPanelOpen && activeProjectIsGit === true && activeCwd/);
-  assert.match(source, /if \(activeProjectIsGit !== true\) setGitPanelOpen\(false\)/);
+  assert.match(source, /if \(activeProjectIsGit === false\) setGitPanelOpen\(false\)/);
 });

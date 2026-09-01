@@ -3,6 +3,7 @@ import { statSync, type Stats } from "fs";
 import { homedir } from "os";
 import { isAbsolute, resolve } from "path";
 import { allowFileRoot } from "@/lib/file-access";
+import { saveAddedProject } from "@/lib/added-projects-store";
 import { projectIdentityKey } from "@/lib/project-identity";
 import { resolveProject } from "@/lib/worktree";
 
@@ -37,11 +38,18 @@ export async function POST(req: Request) {
 
     allowFileRoot(normalizedCwd);
     const project = await resolveProject(normalizedCwd);
+    const projectKey = projectIdentityKey(project.projectRoot);
+    allowFileRoot(project.projectRoot);
+    saveAddedProject({
+      projectKey,
+      projectRoot: project.projectRoot,
+      cwd: normalizedCwd,
+    });
     return NextResponse.json({
       success: true,
       cwd: normalizedCwd,
       projectRoot: project.projectRoot,
-      projectKey: projectIdentityKey(project.projectRoot),
+      projectKey,
     });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });

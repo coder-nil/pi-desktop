@@ -25,13 +25,19 @@ const ACTIONS = new Set<GitAction>(["stage", "unstage", "discard", "commit", "fe
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json() as { cwd?: unknown; action?: unknown; paths?: unknown; message?: unknown; rebase?: unknown; branch?: unknown; newBranch?: unknown; startPoint?: unknown; targetBranch?: unknown };
+    const body = await request.json() as { cwd?: unknown; action?: unknown; paths?: unknown; message?: unknown; rebase?: unknown; branch?: unknown; newBranch?: unknown; startPoint?: unknown; targetBranch?: unknown; credential?: unknown; rememberCredential?: unknown };
     if (typeof body.action !== "string" || !ACTIONS.has(body.action as GitAction)) throw new Error("Unsupported Git action");
     const { cwd, roots } = await validateCwd(body.cwd);
     if (Array.isArray(body.paths) && body.paths.some((filePath) => typeof filePath !== "string" || !isFilePathAllowed(filePath, roots))) {
       throw new Error("Access denied");
     }
-    const summary = await runGitAction(cwd, body.action as GitAction, body);
+    if (body.credential !== undefined) {
+      const credential = body.credential as { kind?: unknown; username?: unknown; secret?: unknown };
+      if (!credential || typeof credential !== "object" || (credential.kind !== "https" && credential.kind !== "ssh") || typeof credential.secret !== "string" || !credential.secret || (credential.username !== undefined && typeof credential.username !== "string")) {
+        throw new Error("Invalid Git credential");
+      }
+    }
+    const summary = await runGitAction(cwd, body.action as GitAction, body as Parameters<typeof runGitAction>[2]);
     return NextResponse.json(summary);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

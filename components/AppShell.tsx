@@ -11,6 +11,7 @@ import { openFileTab, saveFileViewerState } from "./file-tab-state";
 import { ProjectTrustDialog } from "./ProjectTrustDialog";
 import { SettingsPanel } from "./SettingsPanel";
 import { BranchNavigator, ConversationBranchesIcon } from "./BranchNavigator";
+import { GitPanel } from "./GitPanel";
 import { useTheme } from "@/hooks/useTheme";
 import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -54,7 +55,6 @@ const FileViewer = dynamic(() => import("./FileViewer").then((module) => module.
 const ModelsConfig = dynamic(() => import("./ModelsConfig").then((module) => module.ModelsConfig));
 const SkillsConfig = dynamic(() => import("./SkillsConfig").then((module) => module.SkillsConfig));
 const PluginsConfig = dynamic(() => import("./PluginsConfig").then((module) => module.PluginsConfig));
-const GitPanel = dynamic(() => import("./GitPanel").then((module) => module.GitPanel));
 
 type SessionCopyField = "file" | "id";
 type AutoNameStatus =
@@ -64,6 +64,17 @@ type AutoNameStatus =
   | { kind: "error"; sessionId: string; message: string };
 const TOP_BAR_ICON_BUTTON_SIZE = 36;
 const LANGUAGE_MENU_WIDTH = 176;
+const NOTIFICATION_ICON = "/icons/icon-192.png";
+const NOTIFICATION_PROMPT_MAX_LENGTH = 100;
+
+function summarizeNotificationPrompt(prompt: string | null): string | null {
+  if (!prompt) return null;
+  const singleLine = prompt.replace(/\s+/g, " ").trim();
+  if (!singleLine) return null;
+  return singleLine.length > NOTIFICATION_PROMPT_MAX_LENGTH
+    ? `${singleLine.slice(0, NOTIFICATION_PROMPT_MAX_LENGTH - 1)}...`
+    : singleLine;
+}
 
 export function AppShell() {
   const router = useRouter();
@@ -669,11 +680,13 @@ export function AppShell() {
     title,
     body,
     tag,
+    icon = NOTIFICATION_ICON,
   }: {
     targetSession: SessionInfo | null;
     title: string;
     body: string;
     tag?: string;
+    icon?: string;
   }) => {
     if (isDesktopShell()) {
       showDesktopNotification({ title, body });
@@ -688,6 +701,7 @@ export function AppShell() {
         body,
         sessionUrl,
         tag,
+        icon,
         onClick: () => {
           window.focus();
           if (targetSession) handleSelectSession(targetSession);
@@ -715,17 +729,20 @@ export function AppShell() {
     }
   }, [deliverSessionNotification, playDoneSound, soundEnabledRef, translate]);
 
-  const handleAgentEnd = useCallback(() => {
+  const handleAgentEnd = useCallback((recentPrompt: string | null) => {
     setRefreshKey((k) => k + 1);
     setExplorerRefreshKey((k) => k + 1);
     if (selectedSession) hydrateSelectedSession(selectedSession.id);
 
     if (!shouldShowBrowserNotification()) return;
     const targetSession = selectedSession;
+    const promptSummary = summarizeNotificationPrompt(recentPrompt);
     deliverSessionNotification({
       targetSession,
       title: targetSession?.name ?? translate("i18n.sessionComplete"),
-      body: translate("i18n.taskFinished"),
+      body: promptSummary
+        ? `${translate("i18n.taskFinished")} ${promptSummary}`
+        : translate("i18n.taskFinished"),
       tag: targetSession ? `pi-session-complete:${targetSession.id}` : undefined,
     });
   }, [deliverSessionNotification, hydrateSelectedSession, selectedSession, translate]);
@@ -966,7 +983,10 @@ export function AppShell() {
   const windowTitle = activeCwdName ? `${activeCwdName} - Pi Desktop` : "Pi Desktop";
 
   useEffect(() => {
-    if (activeProjectIsGit !== true) setGitPanelOpen(false);
+    // `null` means the sidebar is still resolving the current project. Keep
+    // an already-open panel mounted until Git detection resolves explicitly
+    // to a non-repository result.
+    if (activeProjectIsGit === false) setGitPanelOpen(false);
   }, [activeProjectIsGit]);
 
   useEffect(() => {
@@ -1012,10 +1032,11 @@ export function AppShell() {
             onClick: () => setSettingsOpen(true),
             disabled: false,
             icon: (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <circle cx="12" cy="12" r="3" />
-                <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-1.9 1.9-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.56V22h-2.7v-.08a1.7 1.7 0 0 0-1.03-1.56 1.7 1.7 0 0 0-1.88.34l-.06.06-1.9-1.9.06-.06A1.7 1.7 0 0 0 7.76 15a1.7 1.7 0 0 0-1.56-1.03H6v-2.7h.2A1.7 1.7 0 0 0 7.76 10a1.7 1.7 0 0 0-.34-1.88l-.06-.06 1.9-1.9.06.06a1.7 1.7 0 0 0 1.88.34A1.7 1.7 0 0 0 12.23 5V4h2.7v1a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.88-.34l.06-.06 1.9 1.9-.06.06A1.7 1.7 0 0 0 19.4 10a1.7 1.7 0 0 0 1.56 1.03H21v2.7h-.08A1.7 1.7 0 0 0 19.4 15Z" />
-              </svg>
+                <svg viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="9191" width="14" height="14">
+                  <path
+                      d="M537.6 919.893333h-52.48c-24.32 0-45.226667-17.493333-49.066667-41.813333l-12.8-76.8a296.96 296.96 0 0 1-53.76-22.186667l-64 44.373334c-20.053333 14.08-46.933333 11.52-64-5.546667l-37.12-37.12c-17.493333-17.066667-19.626667-44.373333-5.12-64.426667l44.8-62.72c-9.386667-17.066667-16.64-35.413333-22.613333-54.186666l-76.373333-13.653334c-23.466667-4.266667-40.96-24.746667-40.96-49.066666v-52.48c0-24.32 17.493333-45.226667 41.813333-49.066667l75.946667-12.8c5.546667-18.773333 13.226667-36.693333 22.613333-54.186667L200.106667 304.64c-14.08-20.053333-11.52-46.933333 5.546666-64l37.12-36.693333c17.066667-17.493333 44.373333-19.626667 64.426667-5.12l63.146667 45.226666c17.066667-8.96 34.986667-16.64 53.76-22.186666l12.373333-76.373334c3.84-24.32 24.746667-41.813333 49.493333-41.813333h52.053334c24.32 0 45.226667 17.493333 49.066666 41.386667l13.653334 77.226666c18.346667 5.546667 36.693333 13.226667 53.76 22.186667l63.146666-45.653333c20.053333-14.506667 47.36-11.946667 64.426667 5.12l37.12 36.693333c17.066667 17.066667 19.626667 44.373333 5.546667 64l-45.226667 64.853333c8.96 17.066667 16.213333 34.986667 22.186667 53.333334l77.226666 12.8c24.32 3.84 41.813333 24.746667 41.813334 49.493333v52.053333c0 24.32-17.493333 45.226667-41.386667 49.066667l-77.653333 13.653333c-5.546667 18.346667-12.8 36.266667-21.76 53.333334l45.653333 63.573333c14.506667 19.626667 12.373333 47.36-5.12 64.426667l-36.693333 37.12c-17.066667 17.066667-44.373333 19.626667-64 5.546666l-64.426667-45.226666c-17.066667 9.386667-34.986667 16.64-53.76 22.613333l-13.653333 77.226667c-4.266667 23.893333-25.173333 41.386667-49.066667 40.96z m-170.666667-197.546666l13.226667 8.106666c21.76 13.226667 45.226667 22.613333 69.973333 29.013334l15.36 3.84 17.92 107.093333s0.853333 1.706667 1.706667 1.706667h52.48s1.706667-0.853333 1.706667-1.706667l19.2-107.52 14.933333-3.84a247.893333 247.893333 0 0 0 69.546667-29.013333l13.226666-8.106667 89.6 63.146667h2.56l36.693334-36.693334s0.426667-1.706667 0-2.56l-64-88.746666 8.106666-13.653334c13.226667-21.333333 22.613333-44.8 29.013334-69.546666l3.84-14.933334 107.946666-18.773333s1.706667-0.853333 1.706667-1.706667V486.4s-0.853333-1.706667-1.706667-1.706667l-107.946666-17.493333-3.84-15.36a251.733333 251.733333 0 0 0-28.586667-69.12l-8.106667-13.226667 63.573334-90.026666v-2.56l-36.693334-36.693334s-1.706667-0.426667-2.56 0L657.066667 303.786667l-13.653334-8.106667a247.893333 247.893333 0 0 0-69.546666-29.013333l-14.933334-3.84-18.773333-107.52s-0.853333-1.706667-1.706667-1.706667H486.4s-1.706667 0.853333-1.706667 1.706667l-17.493333 107.093333-15.36 3.84c-24.746667 5.973333-48.213333 15.786667-69.546667 28.586667l-13.653333 8.106666-88.32-63.146666s-1.706667-0.426667-2.56 0l-37.12 37.12s-0.426667 1.706667 0 2.56l61.866667 89.173333-8.106667 13.226667c-13.226667 21.76-23.04 45.226667-29.44 69.973333l-3.84 15.36-106.24 17.92s-1.706667 0.853333-1.706667 1.706667v52.053333s0.853333 1.706667 1.706667 1.706667l106.666667 18.773333 3.413333 14.933333c5.973333 24.746667 15.786667 48.213333 29.013333 69.973334l8.106667 13.653333-63.146667 87.893333s-0.426667 1.706667 0 2.56l36.693334 37.12s1.706667 0.426667 2.56 0l89.173333-61.866666z m145.066667-58.453334c-84.053333 0-151.893333-68.266667-151.893333-151.893333s68.266667-151.893333 151.893333-151.893333 151.893333 68.266667 151.893333 151.893333c0 84.053333-67.84 151.893333-151.893333 151.893333z m0-256c-57.6 0-104.106667 46.506667-104.106667 104.106667 0 57.6 46.506667 104.106667 104.106667 104.106667 57.6 0 104.106667-46.506667 104.106667-104.106667 0-57.6-46.506667-104.106667-104.106667-104.106667z"
+                      fill="#333F48" p-id="9192"/>
+                </svg>
             ),
           },
           {
@@ -1024,10 +1045,13 @@ export function AppShell() {
             onClick: () => setGitPanelOpen(true),
             disabled: !activeCwd && !selectedSession?.cwd && !newSessionCwd,
             icon: (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <circle cx="6" cy="6" r="3" /><circle cx="18" cy="18" r="3" />
-                <path d="M6 9v6a3 3 0 0 0 3 3h6" /><path d="M18 15V9a3 3 0 0 0-3-3H9" />
-              </svg>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+                     strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <circle cx="6" cy="6" r="3"/>
+                  <circle cx="18" cy="18" r="3"/>
+                  <path d="M6 9v6a3 3 0 0 0 3 3h6"/>
+                  <path d="M18 15V9a3 3 0 0 0-3-3H9"/>
+                </svg>
             ),
           },
         ] as {
@@ -1039,59 +1063,95 @@ export function AppShell() {
           icon: React.ReactNode;
           iconOnly?: boolean;
           color?: string;
-        }[]).filter(({ id }) => id !== "git" || activeProjectIsGit === true).map(({ id, label, title, onClick, disabled, icon, iconOnly, color }) => (
-          <button
-            key={id}
-            type="button"
-            onClick={onClick}
-            disabled={disabled}
-            title={title ?? label}
-            aria-label={title ?? label}
-            style={{
-              flex: iconOnly ? "0 0 32px" : 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-              height: 32, padding: 0, background: "none", border: "none",
-              borderRadius: 9, color: color ?? "var(--text-muted)", cursor: disabled ? "default" : "pointer",
-              fontSize: 12, opacity: disabled ? 0.35 : 1,
-              transition: "background 0.12s, color 0.12s",
-            }}
-            onMouseEnter={(e) => { if (!disabled) { e.currentTarget.style.background = "var(--bg-hover)"; e.currentTarget.style.color = "var(--text)"; } }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = "none"; e.currentTarget.style.color = color ?? "var(--text-muted)"; }}
-          >
-            {icon}
-            {!iconOnly && label}
-          </button>
+        }[]).filter(({id}) => id !== "git" || activeProjectIsGit === true).map(({
+                                                                                  id,
+                                                                                  label,
+                                                                                  title,
+                                                                                  onClick,
+                                                                                  disabled,
+                                                                                  icon,
+                                                                                  iconOnly,
+                                                                                  color
+                                                                                }) => (
+            <button
+                key={id}
+                type="button"
+                onClick={onClick}
+                disabled={disabled}
+                title={title ?? label}
+                aria-label={title ?? label}
+                style={{
+                  flex: iconOnly ? "0 0 32px" : "0 0 auto",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 6,
+                  height: 32,
+                  padding: "0 10px",
+                  background: "transparent",
+                  border: "1px solid transparent",
+                  borderRadius: 6,
+                  color: color ?? "var(--text-muted)",
+                  cursor: disabled ? "default" : "pointer",
+                  fontSize: 12,
+                  opacity: disabled ? 0.35 : 1,
+                  transition: "background 0.12s, color 0.12s, border-color 0.12s",
+                }}
+                onMouseEnter={(e) => {
+                  if (!disabled) {
+                    e.currentTarget.style.background = "var(--bg-hover)";
+                    e.currentTarget.style.color = "var(--text)";
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = "transparent";
+                  e.currentTarget.style.color = color ?? "var(--text-muted)";
+                }}
+            >
+              {icon}
+              {!iconOnly && label}
+            </button>
         ))}
       </div>
     </>
   );
 
   const renderThemeButton = (mobile: boolean) => (
-    <button
-      type="button"
-      onClick={(event) => {
-        const rect = event.currentTarget.getBoundingClientRect();
-        toggleTheme({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
-        if (mobile) setMobileToolbarMoreOpen(true);
-      }}
-      title={translate(themeLabelKey)}
-      aria-label={translate(themeLabelKey)}
-      style={{
-        display: "flex", alignItems: "center", justifyContent: "center",
-        width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
-        background: "none", border: "none", borderRight: "1px solid var(--border)",
-        color: "var(--text-muted)", cursor: "pointer", flexShrink: 0, transition: "color 0.12s",
-      }}
-      onMouseEnter={(event) => { event.currentTarget.style.color = "var(--text)"; }}
-      onMouseLeave={(event) => { event.currentTarget.style.color = "var(--text-muted)"; }}
-      data-mobile-toolbar-action={mobile ? "theme" : undefined}
-    >
-      {preference === "light" ? (
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <circle cx="12" cy="12" r="5" />
-          <line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" />
-          <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" /><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
-          <line x1="1" y1="12" x2="3" y2="12" /><line x1="21" y1="12" x2="23" y2="12" />
-          <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" /><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+      <button
+          type="button"
+          onClick={(event) => {
+            const rect = event.currentTarget.getBoundingClientRect();
+            toggleTheme({x: rect.left + rect.width / 2, y: rect.top + rect.height / 2});
+            if (mobile) setMobileToolbarMoreOpen(true);
+          }}
+          title={translate(themeLabelKey)}
+          aria-label={translate(themeLabelKey)}
+          style={{
+            display: "flex", alignItems: "center", justifyContent: "center",
+            width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
+            background: "none", border: "none", borderRight: "1px solid var(--border)",
+            color: "var(--text-muted)", cursor: "pointer", flexShrink: 0, transition: "color 0.12s",
+          }}
+          onMouseEnter={(event) => {
+            event.currentTarget.style.color = "var(--text)";
+          }}
+          onMouseLeave={(event) => {
+            event.currentTarget.style.color = "var(--text-muted)";
+          }}
+          data-mobile-toolbar-action={mobile ? "theme" : undefined}
+      >
+        {preference === "light" ? (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+                 strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="5"/>
+              <line x1="12" y1="1" x2="12" y2="3"/>
+              <line x1="12" y1="21" x2="12" y2="23"/>
+              <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+              <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+              <line x1="1" y1="12" x2="3" y2="12"/>
+              <line x1="21" y1="12" x2="23" y2="12"/>
+              <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+              <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
         </svg>
       ) : preference === "dark" ? (
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

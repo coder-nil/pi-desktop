@@ -1,8 +1,11 @@
 import { execFile } from "child_process";
-import { existsSync } from "fs";
+import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
 import path from "path";
+import { join } from "path";
 import { promisify } from "util";
 import { getGitStatus } from "./git-changes";
+import { gitCredentialKind, loadGitCredential, saveGitCredential, type GitCredential } from "./git-credentials";
 
 const execFileAsync = promisify(execFile);
 const GIT_TIMEOUT_MS = 60_000;
@@ -23,6 +26,8 @@ export interface GitSummary {
   ahead: number;
   behind: number;
   remote: string | null;
+  credentialKind: ReturnType<typeof gitCredentialKind>;
+  hasSavedCredential: boolean;
   operation: GitOperationKind;
   branches: string[];
   changes: Awaited<ReturnType<typeof getGitStatus>>;
@@ -37,14 +42,46 @@ function locks(): Map<string, Promise<unknown>> {
   return globalThis.__piGitLocks;
 }
 
-async function git(cwd: string, args: string[]): Promise<string> {
+async function git(cwd: string, args: string[], env: Partial<NodeJS.ProcessEnv> = {}): Promise<string> {
   const { stdout } = await execFileAsync("git", ["-C", cwd, ...args], {
     timeout: GIT_TIMEOUT_MS,
     maxBuffer: GIT_MAX_BUFFER,
     // Never leave a web request blocked on a terminal editor or credentials prompt.
-    env: { ...process.env, LC_ALL: "C", GIT_TERMINAL_PROMPT: "0", GIT_EDITOR: "true" },
+    env: { ...process.env, LC_ALL: "C", GIT_TERMINAL_PROMPT: "0", GIT_EDITOR: "true", ...env },
   });
   return stdout.trim();
+}
+
+async function remoteUrl(cwd: string): Promise<string | null> {
+  return (await git(cwd, ["remote", "get-url", "origin"]).catch(() => "")) || null;
+}
+
+async function gitWithCredential(cwd: string, args: string[], remote: string | null, supplied: GitCredential | null): Promise<string> {
+  const credential = supplied ?? await loadGitCredential(remote);
+  if (!credential) return git(cwd, args);
+  const temporaryDirectory = mkdtempSync(join(tmpdir(), "pi-git-askpass-"));
+  const secretPath = join(temporaryDirectory, "secret");
+  const usernamePath = join(temporaryDirectory, "username");
+  const askpassPath = join(temporaryDirectory, process.platform === "win32" ? "askpass.cmd" : "askpass.sh");
+  try {
+    writeFileSync(secretPath, credential.secret, { encoding: "utf8", mode: 0o600 });
+    writeFileSync(usernamePath, credential.username ?? "git", { encoding: "utf8", mode: 0o600 });
+    const script = process.platform === "win32"
+      ? "@echo off\r\n echo %~1 | findstr /I /C:\"username\" >nul && type \"%PI_GIT_USERNAME_FILE%\" || type \"%PI_GIT_SECRET_FILE%\"\r\n"
+      : "#!/bin/sh\ncase \"$1\" in *[Uu]sername*) cat \"$PI_GIT_USERNAME_FILE\" ;; *) cat \"$PI_GIT_SECRET_FILE\" ;; esac\n";
+    writeFileSync(askpassPath, script, { encoding: "utf8", mode: 0o700 });
+    chmodSync(askpassPath, 0o700);
+    return await git(cwd, args, {
+      GIT_ASKPASS: askpassPath,
+      SSH_ASKPASS: askpassPath,
+      SSH_ASKPASS_REQUIRE: "force",
+      DISPLAY: process.env.DISPLAY || "pi-desktop",
+      PI_GIT_SECRET_FILE: secretPath,
+      PI_GIT_USERNAME_FILE: usernamePath,
+    });
+  } finally {
+    rmSync(temporaryDirectory, { recursive: true, force: true, maxRetries: 3 });
+  }
 }
 
 function errorMessage(error: unknown): string {
@@ -178,7 +215,7 @@ async function worktreeForBranch(cwd: string, branch: string): Promise<string | 
 export async function getGitSummary(cwd: string): Promise<GitSummary> {
   const root = await repositoryRoot(cwd);
   if (!root) {
-    return { isGitRepository: false, repositoryRoot: null, branch: null, upstream: null, ahead: 0, behind: 0, remote: null, operation: null, branches: [], changes: await getGitStatus(cwd) };
+    return { isGitRepository: false, repositoryRoot: null, branch: null, upstream: null, ahead: 0, behind: 0, remote: null, credentialKind: "none", hasSavedCredential: false, operation: null, branches: [], changes: await getGitStatus(cwd) };
   }
   const [branchResult, upstreamResult, remoteResult, branchesResult, changes, operation] = await Promise.all([
     git(cwd, ["branch", "--show-current"]).catch(() => ""),
@@ -200,10 +237,13 @@ export async function getGitSummary(cwd: string): Promise<GitSummary> {
   }
   const branches = [...new Set(branchesResult.split("\n").map((branch) => branch.trim()).filter(Boolean))]
     .sort((a, b) => a.localeCompare(b));
-  return { isGitRepository: true, repositoryRoot: root, branch: branchResult || null, upstream, ahead, behind, remote: remoteResult || null, operation, branches, changes };
+  const remote = remoteResult || null;
+  let hasSavedCredential = false;
+  try { hasSavedCredential = Boolean(await loadGitCredential(remote)); } catch { /* Keychain may be unavailable. */ }
+  return { isGitRepository: true, repositoryRoot: root, branch: branchResult || null, upstream, ahead, behind, remote, credentialKind: gitCredentialKind(remote), hasSavedCredential, operation, branches, changes };
 }
 
-export async function runGitAction(cwd: string, action: GitAction, input: { paths?: unknown; message?: unknown; rebase?: unknown; branch?: unknown; newBranch?: unknown; startPoint?: unknown; targetBranch?: unknown }): Promise<GitSummary> {
+export async function runGitAction(cwd: string, action: GitAction, input: { paths?: unknown; message?: unknown; rebase?: unknown; branch?: unknown; newBranch?: unknown; startPoint?: unknown; targetBranch?: unknown; credential?: GitCredential; rememberCredential?: unknown }): Promise<GitSummary> {
   await withRepositoryLock(cwd, async (root) => {
     try {
       if (action === "stage" || action === "unstage" || action === "discard") {
@@ -215,9 +255,16 @@ export async function runGitAction(cwd: string, action: GitAction, input: { path
       } else if (action === "commit") {
         if (typeof input.message !== "string" || !input.message.trim()) throw new Error("A commit message is required");
         await git(cwd, ["commit", "-m", input.message.trim()]);
-      } else if (action === "fetch") await git(cwd, ["fetch", "--prune"]);
-      else if (action === "pull") await git(cwd, ["pull", input.rebase === true ? "--rebase" : "--no-rebase"]);
-      else if (action === "push") await git(cwd, ["push"]);
+      } else if (action === "fetch" || action === "pull" || action === "push") {
+        const remote = await remoteUrl(cwd);
+        const kind = gitCredentialKind(remote);
+        const credential = input.credential;
+        if (credential && credential.kind !== kind) throw new Error("Credential type does not match the remote URL");
+        if (credential?.kind === "https" && !credential.username?.trim()) throw new Error("A username is required for an HTTPS remote");
+        const args = action === "fetch" ? ["fetch", "--prune"] : action === "pull" ? ["pull", input.rebase === true ? "--rebase" : "--no-rebase"] : ["push"];
+        await gitWithCredential(cwd, args, remote, credential ?? null);
+        if (credential && input.rememberCredential === true && remote) await saveGitCredential(remote, credential);
+      }
       else if (action === "merge") {
         if (typeof input.branch !== "string" || !input.branch.trim()) throw new Error("A branch is required");
         await git(cwd, ["merge", "--no-edit", input.branch.trim()]);
