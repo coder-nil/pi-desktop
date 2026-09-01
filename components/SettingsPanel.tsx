@@ -16,6 +16,7 @@ type SettingsPanelProps = {
 };
 
 type SettingsView = "menu" | "mcp" | "mcp-editor";
+type McpScope = "project" | "global";
 
 function SettingsIcon({ name }: { name: "models" | "skills" | "plugins" | "mcp" }) {
   if (name === "models") {
@@ -66,6 +67,7 @@ export function SettingsPanel({ cwd, hasProject, projectTrusted, onClose, onOpen
   const [mcpEditorText, setMcpEditorText] = useState("");
   const [mcpEditorLoading, setMcpEditorLoading] = useState(false);
   const [mcpEditorSaving, setMcpEditorSaving] = useState(false);
+  const [mcpScope, setMcpScope] = useState<McpScope>("project");
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -83,7 +85,7 @@ export function SettingsPanel({ cwd, hasProject, projectTrusted, onClose, onOpen
     if (view !== "mcp" || !cwd) return;
     const controller = new AbortController();
     Promise.all([
-      fetch(`/api/mcp?cwd=${encodeURIComponent(cwd)}`, { signal: controller.signal }),
+      fetch(`/api/mcp?cwd=${encodeURIComponent(cwd)}&scope=${mcpScope}`, { signal: controller.signal }),
       fetch(`/api/plugins?cwd=${encodeURIComponent(cwd)}`, { signal: controller.signal }),
     ])
       .then(async ([mcpResponse, pluginsResponse]) => {
@@ -99,10 +101,10 @@ export function SettingsPanel({ cwd, hasProject, projectTrusted, onClose, onOpen
         if (!(error instanceof DOMException && error.name === "AbortError")) setMcpError(error instanceof Error ? error.message : String(error));
       });
     return () => controller.abort();
-  }, [cwd, view]);
+  }, [cwd, mcpScope, view]);
 
   const handleUseMcpServer = async (preset: McpCatalogEntry) => {
-    if (!cwd || !projectTrusted || mcpBusy) return;
+    if (!cwd || (mcpScope === "project" && !projectTrusted) || mcpBusy) return;
     setMcpBusy(preset.id);
     setMcpError(null);
     setMcpNotice(null);
@@ -120,7 +122,7 @@ export function SettingsPanel({ cwd, hasProject, projectTrusted, onClose, onOpen
       const response = await fetch("/api/mcp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cwd, presetId: preset.id }),
+        body: JSON.stringify({ cwd, presetId: preset.id, scope: mcpScope }),
       });
       const data = await response.json() as { error?: string; servers?: unknown[]; added?: boolean };
       if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
@@ -165,11 +167,11 @@ export function SettingsPanel({ cwd, hasProject, projectTrusted, onClose, onOpen
   };
 
   const openMcpEditor = async () => {
-    if (!cwd || !projectTrusted || mcpEditorLoading) return;
+    if (!cwd || (mcpScope === "project" && !projectTrusted) || mcpEditorLoading) return;
     setMcpEditorLoading(true);
     setMcpError(null);
     try {
-      const response = await fetch(`/api/mcp?cwd=${encodeURIComponent(cwd)}&includeContent=1`);
+      const response = await fetch(`/api/mcp?cwd=${encodeURIComponent(cwd)}&scope=${mcpScope}&includeContent=1`);
       const data = await response.json() as { content?: string; error?: string };
       if (!response.ok || typeof data.content !== "string") throw new Error(data.error ?? `HTTP ${response.status}`);
       setMcpEditorText(data.content);
@@ -182,14 +184,14 @@ export function SettingsPanel({ cwd, hasProject, projectTrusted, onClose, onOpen
   };
 
   const saveMcpEditor = async () => {
-    if (!cwd || !projectTrusted || mcpEditorSaving) return;
+    if (!cwd || (mcpScope === "project" && !projectTrusted) || mcpEditorSaving) return;
     setMcpEditorSaving(true);
     setMcpError(null);
     try {
       const response = await fetch("/api/mcp", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cwd, content: mcpEditorText }),
+        body: JSON.stringify({ cwd, scope: mcpScope, content: mcpEditorText }),
       });
       const data = await response.json() as { servers?: unknown; error?: string };
       if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
@@ -299,9 +301,20 @@ export function SettingsPanel({ cwd, hasProject, projectTrusted, onClose, onOpen
           <div style={{ padding: "14px 16px 16px", maxHeight: "min(600px, calc(100dvh - 120px))", overflowY: "auto" }}>
             <p style={{ margin: 0, color: "var(--text-muted)", fontSize: 12, lineHeight: 1.55 }}>{t("settings.mcpBody")}</p>
             <div style={{ marginTop: 12, padding: "9px 11px", border: "1px solid var(--border)", borderRadius: 7, background: "var(--bg)", color: "var(--text-muted)", fontSize: 11, lineHeight: 1.6 }}>
-              <div style={{ color: "var(--text)", fontWeight: 600, marginBottom: 3 }}>{t("settings.mcpConfigFiles")}</div>
-              <code style={{ display: "block", fontFamily: "var(--font-mono)", overflowWrap: "anywhere" }}>.mcp.json</code>
-              <code style={{ display: "block", fontFamily: "var(--font-mono)", overflowWrap: "anywhere" }}>~/.config/mcp/mcp.json</code>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
+                <div style={{ color: "var(--text)", fontWeight: 600 }}>{t("settings.mcpConfigFiles")}</div>
+                <div role="group" aria-label={t("settings.mcpConfigFiles")} style={{ display: "inline-flex", border: "1px solid var(--border)", borderRadius: 6, overflow: "hidden" }}>
+                  {(["project", "global"] as const).map((scope) => (
+                    <button key={scope} type="button" onClick={() => setMcpScope(scope)} style={{ minHeight: 27, padding: "0 8px", border: "none", borderRight: scope === "project" ? "1px solid var(--border)" : "none", background: mcpScope === scope ? "var(--bg-selected)" : "transparent", color: mcpScope === scope ? "var(--text)" : "var(--text-muted)", cursor: "pointer", fontSize: 10 }}>
+                      {scope === "project" ? t("settings.mcpProject") : t("settings.mcpGlobal")}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <code style={{ display: "block", fontFamily: "var(--font-mono)", overflowWrap: "anywhere" }}>{mcpScope === "project" ? ".mcp.json" : "~/.pi/agent/mcp.json"}</code>
+              <button type="button" onClick={() => void openMcpEditor()} disabled={!hasProject || (mcpScope === "project" && !projectTrusted) || mcpEditorLoading} title={t("settings.mcpEdit")} style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 8, minHeight: 29, padding: "0 8px", border: "1px solid var(--border)", borderRadius: 6, background: "var(--bg-hover)", color: !hasProject || (mcpScope === "project" && !projectTrusted) ? "var(--text-dim)" : "var(--text)", cursor: !hasProject || (mcpScope === "project" && !projectTrusted) || mcpEditorLoading ? "default" : "pointer", opacity: !hasProject || (mcpScope === "project" && !projectTrusted) ? 0.62 : 1, fontSize: 11 }}>
+                {mcpEditorLoading ? t("settings.mcpLoading") : t("settings.mcpEdit")}
+              </button>
             </div>
             <div style={{ position: "relative", marginTop: 14 }}>
               <input value={mcpQuery} onChange={(event) => setMcpQuery(event.target.value)} placeholder={t("settings.mcpSearchPlaceholder")} aria-label={t("settings.mcpSearchPlaceholder")} style={{ width: "100%", height: 34, padding: "0 10px 0 30px", border: "1px solid var(--border)", borderRadius: 6, background: "var(--bg-panel)", color: "var(--text)", fontSize: 12, outline: "none" }} />
@@ -333,7 +346,7 @@ export function SettingsPanel({ cwd, hasProject, projectTrusted, onClose, onOpen
                       <div style={{ display: "flex", gap: 5 }}>
                         {added && <button type="button" onClick={() => void openMcpEditor()} title={t("settings.mcpEdit")} aria-label={t("settings.mcpEdit")} style={{ minHeight: 29, padding: "0 7px", border: "1px solid var(--border)", borderRadius: 6, background: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 11 }}>{mcpEditorLoading ? t("settings.mcpLoading") : t("settings.mcpEdit")}</button>}
                         {added && <button type="button" disabled={!projectTrusted || Boolean(mcpTesting)} onClick={() => void handleTestMcpServer(preset)} title={t("settings.mcpTest")} aria-label={t("settings.mcpTest")} style={{ minHeight: 29, padding: "0 7px", border: "1px solid var(--border)", borderRadius: 6, background: "var(--bg-hover)", color: !projectTrusted ? "var(--text-dim)" : "var(--text)", cursor: !projectTrusted || mcpTesting ? "default" : "pointer", opacity: !projectTrusted ? 0.58 : 1, fontSize: 11 }}>{mcpTesting === preset.id ? t("settings.mcpTesting") : t("settings.mcpTest")}</button>}
-                        {!added && <button type="button" disabled={!hasProject || !projectTrusted || Boolean(mcpBusy)} onClick={() => void handleUseMcpServer(preset)} title={title} style={{ minWidth: 70, minHeight: 29, padding: "0 8px", border: "1px solid var(--border)", borderRadius: 6, background: "var(--bg-hover)", color: "var(--text)", cursor: !hasProject || !projectTrusted || mcpBusy ? "default" : "pointer", opacity: !hasProject || !projectTrusted ? 0.58 : 1, fontSize: 11 }}>{busy ? t("settings.mcpAdding") : title}</button>}
+                        {!added && <button type="button" disabled={!hasProject || (mcpScope === "project" && !projectTrusted) || Boolean(mcpBusy)} onClick={() => void handleUseMcpServer(preset)} title={title} style={{ minWidth: 70, minHeight: 29, padding: "0 8px", border: "1px solid var(--border)", borderRadius: 6, background: "var(--bg-hover)", color: "var(--text)", cursor: !hasProject || (mcpScope === "project" && !projectTrusted) || mcpBusy ? "default" : "pointer", opacity: !hasProject || (mcpScope === "project" && !projectTrusted) ? 0.58 : 1, fontSize: 11 }}>{busy ? t("settings.mcpAdding") : title}</button>}
                       </div>
                       {added && <span style={{ color: "var(--text-dim)", fontSize: 10 }}>{t("settings.mcpAddedState")}</span>}
                     </div>
@@ -356,7 +369,7 @@ export function SettingsPanel({ cwd, hasProject, projectTrusted, onClose, onOpen
             {mcpError && <div role="alert" style={{ marginTop: 9, color: "#dc2626", fontSize: 11, lineHeight: 1.45, overflowWrap: "anywhere" }}>{mcpError}</div>}
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 7, marginTop: 12 }}>
               <button type="button" onClick={() => setView("mcp")} disabled={mcpEditorSaving} style={{ minHeight: 32, padding: "0 10px", border: "1px solid var(--border)", borderRadius: 6, background: "none", color: "var(--text-muted)", cursor: mcpEditorSaving ? "default" : "pointer", fontSize: 11 }}>{t("settings.mcpCancel")}</button>
-              <button type="button" onClick={() => void saveMcpEditor()} disabled={mcpEditorSaving || !projectTrusted} style={{ minHeight: 32, padding: "0 11px", border: "1px solid var(--accent)", borderRadius: 6, background: "var(--accent)", color: "white", cursor: mcpEditorSaving || !projectTrusted ? "default" : "pointer", opacity: mcpEditorSaving || !projectTrusted ? 0.6 : 1, fontSize: 11 }}>{mcpEditorSaving ? t("settings.mcpSaving") : t("settings.mcpSave")}</button>
+              <button type="button" onClick={() => void saveMcpEditor()} disabled={mcpEditorSaving || (mcpScope === "project" && !projectTrusted)} style={{ minHeight: 32, padding: "0 11px", border: "1px solid var(--accent)", borderRadius: 6, background: "var(--accent)", color: "white", cursor: mcpEditorSaving || (mcpScope === "project" && !projectTrusted) ? "default" : "pointer", opacity: mcpEditorSaving || (mcpScope === "project" && !projectTrusted) ? 0.6 : 1, fontSize: 11 }}>{mcpEditorSaving ? t("settings.mcpSaving") : t("settings.mcpSave")}</button>
             </div>
           </div>
         )}

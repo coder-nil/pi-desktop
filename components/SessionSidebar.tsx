@@ -385,7 +385,7 @@ function PiWebTitle() {
   const [scrambling, setScrambling] = useState(false);
   const revertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const target = showVersion ? (process.env.NEXT_PUBLIC_APP_VERSION ?? "alpha.2") : "Pi Desktop";
+  const target = showVersion ? (process.env.NEXT_PUBLIC_APP_VERSION ?? "alpha.3") : "Pi Desktop";
   const display = useScramble(target, scrambling);
 
   const triggerScramble = useCallback((toVersion: boolean) => {

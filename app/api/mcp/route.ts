@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, renameSync, statSync, writeFileSync, mkdirSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { NextResponse } from "next/server";
 import { getMcpCatalogEntry } from "@/lib/mcp-catalog";
@@ -9,8 +10,14 @@ import { getProjectTrustStatus } from "@/lib/project-trust";
 
 export const dynamic = "force-dynamic";
 
-function configPath(cwd: string): string {
-  return join(resolve(cwd), ".mcp.json");
+type McpScope = "project" | "global";
+
+function parseScope(value: unknown): McpScope {
+  return value === "global" ? "global" : "project";
+}
+
+function configPath(cwd: string, scope: McpScope): string {
+  return scope === "global" ? join(homedir(), ".pi", "agent", "mcp.json") : join(resolve(cwd), ".mcp.json");
 }
 
 function readConfig(filePath: string): Record<string, unknown> {
@@ -54,11 +61,13 @@ async function validateCwd(cwdValue: unknown): Promise<string | NextResponse> {
 }
 
 export async function GET(req: Request) {
-  const cwd = await validateCwd(new URL(req.url).searchParams.get("cwd"));
+  const params = new URL(req.url).searchParams;
+  const scope = parseScope(params.get("scope"));
+  const cwd = await validateCwd(params.get("cwd"));
   if (cwd instanceof NextResponse) return cwd;
   const includeContent = new URL(req.url).searchParams.get("includeContent") === "1";
   try {
-    const path = configPath(cwd);
+    const path = configPath(cwd, scope);
     const content = existsSync(path) ? readFileSync(path, "utf8") : "{\n  \"mcpServers\": {}\n}\n";
     try {
       const raw = JSON.parse(content) as Record<string, unknown>;
@@ -79,17 +88,18 @@ export async function PUT(req: Request) {
   if (!isApiRequestAllowed(req)) return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
   if (!hasJsonContentType(req)) return NextResponse.json({ error: "Content-Type must be application/json" }, { status: 415 });
   try {
-    const body = await req.json() as { cwd?: unknown; content?: unknown };
+    const body = await req.json() as { cwd?: unknown; content?: unknown; scope?: unknown };
+    const scope = parseScope(body.scope);
     const cwd = await validateCwd(body.cwd);
     if (cwd instanceof NextResponse) return cwd;
     if (typeof body.content !== "string") return NextResponse.json({ error: "content required" }, { status: 400 });
     const trust = getProjectTrustStatus(cwd, getAgentDir());
-    if (trust.requiresTrust && !trust.trusted) return NextResponse.json({ error: "Trust this project before editing MCP configuration" }, { status: 403 });
+    if (scope === "project" && trust.requiresTrust && !trust.trusted) return NextResponse.json({ error: "Trust this project before editing MCP configuration" }, { status: 403 });
     const parsed = JSON.parse(body.content) as unknown;
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return NextResponse.json({ error: "MCP config root must be a JSON object" }, { status: 400 });
     const raw = parsed as Record<string, unknown>;
     const servers = readServers(raw);
-    const path = configPath(cwd);
+    const path = configPath(cwd, scope);
     writeConfig(path, { ...raw, mcpServers: servers });
     return NextResponse.json({ path, servers: Object.keys(servers) });
   } catch (error) {
@@ -102,7 +112,8 @@ export async function POST(req: Request) {
   if (!hasJsonContentType(req)) return NextResponse.json({ error: "Content-Type must be application/json" }, { status: 415 });
 
   try {
-    const body = await req.json() as { cwd?: unknown; presetId?: unknown };
+    const body = await req.json() as { cwd?: unknown; presetId?: unknown; scope?: unknown };
+    const scope = parseScope(body.scope);
     const cwd = await validateCwd(body.cwd);
     if (cwd instanceof NextResponse) return cwd;
     if (typeof body.presetId !== "string" || !body.presetId.trim()) return NextResponse.json({ error: "presetId required" }, { status: 400 });
@@ -110,11 +121,11 @@ export async function POST(req: Request) {
     if (!preset) return NextResponse.json({ error: "Unknown MCP preset" }, { status: 404 });
 
     const trust = getProjectTrustStatus(cwd, getAgentDir());
-    if (trust.requiresTrust && !trust.trusted) {
+    if (scope === "project" && trust.requiresTrust && !trust.trusted) {
       return NextResponse.json({ error: "Trust this project before adding MCP servers" }, { status: 403 });
     }
 
-    const path = configPath(cwd);
+    const path = configPath(cwd, scope);
     const raw = readConfig(path);
     const servers = readServers(raw);
     if (servers[preset.id] !== undefined) {
