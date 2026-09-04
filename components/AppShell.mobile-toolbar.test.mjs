@@ -57,6 +57,7 @@ test("prioritizes context and cost when the mobile statistics area narrows", () 
 test("places trust warnings below the mobile toolbar and the file toggle in toolbar flow", () => {
   assert.match(source, /\{isMobile && renderProjectTrustWarning\(true\)\}/);
   assert.match(source, /data-mobile-trust-banner=\{mobileBanner \? "true" : undefined\}/);
+  assert.match(source, /if \(!bannerEnabled \|\| !showChat \|\| !projectTrust\?\.requiresTrust \|\| projectTrust\.trusted\) return null/);
   assert.doesNotMatch(source, /File panel toggle — always visible at top-right/);
   assert.doesNotMatch(source, /position: "fixed", top: "env\(safe-area-inset-top\)"/);
 });

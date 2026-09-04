@@ -15,6 +15,8 @@ type SettingsPanelProps = {
   onMcpConfigured: () => void;
   soundEnabled: boolean;
   onSoundToggle: () => void;
+  bannerEnabled: boolean;
+  onBannerToggle: () => void;
 };
 
 type SettingsView = "menu" | "mcp" | "mcp-editor";
@@ -53,7 +55,7 @@ function SettingsIcon({ name }: { name: "models" | "skills" | "plugins" | "mcp" 
   );
 }
 
-export function SettingsPanel({ cwd, hasProject, projectTrusted, onClose, onOpenModels, onOpenSkills, onOpenPlugins, onMcpConfigured, soundEnabled, onSoundToggle }: SettingsPanelProps) {
+export function SettingsPanel({ cwd, hasProject, projectTrusted, onClose, onOpenModels, onOpenSkills, onOpenPlugins, onMcpConfigured, soundEnabled, onSoundToggle, bannerEnabled, onBannerToggle }: SettingsPanelProps) {
   const { t } = useI18n();
   const [view, setView] = useState<SettingsView>("menu");
   const [mcpQuery, setMcpQuery] = useState("");
@@ -267,6 +269,20 @@ export function SettingsPanel({ cwd, hasProject, projectTrusted, onClose, onOpen
               </span>
               <button type="button" role="switch" aria-checked={soundEnabled} onClick={onSoundToggle} title={soundEnabled ? t("chat.disableSound") : t("chat.enableSound")} aria-label={soundEnabled ? t("chat.disableSound") : t("chat.enableSound")} style={{ width: 38, height: 22, padding: 2, border: "none", borderRadius: 11, background: soundEnabled ? "var(--accent)" : "var(--border)", cursor: "pointer", flexShrink: 0 }}>
                 <span style={{ display: "block", width: 18, height: 18, borderRadius: "50%", background: "white", transform: soundEnabled ? "translateX(16px)" : "translateX(0)", transition: "transform 0.15s" }} />
+              </button>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 10px", borderBottom: "1px solid var(--border)", marginBottom: 4 }}>
+              <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, flexShrink: 0, borderRadius: 7, background: "var(--bg-hover)", color: "var(--text-muted)" }}>
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M4 6h16v12H4z" /><path d="M8 10h8" /><path d="M8 14h5" />
+                </svg>
+              </span>
+              <span style={{ minWidth: 0, flex: 1 }}>
+                <span style={{ display: "block", fontSize: 13, fontWeight: 600 }}>{t("settings.showBanner")}</span>
+                <span style={{ display: "block", marginTop: 2, color: "var(--text-muted)", fontSize: 11, lineHeight: 1.45 }}>{t("settings.showBannerDescription")}</span>
+              </span>
+              <button type="button" role="switch" aria-checked={bannerEnabled} onClick={onBannerToggle} title={t("settings.showBanner")} aria-label={t("settings.showBanner")} style={{ width: 38, height: 22, padding: 2, border: "none", borderRadius: 11, background: bannerEnabled ? "var(--accent)" : "var(--border)", cursor: "pointer", flexShrink: 0 }}>
+                <span style={{ display: "block", width: 18, height: 18, borderRadius: "50%", background: "white", transform: bannerEnabled ? "translateX(16px)" : "translateX(0)", transition: "transform 0.15s" }} />
               </button>
             </div>
             {([

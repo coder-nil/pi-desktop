@@ -19,6 +19,7 @@ import { useViewportHeight } from "@/hooks/useViewportHeight";
 import { useResizablePanel } from "@/hooks/useResizablePanel";
 import { useAudio } from "@/hooks/useAudio";
 import { copyText } from "@/lib/clipboard";
+import { getBannerEnabled, setBannerEnabled } from "@/lib/banner-preference";
 import { getFileName } from "@/lib/file-paths";
 import { buildAtMentionText, buildFileAtMentionsText, buildFileLineMentionText } from "@/lib/file-fuzzy";
 import {
@@ -115,6 +116,7 @@ export function AppShell() {
   const [skillsConfigOpen, setSkillsConfigOpen] = useState(false);
   const [pluginsConfigOpen, setPluginsConfigOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [bannerEnabled, setBannerEnabledState] = useState(true);
   const [gitPanelOpen, setGitPanelOpen] = useState(false);
   const [activeProjectIsGit, setActiveProjectIsGit] = useState<boolean | null>(null);
   const [projectTrust, setProjectTrust] = useState<ProjectTrustStatus | null>(null);
@@ -125,6 +127,10 @@ export function AppShell() {
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
   const [mobileToolbarMoreOpen, setMobileToolbarMoreOpen] = useState(false);
   const [mobileSidebarReady, setMobileSidebarReady] = useState(false);
+
+  useEffect(() => {
+    setBannerEnabledState(getBannerEnabled());
+  }, []);
   const sidebarWidthRef = useRef(SIDEBAR_DEFAULT_WIDTH);
   const rightPanelWidthRef = useRef(RIGHT_PANEL_FALLBACK_WIDTH);
   const getResponsiveRightPanelWidth = useCallback(
@@ -1213,7 +1219,7 @@ export function AppShell() {
   );
 
   const renderProjectTrustWarning = (mobileBanner: boolean) => {
-    if (!showChat || !projectTrust?.requiresTrust || projectTrust.trusted) return null;
+    if (!bannerEnabled || !showChat || !projectTrust?.requiresTrust || projectTrust.trusted) return null;
     return (
       <button
         type="button"
@@ -2302,6 +2308,14 @@ export function AppShell() {
         }}
         soundEnabled={soundEnabled}
         onSoundToggle={onSoundToggle}
+        bannerEnabled={bannerEnabled}
+        onBannerToggle={() => {
+          setBannerEnabledState((current) => {
+            const next = !current;
+            setBannerEnabled(next);
+            return next;
+          });
+        }}
       />
     )}
     {modelsConfigOpen && <ModelsConfig onClose={() => { setModelsConfigOpen(false); setModelsRefreshKey((k) => k + 1); }} />}
