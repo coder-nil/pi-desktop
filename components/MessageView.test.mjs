@@ -148,3 +148,15 @@ test("renders custom-message images as buttons that open a larger preview", () =
   assert.match(html, /<button[^>]+aria-label="Preview image"[^>]*>/);
   assert.match(html, /<img[^>]+src="data:image\/png;base64,YWJj"/);
 });
+
+test("does not render the workspace restore action", () => {
+  const html = renderMessage({
+    role: "user",
+    content: "checkpointed message",
+  }, {
+    entryId: "entry-1",
+    onRestoreCheckpoint() {},
+  });
+
+  assert.doesNotMatch(html, /恢复工作区/);
+});

@@ -212,6 +212,12 @@ test("caps an upward menu to the visible space above its anchor", () => {
   assert.equal(getUpwardMenuMaxHeight(40, 36), 0);
 });
 
+test("caps the skill menu to the measured visible space above its trigger", () => {
+  assert.match(source, /const \[skillMenuMaxHeight, setSkillMenuMaxHeight\] = useState<number \| null>\(null\);/);
+  assert.match(source, /if \(!skillMenuOpen\) \{\s*setSkillMenuMaxHeight\(null\);/);
+  assert.match(source, /maxHeight: skillMenuMaxHeight === null\s*\? "min\(58vh, 460px\)"\s*:\s*`min\(58vh, 460px, \$\{skillMenuMaxHeight\}px\)`/);
+});
+
 test("restores text and base64 images when editing a user message", () => {
   const message = {
     role: "user",

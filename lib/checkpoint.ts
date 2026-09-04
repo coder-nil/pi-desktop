@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "crypto";
 import { promises as fs } from "fs";
+import type { Dirent } from "fs";
 import path from "path";
 
 const SKIP = new Set([".git", "node_modules", ".next", "target"]);
@@ -17,6 +18,22 @@ function rootDir(): string {
 }
 function filePath(sessionId: string, id: string): string { return path.join(rootDir(), encodeURIComponent(sessionId), `${id}.json`); }
 function digest(data: Buffer): string { return createHash("sha256").update(data).digest("hex"); }
+
+export async function expireOtherCheckpoints(sessionId: string): Promise<number> {
+  const root = rootDir();
+  const currentSessionDir = encodeURIComponent(sessionId);
+  let entries: Dirent[];
+  try {
+    entries = await fs.readdir(root, { withFileTypes: true });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return 0;
+    throw error;
+  }
+
+  const expired = entries.filter((entry) => entry.isDirectory() && entry.name !== currentSessionDir);
+  await Promise.all(expired.map((entry) => fs.rm(path.join(root, entry.name), { recursive: true, force: true })));
+  return expired.length;
+}
 
 async function walk(cwd: string): Promise<FileRecord[]> {
   const out: FileRecord[] = [];

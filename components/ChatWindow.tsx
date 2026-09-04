@@ -209,22 +209,6 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     chatInputRef?.current?.replaceMessage(message);
   }, [chatInputRef]);
 
-  const handleRestoreCheckpoint = useCallback(async (entryId: string) => {
-    const sid = session?.id;
-    if (!sid) return;
-    try {
-      const listed = await fetch(`/api/checkpoints?sessionId=${encodeURIComponent(sid)}`).then((r) => r.ok ? r.json() : null);
-      const checkpoint = listed?.checkpoints?.filter((candidate: { entryId?: string; after?: unknown }) => candidate.entryId === entryId && candidate.after).at(-1);
-      if (!checkpoint) throw new Error("此对话节点没有可恢复的 checkpoint");
-      const response = await fetch("/api/checkpoints", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "restore", sessionId: sid, checkpointId: checkpoint.id }) });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "恢复失败");
-      window.alert(`已恢复 ${result.restored?.length ?? 0} 个文件。请从该节点新建会话继续。`);
-    } catch (error) {
-      window.alert(error instanceof Error ? error.message : String(error));
-    }
-  }, [session?.id]);
-
   const {
     loading, error, messages, entryIds, streamState,
     agentRunning, bashRunning, pendingBash, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, toolPreset, thinkingLevel,
@@ -699,7 +683,6 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                     onFork={sessionBusy || isNew || (idx === 0 && msg.role === "user") ? undefined : handleFork}
                     forking={forkingEntryId === entryIds[idx]}
                     onNavigate={sessionBusy ? undefined : handleNavigate}
-                    onRestoreCheckpoint={sessionBusy || isNew ? undefined : handleRestoreCheckpoint}
                     prevAssistantEntryId={sessionBusy ? undefined : prevAssistantEntryId}
                     onEditContent={handleEditContent}
                     showTimestamp={showTimestamp}

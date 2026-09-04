@@ -535,6 +535,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     : {};
   const [skillMenuOpen, setSkillMenuOpen] = useState(false);
   const [skillFilter, setSkillFilter] = useState("");
+  const [skillMenuMaxHeight, setSkillMenuMaxHeight] = useState<number | null>(null);
   const [skillMenuState, setSkillMenuState] = useState<{
     cwd: string;
     skills: SkillInfo[];
@@ -1500,6 +1501,50 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       if (frameId !== null) cancelAnimationFrame(frameId);
     };
   }, [slashMenuOpen, slashQuery]);
+
+  useLayoutEffect(() => {
+    if (!skillMenuOpen) {
+      setSkillMenuMaxHeight(null);
+      return;
+    }
+
+    const menu = skillMenuRef.current?.lastElementChild;
+    if (!(menu instanceof HTMLDivElement)) return;
+
+    let frameId: number | null = null;
+    const update = () => {
+      frameId = null;
+      const nextHeight = getUpwardMenuMaxHeight(
+        menu.getBoundingClientRect().bottom,
+        getVisibleTopBoundary(menu),
+      );
+      setSkillMenuMaxHeight((current) => current === nextHeight ? current : nextHeight);
+    };
+    const scheduleUpdate = () => {
+      if (frameId !== null) cancelAnimationFrame(frameId);
+      frameId = requestAnimationFrame(update);
+    };
+
+    update();
+    const anchorObserver = typeof ResizeObserver === "undefined" || !menu.parentElement
+      ? null
+      : new ResizeObserver(scheduleUpdate);
+    if (menu.parentElement) anchorObserver?.observe(menu.parentElement);
+    const viewport = window.visualViewport;
+    viewport?.addEventListener("resize", scheduleUpdate);
+    viewport?.addEventListener("scroll", scheduleUpdate);
+    window.addEventListener("resize", scheduleUpdate);
+    window.addEventListener("scroll", scheduleUpdate, true);
+
+    return () => {
+      anchorObserver?.disconnect();
+      viewport?.removeEventListener("resize", scheduleUpdate);
+      viewport?.removeEventListener("scroll", scheduleUpdate);
+      window.removeEventListener("resize", scheduleUpdate);
+      window.removeEventListener("scroll", scheduleUpdate, true);
+      if (frameId !== null) cancelAnimationFrame(frameId);
+    };
+  }, [skillMenuOpen]);
 
   // Build model options: prefer modelList (has provider info), fallback to modelNames
   const modelOptions: ModelOption[] = (() => {
@@ -2498,7 +2543,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                     bottom: "calc(100% + 8px)",
                     zIndex: 500,
                     width: "min(560px, calc(100vw - 32px))",
-                    maxHeight: "min(58vh, 460px)",
+                    maxHeight: skillMenuMaxHeight === null
+                      ? "min(58vh, 460px)"
+                      : `min(58vh, 460px, ${skillMenuMaxHeight}px)`,
                     display: "flex",
                     flexDirection: "column",
                     overflow: "hidden",
