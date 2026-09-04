@@ -74,6 +74,8 @@ test("CodeBlock highlights code when not streaming", () => {
   assert.match(html, /class="token/);
   assert.match(html, /const/);
   assert.match(html, /background-color:color-mix/);
+  assert.match(html, /class="linenumber react-syntax-highlighter-line-number"[^>]*user-select:none/);
+  assert.match(html, /class="linenumber react-syntax-highlighter-line-number"[^>]*-webkit-user-select:none/);
   assert.doesNotMatch(html, /(?:^|;)background:/);
 });
 

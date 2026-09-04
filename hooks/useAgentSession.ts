@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo, useReducer } from "react";
+import { useI18n } from "@/hooks/useI18n";
 import type {
   AgentMessage,
   BlockingExtensionUiRequest,
@@ -281,6 +282,7 @@ function getUserMessageText(message: AgentMessage): string | null {
 }
 
 export function useAgentSession(opts: UseAgentSessionOptions) {
+  const { locale } = useI18n();
   const {
     session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked,
     modelsRefreshKey, onBranchDataChange, onSystemPromptChange, onSystemPromptLoaderChange, onSessionStatsPanelOpen,
@@ -622,6 +624,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           ...(selectedThinkingLevel
             ? { thinkingLevel: selectedThinkingLevel }
             : {}),
+          uiLocale: locale,
         }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -651,7 +654,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } finally {
       ensuringNewSessionRef.current = null;
     }
-  }, [isNew, newSessionCwd, toolPreset]);
+  }, [isNew, locale, newSessionCwd, toolPreset]);
 
   // Opening the System panel is also allowed to initialize an otherwise dormant
   // session. This is deliberately a non-prompt command: it creates no message
@@ -660,10 +663,23 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const sid = sessionIdRef.current ?? await ensureNewSession();
     if (!sid) return;
 
+    await sendAgentCommand(sid, { type: "set_ui_locale", locale });
     const state = await sendAgentCommand<AgentStateResponse>(sid, { type: "get_state" });
     if (!sessionHookMountedRef.current || sessionIdRef.current !== sid) return;
     setSystemPrompt(state.systemPrompt ?? "");
-  }, [ensureNewSession]);
+  }, [ensureNewSession, locale]);
+
+  useEffect(() => {
+    const sid = sessionIdRef.current;
+    if (!sid) return;
+    void sendAgentCommand<{ systemPrompt?: string }>(sid, { type: "set_ui_locale", locale })
+      .then((result) => {
+        if (sessionHookMountedRef.current && sessionIdRef.current === sid && result?.systemPrompt !== undefined) {
+          setSystemPrompt(result.systemPrompt);
+        }
+      })
+      .catch((error) => console.error("Failed to update system prompt language:", error));
+  }, [locale]);
 
   const loadSlashCommands = useCallback(async () => {
     const sid = sessionIdRef.current ?? await ensureNewSession();
@@ -1377,6 +1393,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         promptRequestStarted = true;
         await sendAgentCommand(sid, {
           type: "prompt",
+          uiLocale: locale,
           message,
           ...(piImages?.length ? { images: piImages } : {}),
         });
@@ -1391,6 +1408,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         promptRequestStarted = true;
         await sendAgentCommand(session.id, {
           type: "prompt",
+          uiLocale: locale,
           message,
           ...(piImages?.length ? { images: piImages } : {}),
         });
@@ -1433,7 +1451,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setAgentPhase(null);
       dispatch({ type: "end" });
     }
-  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, cancelEventStreamGrace, closeEvents, composerDraftKey, reconcileAgentState, restoreSubmission]);
+  }, [isNew, locale, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, cancelEventStreamGrace, closeEvents, composerDraftKey, reconcileAgentState, restoreSubmission]);
 
   const handleRetryPrompt = useCallback(() => {
     const prompt = retryablePromptRef.current;
@@ -1721,6 +1739,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     try {
       await sendAgentCommand(sid, {
         type: "prompt",
+        uiLocale: locale,
         message,
         streamingBehavior: behavior,
         ...(piImages?.length ? { images: piImages } : {}),
@@ -1736,7 +1755,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         message: e instanceof Error ? e.message : String(e),
       });
     }
-  }, [addNotice, composerDraftKey, restoreSubmission]);
+  }, [addNotice, composerDraftKey, locale, restoreSubmission]);
 
   const handleSteer = useCallback(async (message: string, images?: AttachedImage[]) => {
     await sendStreamingPrompt(message, "steer", images);

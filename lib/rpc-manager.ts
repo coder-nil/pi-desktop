@@ -19,7 +19,7 @@ import { cacheSessionPath, invalidateSessionListCache } from "./session-reader";
 import { getProjectTrustStatus, projectTrustReloadOptions } from "./project-trust";
 import { persistExplicitStartupPreferences } from "./startup-preferences";
 import { findSkillInvocation, recordSkillUsage } from "./skills-store";
-import type { SlashCommandInfo } from "@earendil-works/pi-coding-agent";
+import type { InlineExtension, SlashCommandInfo } from "@earendil-works/pi-coding-agent";
 import type { AgentSessionLike, ExtensionUiContextLike, ToolInfo } from "./pi-types";
 import type {
   ExtensionUiRequest,
@@ -186,6 +186,69 @@ export interface RpcSessionStartOptions {
   toolNames?: string[];
   initialModel?: { provider: string; modelId: string };
   thinkingLevel?: ThinkingLevel;
+  uiLocale?: "en" | "zh-CN";
+}
+
+type UiLocale = "en" | "zh-CN";
+
+const SYSTEM_PROMPT_TRANSLATIONS: Record<string, string> = {
+  "You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.": "你是运行在 pi 编程代理框架中的专业编程助手。你通过读取文件、执行命令、编辑代码和创建新文件来帮助用户。",
+  "Available tools:": "可用工具：",
+  "In addition to the tools above, you may have access to other custom tools depending on the project.": "除上述工具外，你还可能根据项目获得其他自定义工具。",
+  "Guidelines:": "行为准则：",
+  "Be concise in your responses": "回答应简洁明了",
+  "Show file paths clearly when working with files": "处理文件时清晰展示文件路径",
+  "Use bash for file operations like ls, rg, find": "使用 bash 执行 ls、rg、find 等文件操作",
+  "Pi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):": "Pi 文档（仅当用户询问 pi、其 SDK、扩展、主题、技能或 TUI 时阅读）：",
+  "- Main documentation:": "- 主文档：",
+  "- Additional docs:": "- 补充文档：",
+  "- Examples:": "- 示例：",
+  "- When asked about:": "- 当用户询问以下主题时：",
+  "When reading pi docs or examples, resolve docs/... under Additional docs and examples/... under Examples, not the current working directory": "阅读 pi 文档或示例时，应从补充文档中的 docs/... 和示例中的 examples/... 解析路径，而不是当前工作目录",
+  "extensions (docs/extensions.md, examples/extensions/), themes (docs/themes.md), skills (docs/skills.md), prompt templates (docs/prompt-templates.md), TUI components (docs/tui.md), keybindings (docs/keybindings.md), SDK integrations (docs/sdk.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), pi packages (docs/packages.md), environment variables (docs/environment-variables.md)": "扩展（docs/extensions.md、examples/extensions/）、主题（docs/themes.md）、技能（docs/skills.md）、提示词模板（docs/prompt-templates.md）、TUI 组件（docs/tui.md）、快捷键（docs/keybindings.md）、SDK 集成（docs/sdk.md）、自定义提供商（docs/custom-provider.md）、添加模型（docs/models.md）、Pi 包（docs/packages.md）、环境变量（docs/environment-variables.md）",
+  "When working on pi topics, read the docs and examples, and follow .md cross-references before implementing": "处理 pi 相关主题时，先完整阅读文档和示例，并在实现前遵循 .md 文件中的交叉引用",
+  "Always read pi .md files completely and follow links to related docs (e.g., tui.md for TUI API details)": "始终完整阅读 pi 的 .md 文件，并遵循指向相关文档的链接（例如 TUI API 详情对应 tui.md）",
+  "Project-specific instructions and guidelines:": "项目专属说明和行为准则：",
+  "Current working directory:": "当前工作目录：",
+  "Read file contents": "读取文件内容",
+  "Execute bash commands (ls, grep, find, etc.)": "执行 bash 命令（ls、grep、find 等）",
+  "Make precise file edits with exact text replacement, including multiple disjoint edits in one call": "通过精确替换文本编辑文件，并可在一次调用中完成多个不连续的修改",
+  "Create or overwrite files": "创建或覆盖文件",
+  "Use read to examine files instead of cat or sed.": "使用 read 查看文件，不要使用 cat 或 sed。",
+  "Use edit for precise changes (edits[].oldText must match exactly)": "使用 edit 进行精确修改（edits[].oldText 必须完全匹配）",
+  "When changing multiple separate locations in one file, use one edit call with multiple entries in edits[] instead of multiple edit calls": "修改同一文件中的多个独立位置时，请在一次 edit 调用的 edits[] 中提供多个条目，而不是多次调用 edit",
+  "Each edits[].oldText is matched against the original file, not after earlier edits are applied. Do not emit overlapping or nested edits. Merge nearby changes into one edit.": "每个 edits[].oldText 都会针对原始文件匹配，而不是针对前面修改后的文件。不要提交相互重叠或嵌套的修改；相邻修改应合并为一次 edit。",
+  "Keep edits[].oldText as small as possible while still being unique in the file. Do not pad with large unchanged regions.": "在保证文件中唯一匹配的前提下，让 edits[].oldText 尽可能简短。不要加入大段未修改的内容。",
+  "Use write only for new files or complete rewrites.": "仅在创建新文件或完整重写文件时使用 write。",
+  "You can inspect PI_* environment variables for current model and session details.": "你可以查看 PI_* 环境变量来获取当前模型和会话详情。",
+  "Call system_time before resolving references such as today, tomorrow, yesterday, this week, or a relative deadline. Do not infer the current date from model knowledge.": "在解释今天、明天、昨天、本周或相对截止时间等日期前，先调用 system_time。不要根据模型自身知识推断当前日期。",
+};
+
+function normalizeUiLocale(value: unknown): UiLocale {
+  return value === "zh-CN" ? "zh-CN" : "en";
+}
+
+function translateGeneratedSystemPrompt(prompt: string, locale: UiLocale): string {
+  let translated = prompt;
+  const entries = Object.entries(SYSTEM_PROMPT_TRANSLATIONS);
+  if (locale === "en") {
+    for (const [english, chinese] of entries) translated = translated.split(chinese).join(english);
+  } else {
+    for (const [english, chinese] of entries) translated = translated.split(english).join(chinese);
+  }
+  return translated;
+}
+
+function createLanguagePromptExtension(locale: { value: UiLocale; forceEmpty: boolean }): InlineExtension {
+  return {
+    name: "pi-desktop-language-prompt",
+    hidden: true,
+    factory: (pi) => {
+      pi.on("before_agent_start", (event) => ({
+        systemPrompt: locale.forceEmpty ? "" : translateGeneratedSystemPrompt(event.systemPrompt, locale.value),
+      }));
+    },
+  };
 }
 
 const CODING_TOOL_NAMES = ["read", "bash", "edit", "write", "grep", "find", "ls"];
@@ -282,13 +345,33 @@ export class AgentSessionWrapper {
   private extensionBindingPromise: Promise<void> | null = null;
   private extensionBindingError: unknown = null;
   private forceEmptySystemPrompt = false;
+  private uiLocale: UiLocale = "en";
   private unsubscribe: (() => void) | null = null;
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
   private onDestroyCallback: (() => void) | null = null;
   private shutdownPromise: Promise<void> | null = null;
   private _alive = true;
 
-  constructor(public readonly inner: AgentSessionLike) {}
+  constructor(
+    public readonly inner: AgentSessionLike,
+    private readonly onUiLocaleChange?: (locale: UiLocale) => void,
+    private readonly onForceEmptyChange?: (force: boolean) => void,
+  ) {}
+
+  private applyLanguageSystemPrompt(): void {
+    if (!this.inner.agent.state) return;
+    if (this.forceEmptySystemPrompt) {
+      this.inner.agent.state.systemPrompt = "";
+      return;
+    }
+    this.inner.agent.state.systemPrompt = translateGeneratedSystemPrompt(this.inner.agent.state.systemPrompt ?? "", this.uiLocale);
+  }
+
+  setUiLocale(locale: unknown): void {
+    this.uiLocale = normalizeUiLocale(locale);
+    this.onUiLocaleChange?.(this.uiLocale);
+    this.applyLanguageSystemPrompt();
+  }
 
   get sessionId(): string {
     return this.inner.sessionId;
@@ -334,6 +417,7 @@ export class AgentSessionWrapper {
 
   setForceEmptySystemPrompt(force: boolean): void {
     this.forceEmptySystemPrompt = force;
+    this.onForceEmptyChange?.(force);
     this.applyForcedEmptySystemPrompt();
   }
 
@@ -558,6 +642,7 @@ export class AgentSessionWrapper {
     });
     configureDesktopProviderRetry(this.inner);
     this.applyForcedEmptySystemPrompt();
+    this.applyLanguageSystemPrompt();
   }
 
   private resetIdleTimer(): void {
@@ -611,6 +696,7 @@ export class AgentSessionWrapper {
   async send(command: Record<string, unknown>): Promise<unknown> {
     this.resetIdleTimer();
     const type = command.type as string;
+    if (command.uiLocale !== undefined) this.setUiLocale(command.uiLocale);
     if (this.shouldWaitForExtensions(type)) await this.waitForExtensionsBound();
 
     if (type === "prompt" || type === "steer" || type === "follow_up") {
@@ -767,6 +853,11 @@ export class AgentSessionWrapper {
           extensionStatuses: this.getExtensionStatuses(),
           extensionWidgets: this.getExtensionWidgets(),
         };
+      }
+
+      case "set_ui_locale": {
+        this.setUiLocale(command.locale);
+        return { systemPrompt: this.inner.agent.state?.systemPrompt ?? "" };
       }
 
       case "set_model": {
@@ -937,6 +1028,7 @@ export class AgentSessionWrapper {
         this.setForceEmptySystemPrompt(toolNames.length === 0);
         this.inner.setActiveToolsByName(withExtensionTools(this.inner, toolNames));
         this.applyForcedEmptySystemPrompt();
+        this.applyLanguageSystemPrompt();
         return null;
       }
 
@@ -950,6 +1042,7 @@ export class AgentSessionWrapper {
           this.inner.extensionRunner.setUIContext?.(this.createExtensionUiContext(), "rpc");
         }
         this.applyForcedEmptySystemPrompt();
+        this.applyLanguageSystemPrompt();
         invalidateModelsCache();
         return { success: true };
       }
@@ -1590,6 +1683,7 @@ export class AgentSessionWrapper {
           },
         });
         this.applyForcedEmptySystemPrompt();
+        this.applyLanguageSystemPrompt();
       },
     };
   }
@@ -1804,7 +1898,8 @@ export async function startRpcSession(
   cwd: string | undefined,
   options: RpcSessionStartOptions = {},
 ): Promise<{ session: AgentSessionWrapper; realSessionId: string }> {
-  const { toolNames, initialModel, thinkingLevel } = options;
+  const { toolNames, initialModel, thinkingLevel, uiLocale } = options;
+  const sessionLocale = { value: normalizeUiLocale(uiLocale), forceEmpty: toolNames?.length === 0 };
   const registry = getRegistry();
   const locks = getLocks();
 
@@ -1859,6 +1954,7 @@ export async function startRpcSession(
       modelRuntime,
       resourceLoaderOptions: {
         extensionFactories: [
+          createLanguagePromptExtension(sessionLocale),
           createSystemTimeExtension(),
           createProjectCommandBashExtension({
             cwd: sessionCwd,
@@ -1923,13 +2019,18 @@ export async function startRpcSession(
       inner.setActiveToolsByName(withExtensionTools(inner, toolNames));
     }
 
-    const wrapper = new AgentSessionWrapper(inner);
+    const wrapper = new AgentSessionWrapper(
+      inner,
+      (locale) => { sessionLocale.value = locale; },
+      (force) => { sessionLocale.forceEmpty = force; },
+    );
     // When all tools are disabled, clear the system prompt entirely.
     // pi's buildSystemPrompt always produces a non-empty prompt even with no tools;
     // keep this forced after extension resource discovery and reloads as well.
     if (toolNames?.length === 0) {
       wrapper.setForceEmptySystemPrompt(true);
     }
+    wrapper.setUiLocale(uiLocale);
     wrapper.start();
 
     const realSessionId = inner.sessionId as string;
