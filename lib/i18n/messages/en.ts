@@ -18,6 +18,8 @@ export const enLocale: LocalePlugin = {
     "settings.modelsDescription": "Providers, credentials, and model defaults",
     "settings.skillsDescription": "Manage loaded skills for this project",
     "settings.pluginsDescription": "Discover and manage Pi extensions",
+    "settings.completionSound": "Completion sound",
+    "settings.completionSoundDescription": "Play a sound when a task finishes",
     "settings.mcp": "MCP",
     "settings.mcpDescription": "Connect external tools through MCP-compatible extensions",
     "settings.mcpBody": "MCP (Model Context Protocol) is connected through compatible Pi extensions, such as pi-mcp-adapter. The list below contains curated, commonly used servers. Click Use to add one to this project; OAuth services will ask you to authorize on first connection.",

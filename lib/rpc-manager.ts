@@ -1894,6 +1894,10 @@ export async function startRpcSession(
       ...(initial.scopedModels.length > 0 ? { scopedModels: initial.scopedModels } : {}),
       ...(toolsOption !== undefined ? { tools: toolsOption } : {}),
     });
+    // Context compaction is automatic in Pi Desktop. Keep this explicit so
+    // sessions inherit the product behavior even if the SDK default changes
+    // or a persisted session was created with auto compaction disabled.
+    inner.setAutoCompactionEnabled(true);
     configureDesktopProviderRetry(inner);
 
     const persistedPreferences = await persistExplicitStartupPreferences(

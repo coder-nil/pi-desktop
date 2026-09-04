@@ -18,6 +18,8 @@ export const zhCNLocale: LocalePlugin = {
     "settings.modelsDescription": "管理提供商、凭据和默认模型",
     "settings.skillsDescription": "管理此项目加载的技能",
     "settings.pluginsDescription": "发现并管理 Pi 插件",
+    "settings.completionSound": "完成提示音",
+    "settings.completionSoundDescription": "任务完成时播放提示音",
     "settings.mcp": "MCP",
     "settings.mcpDescription": "通过兼容 MCP 的插件连接外部工具",
     "settings.mcpBody": "MCP（模型上下文协议）通过兼容的 Pi 插件接入，例如 pi-mcp-adapter。下面列出了一组常用服务，点击“使用”即可添加到当前项目；需要 OAuth 的服务会在首次连接时请求授权。",

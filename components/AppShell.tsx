@@ -2152,7 +2152,6 @@ export function AppShell() {
               onContextUsageChange={handleContextUsageChange}
               onOpenFile={handleOpenLinkedFile}
               soundEnabled={soundEnabled}
-              onSoundToggle={onSoundToggle}
               playDoneSound={playDoneSound}
               unlockAudio={unlockAudio}
             />
@@ -2301,6 +2300,8 @@ export function AppShell() {
           setSessionKey((key) => key + 1);
           setExplorerRefreshKey((key) => key + 1);
         }}
+        soundEnabled={soundEnabled}
+        onSoundToggle={onSoundToggle}
       />
     )}
     {modelsConfigOpen && <ModelsConfig onClose={() => { setModelsConfigOpen(false); setModelsRefreshKey((k) => k + 1); }} />}

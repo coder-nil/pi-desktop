@@ -13,6 +13,8 @@ type SettingsPanelProps = {
   onOpenSkills: () => void;
   onOpenPlugins: () => void;
   onMcpConfigured: () => void;
+  soundEnabled: boolean;
+  onSoundToggle: () => void;
 };
 
 type SettingsView = "menu" | "mcp" | "mcp-editor";
@@ -45,15 +47,13 @@ function SettingsIcon({ name }: { name: "models" | "skills" | "plugins" | "mcp" 
     );
   }
   return (
-    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M12 3v3" /><path d="M12 18v3" /><path d="m4.22 4.22 2.12 2.12" /><path d="m17.66 17.66 2.12 2.12" />
-      <path d="M3 12h3" /><path d="M18 12h3" /><path d="m4.22 19.78 2.12-2.12" /><path d="m17.66 6.34 2.12-2.12" />
-      <circle cx="12" cy="12" r="4" />
+    <svg width="17" height="17" viewBox="0 0 1024 1024" fill="currentColor" aria-hidden="true">
+      <path d="M708.298667 113.877333c43.36 40.96 50.24 87.018667 44.48 124.032 48.64-7.178667 97.866667 8.853333 132.576 43.157334 46.805333 44.096 58.805333 89.685333 51.2 129.696-7.04 37.642667-30.485333 65.28-44.8 78.741333L547.157333 814.890667l93.045334 87.882666c6.741333 6.176 10.538667 14.848 10.464 23.904a32.064 32.064 0 0 1-10.858667 23.744 38.293333 38.293333 0 0 1-51.2-0.48L470.506667 838.517333a32.053333 32.053333 0 0 1-10.442667-23.626666c0-8.96 3.786667-17.514667 10.453333-23.626667l369.632-349.013333a84.736 84.736 0 0 0 25.12-43.146667c3.2-16.458667 0.48-40.554667-31.52-70.869333-28.330667-26.698667-56.64-27.413333-80.010666-21.813334a132.629333 132.629333 0 0 0-40 17.002667l-0.96 0.554667-306.112 289.088a38.293333 38.293333 0 0 1-51.2 0.384 32.064 32.064 0 0 1-10.869334-23.68 32.042667 32.042667 0 0 1 10.378667-23.882667L660.768 277.12l0.48-0.629333a126.72 126.72 0 0 0 17.92-39.050667c6.005333-23.317333 4.8-50.56-22.56-76.394667-30.805333-29.130667-56-31.648-73.525333-28.821333a91.136 91.136 0 0 0-45.525334 22.837333L147.434667 523.285333a38.293333 38.293333 0 0 1-51.285334 0.394667A32.074667 32.074667 0 0 1 85.333333 499.989333a32.053333 32.053333 0 0 1 10.421334-23.872L485.866667 107.818667c14.805333-14.016 44.725333-35.52 84.896-41.973334 42.88-6.848 91.52 4.565333 137.536 48.032z m-82.570667 77.098667a31.861333 31.861333 0 0 1 0.48 47.637333L320.096 527.616a118.101333 118.101333 0 0 0-18.88 39.061333c-6.08 22.602667-5.12 49.92 23.274667 76.778667 28.330667 26.773333 56.810667 27.413333 80.170666 21.813333a131.168 131.168 0 0 0 40.810667-17.642666L751.573333 358.624a38.293333 38.293333 0 0 1 51.2-0.394667 32.074667 32.074667 0 0 1 10.912 23.669334c0.106667 9.034667-3.648 17.706667-10.346666 23.893333L495.317333 696.704c-1.045333 0.96-2.133333 1.845333-3.285333 2.666667l-0.16 0.085333-0.16 0.16-0.394667 0.32-1.205333 0.853333-4.16 2.773334a208.298667 208.298667 0 0 1-63.36 27.082666c-42.410667 9.92-99.296 7.637333-149.781333-40-50.24-47.488-52.565333-100.8-42.08-140.181333a184.992 184.992 0 0 1 31.36-63.392l1.28-1.568 0.16-0.16 28.725333 20.48-28.650667-20.554667c0.874667-1.077333 1.813333-2.112 2.805334-3.072L574.442667 191.36a38.293333 38.293333 0 0 1 51.285333-0.394667z" />
     </svg>
   );
 }
 
-export function SettingsPanel({ cwd, hasProject, projectTrusted, onClose, onOpenModels, onOpenSkills, onOpenPlugins, onMcpConfigured }: SettingsPanelProps) {
+export function SettingsPanel({ cwd, hasProject, projectTrusted, onClose, onOpenModels, onOpenSkills, onOpenPlugins, onMcpConfigured, soundEnabled, onSoundToggle }: SettingsPanelProps) {
   const { t } = useI18n();
   const [view, setView] = useState<SettingsView>("menu");
   const [mcpQuery, setMcpQuery] = useState("");
@@ -255,6 +255,20 @@ export function SettingsPanel({ cwd, hasProject, projectTrusted, onClose, onOpen
 
         {view === "menu" ? (
           <div style={{ padding: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 10px", borderBottom: "1px solid var(--border)", marginBottom: 4 }}>
+              <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, flexShrink: 0, borderRadius: 7, background: "var(--bg-hover)", color: "var(--text-muted)" }}>
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" /><path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+                </svg>
+              </span>
+              <span style={{ minWidth: 0, flex: 1 }}>
+                <span style={{ display: "block", fontSize: 13, fontWeight: 600 }}>{t("settings.completionSound")}</span>
+                <span style={{ display: "block", marginTop: 2, color: "var(--text-muted)", fontSize: 11, lineHeight: 1.45 }}>{t("settings.completionSoundDescription")}</span>
+              </span>
+              <button type="button" role="switch" aria-checked={soundEnabled} onClick={onSoundToggle} title={soundEnabled ? t("chat.disableSound") : t("chat.enableSound")} aria-label={soundEnabled ? t("chat.disableSound") : t("chat.enableSound")} style={{ width: 38, height: 22, padding: 2, border: "none", borderRadius: 11, background: soundEnabled ? "var(--accent)" : "var(--border)", cursor: "pointer", flexShrink: 0 }}>
+                <span style={{ display: "block", width: 18, height: 18, borderRadius: "50%", background: "white", transform: soundEnabled ? "translateX(16px)" : "translateX(0)", transition: "transform 0.15s" }} />
+              </button>
+            </div>
             {([
               ["models", t("common.models"), t("settings.modelsDescription"), onOpenModels, false],
               ["skills", t("common.skills"), t("settings.skillsDescription"), onOpenSkills, !hasProject],
