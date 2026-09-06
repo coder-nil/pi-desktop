@@ -1,34 +1,16 @@
 "use client";
 
-import React, { useRef, useState, useCallback, useEffect, useLayoutEffect, useImperativeHandle, forwardRef, KeyboardEvent } from "react";
-import type { BuiltinSlashCommandResult, CompactResultInfo, QueuedMessages, SlashCommandInfo } from "@/hooks/useAgentSession";
-import type { SkillInfo, SkillsResponse } from "@/lib/api-types";
-import type { TextContent, UserMessage } from "@/lib/types";
-import {
-  clearDraft,
-  getDraft,
-  mergeRestoredSubmissionDraft,
-  mergeRestoredSubmissionText,
-  rekeyDraft as rekeyStoredDraft,
-  setDraft,
-  type ChatDraftCommand,
-  type ChatDraftCommandKind,
-  type ChatDraftImage,
-  type ChatDraftMention,
-} from "@/lib/draft-store";
-import {
-  MAX_ATTACHED_IMAGE_BYTES,
-  MAX_ATTACHED_IMAGES,
-  isBase64ImageWithinLimits,
-} from "@/lib/image-attachments";
-import {
-  buildEntriesFromFiles, buildAtInsertText, extractAtQuery, filterFileEntries,
-  type AtQueryMatch, type FileIndexEntry,
-} from "@/lib/file-fuzzy";
-import { FolderIcon, getFileIcon } from "./FileIcons";
-import { useIsMobile } from "@/hooks/useIsMobile";
-import { useI18n } from "@/hooks/useI18n";
-import type { ToolPreset } from "@/lib/tool-presets";
+import React, {forwardRef, KeyboardEvent, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState} from "react";
+import type {BuiltinSlashCommandResult, CompactResultInfo, QueuedMessages, SlashCommandInfo} from "@/hooks/useAgentSession";
+import type {SkillInfo, SkillsResponse} from "@/lib/api-types";
+import type {TextContent, UserMessage} from "@/lib/types";
+import {type ChatDraftCommand, type ChatDraftCommandKind, type ChatDraftImage, type ChatDraftMention, clearDraft, getDraft, mergeRestoredSubmissionDraft, mergeRestoredSubmissionText, rekeyDraft as rekeyStoredDraft, setDraft,} from "@/lib/draft-store";
+import {isBase64ImageWithinLimits, MAX_ATTACHED_IMAGE_BYTES, MAX_ATTACHED_IMAGES,} from "@/lib/image-attachments";
+import {type AtQueryMatch, buildAtInsertText, buildEntriesFromFiles, extractAtQuery, type FileIndexEntry, filterFileEntries,} from "@/lib/file-fuzzy";
+import {FolderIcon, getFileIcon} from "./FileIcons";
+import {useIsMobile} from "@/hooks/useIsMobile";
+import {useI18n} from "@/hooks/useI18n";
+import type {ToolPreset} from "@/lib/tool-presets";
 
 export interface AttachedImage {
   data: string;   // base64, no prefix
@@ -267,7 +249,7 @@ export function buildComposerMessage(
 // dormancy map fetched from /api/skills. Unknown skills are treated as active.
 function isDormantSkillCommand(command: SlashCommandPaletteItem, dormancy: Record<string, boolean>): boolean {
   if (command.source !== "skill" || !command.name.startsWith("skill:")) return false;
-  return dormancy[command.name.slice("skill:".length)] === true;
+  return dormancy[command.name.slice("skill:".length)];
 }
 
 function getSkillMenuGroupId(skill: SkillInfo): SkillMenuGroupId {
@@ -1563,10 +1545,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     else modelsByProvider.push({ provider: opt.provider, options: [opt] });
   }
 
-  const displayModelName = model
-    ? (modelOptions.find((o) => o.modelId === model.modelId && o.provider === model.provider)?.name ?? model.modelId)
-    : null;
-  const currentName = displayModelName;
+  const currentName = model
+      ? (modelOptions.find((o) => o.modelId === model.modelId && o.provider === model.provider)?.name ?? model.modelId)
+      : null;
 
   const compactSavedTokens = compactResult
     ? Math.max(0, compactResult.tokensBefore - compactResult.estimatedTokensAfter)
@@ -2446,7 +2427,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           gap: 6,
         }}>
 
-          {/* LEFT: attach + model selector (idle) or steer/followup toggle (streaming) */}
+          {/* LEFT: attachment and skill controls */}
           <div style={{ flex: isMobile ? "1 1 auto" : undefined, minWidth: 0, display: isMobile ? "flex" : "contents", alignItems: "center", gap: 2 }}>
             <button
               onClick={() => fileInputRef.current?.click()}
@@ -2671,7 +2652,12 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             </div>
             {/* Model selector — visible always, disabled while the session or switch is busy */}
             {(modelOptions.length > 0 || currentName || modelError) && onModelChange && (
-                <div ref={dropdownRef} style={{ position: "relative", flex: isMobile ? "1 1 auto" : undefined, minWidth: 0 }}>
+                <div ref={dropdownRef} style={{
+                  position: "relative",
+                  flex: isMobile ? "1 1 auto" : undefined,
+                  minWidth: 0,
+                  order: isMobile ? undefined : 1,
+                }}>
                   <button
                     onClick={(e) => {
                       const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -2839,7 +2825,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           {/* spacer */}
           {!isMobile && <div style={{ flex: 1 }} />}
 
-          {/* RIGHT: thinking + tools preset + sound (idle) | Stop + sound (streaming) */}
+          {/* RIGHT: model + thinking + tools preset + sound (idle) | Model + Stop + sound (streaming) */}
           <div ref={controlsMenuRef} style={{
             flex: "0 0 auto",
             display: "flex",
@@ -2847,6 +2833,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             justifyContent: "flex-end",
             position: "relative",
             marginLeft: isMobile ? 0 : "auto",
+            order: isMobile ? undefined : 2,
           }}>
             {isMobile && (
               <button
