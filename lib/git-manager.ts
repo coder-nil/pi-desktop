@@ -252,6 +252,8 @@ export async function runGitAction(cwd: string, action: GitAction, input: { path
         if (action === "stage") await git(cwd, ["add", "--", ...paths]);
         if (action === "unstage") await git(cwd, ["restore", "--staged", "--", ...paths]);
         if (action === "discard") await git(cwd, ["restore", "--worktree", "--source=HEAD", "--", ...paths]);
+      } else if (action === "discard_all") {
+        await git(cwd, ["checkout", "--", "."]);
       } else if (action === "commit") {
         if (typeof input.message !== "string" || !input.message.trim()) throw new Error("A commit message is required");
         await git(cwd, ["commit", "-m", input.message.trim()]);

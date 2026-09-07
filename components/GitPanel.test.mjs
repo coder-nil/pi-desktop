@@ -7,16 +7,18 @@ const source = await readFile(new URL("./GitPanel.tsx", import.meta.url), "utf8"
 test("renders Git panel text through i18n", () => {
   assert.match(source, /import \{ useI18n \} from "@\/hooks\/useI18n"/);
   assert.match(source, /const \{ t \} = useI18n\(\)/);
-  for (const key of ["git.loadingRepository", "git.notRepository", "git.commitStaged", "git.rebaseWhenPulling", "git.mergeBranch", "git.stage", "git.stageAll", "git.unstageAll", "git.discardFileConfirm"]) {
+  for (const key of ["git.loadingRepository", "git.notRepository", "git.commitStaged", "git.rebaseWhenPulling", "git.mergeBranch", "git.stage", "git.stageAll", "git.unstageAll", "git.discardFileConfirm", "git.discardAll"]) {
     assert.match(source, new RegExp(`t\\("${key}"`));
   }
 });
 
-test("supports staging and unstaging all visible changes in one Git action", () => {
+test("supports staging, unstaging, and discarding all visible changes in one Git action", () => {
   assert.match(source, /run\("stage", \{ paths: unstaged\.map\(\(file\) => file\.filePath\) \}\)/);
   assert.match(source, /run\("unstage", \{ paths: staged\.map\(\(file\) => file\.filePath\) \}\)/);
+  assert.match(source, /run\("discard_all"\)/);
   assert.match(source, /label=\{t\("git\.stageAll"\)\}/);
   assert.match(source, /label=\{t\("git\.unstageAll"\)\}/);
+  assert.match(source, /label=\{t\("git\.discardAll"\)\}/);
 });
 
 test("keeps change lists scrollable at a fixed height", () => {

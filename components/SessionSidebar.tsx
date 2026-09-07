@@ -3,6 +3,7 @@
 import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { SessionInfo } from "@/lib/types";
+import type { AppUpdateResponse } from "@/lib/api-types";
 import { loadExplorerOpen, saveExplorerOpen } from "@/lib/file-explorer-state";
 import { dispatchSessionRowContextMenu } from "@/lib/session-row-context-menu";
 import { skillExpansionToCommand } from "@/lib/slash-display";
@@ -116,6 +117,9 @@ interface Props {
     kind: "naming" | "success" | "error";
     message?: string;
   } | null;
+  /** Update notification shown in the sidebar title row */
+  appUpdate?: AppUpdateResponse | null;
+  onAppUpdateClick?: () => void;
 }
 
 interface WorktreeEntry {
@@ -427,7 +431,7 @@ function PiWebTitle() {
   );
 }
 
-export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onProjectGitStateChange, onGenerateTitle, titleGenerationStatus }: Props) {
+export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onProjectGitStateChange, onGenerateTitle, titleGenerationStatus, appUpdate, onAppUpdateClick }: Props) {
   const { t } = useI18n();
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1305,7 +1309,26 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           flexShrink: 0,
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", marginBottom: 10 }}><PiWebTitle /></div>
+        <div style={{ display: "flex", alignItems: "center", marginBottom: 10, gap: 6 }}>
+          <PiWebTitle />
+          {appUpdate?.updateAvailable && onAppUpdateClick && (
+            <button
+              type="button"
+              onClick={onAppUpdateClick}
+              title={t("appUpdate.available", { version: appUpdate.latestVersion })}
+              aria-label={t("appUpdate.available", { version: appUpdate.latestVersion })}
+              style={{
+                flexShrink: 0,
+                display: "inline-flex", alignItems: "center", gap: 4,
+                height: 20, padding: "0 8px", borderRadius: 5,
+                border: "1px solid #d97706", background: "rgba(217,119,6,0.12)",
+                color: "#d97706", cursor: "pointer", fontSize: 11, fontWeight: 600,
+              }}
+            >
+              ↑ v{appUpdate.latestVersion}
+            </button>
+          )}
+        </div>
 
         {/* CWD picker */}
         <div ref={dropdownRef} style={{ position: "relative", display: "flex", gap: 4 }}>

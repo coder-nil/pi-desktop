@@ -17,10 +17,22 @@ type SettingsPanelProps = {
   onSoundToggle: () => void;
   bannerEnabled: boolean;
   onBannerToggle: () => void;
+  themePreference: "light" | "dark" | "auto";
+  onThemeChange?: (preference: "light" | "dark" | "auto") => void;
+  locale: string;
+  onLocaleChange?: (locale: string) => void;
+  supportedLocales: { id: string; label: string }[];
 };
 
 type SettingsView = "menu" | "mcp" | "mcp-editor";
 type McpScope = "project" | "global";
+
+type ThemeOption = "light" | "dark" | "auto";
+
+type LanguageOption = {
+  id: string;
+  label: string;
+};
 
 function SettingsIcon({ name }: { name: "models" | "skills" | "plugins" | "mcp" }) {
   if (name === "models") {
@@ -55,7 +67,7 @@ function SettingsIcon({ name }: { name: "models" | "skills" | "plugins" | "mcp" 
   );
 }
 
-export function SettingsPanel({ cwd, hasProject, projectTrusted, onClose, onOpenModels, onOpenSkills, onOpenPlugins, onMcpConfigured, soundEnabled, onSoundToggle, bannerEnabled, onBannerToggle }: SettingsPanelProps) {
+export function SettingsPanel({ cwd, hasProject, projectTrusted, onClose, onOpenModels, onOpenSkills, onOpenPlugins, onMcpConfigured, soundEnabled, onSoundToggle, bannerEnabled, onBannerToggle, themePreference, onThemeChange, locale, onLocaleChange, supportedLocales }: SettingsPanelProps) {
   const { t } = useI18n();
   const [view, setView] = useState<SettingsView>("menu");
   const [mcpQuery, setMcpQuery] = useState("");
@@ -208,6 +220,85 @@ export function SettingsPanel({ cwd, hasProject, projectTrusted, onClose, onOpen
     }
   };
 
+  const themeOptions: ThemeOption[] = ["light", "dark", "auto"];
+  const languageOptions: LanguageOption[] = (supportedLocales ?? []).map((plugin) => ({
+    id: plugin.id,
+    label: plugin.label,
+  }));
+
+  const renderThemeRow = () => (
+    <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 10px", borderBottom: "1px solid var(--border)", marginBottom: 4 }}>
+      <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, flexShrink: 0, borderRadius: 7, background: "var(--bg-hover)", color: "var(--text-muted)" }}>
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="5" />
+          <line x1="12" y1="1" x2="12" y2="3" />
+          <line x1="12" y1="21" x2="12" y2="23" />
+          <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
+          <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+          <line x1="1" y1="12" x2="3" y2="12" />
+          <line x1="21" y1="12" x2="23" y2="12" />
+          <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
+          <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+        </svg>
+      </span>
+      <span style={{ minWidth: 0, flex: 1 }}>
+        <span style={{ display: "block", fontSize: 13, fontWeight: 600 }}>{t("settings.theme")}</span>
+        <span style={{ display: "block", marginTop: 2, color: "var(--text-muted)", fontSize: 11, lineHeight: 1.45 }}>{t("settings.themeDescription")}</span>
+      </span>
+      <select
+        value={themePreference}
+        onChange={(event) => onThemeChange?.(event.target.value as ThemeOption)}
+        aria-label={t("settings.theme")}
+        style={{
+          minHeight: 29, padding: "0 6px",
+          border: "1px solid var(--border)", borderRadius: 6,
+          background: "var(--bg-panel)", color: "var(--text)",
+          fontSize: 11, cursor: "pointer", flexShrink: 0,
+          maxWidth: 120,
+        }}
+      >
+        <option value="light">{t("theme.light")}</option>
+        <option value="dark">{t("theme.dark")}</option>
+        <option value="auto">{t("theme.auto")}</option>
+      </select>
+    </div>
+  );
+
+  const renderLanguageRow = () => (
+    <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 10px", borderBottom: "1px solid var(--border)", marginBottom: 4 }}>
+      <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, flexShrink: 0, borderRadius: 7, background: "var(--bg-hover)", color: "var(--text-muted)" }}>
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="m5 8 6 6" />
+          <path d="m4 14 6-6 2-3" />
+          <path d="M2 5h12" />
+          <path d="M7 2h1" />
+          <path d="m22 22-5-10-5 10" />
+          <path d="M14 18h6" />
+        </svg>
+      </span>
+      <span style={{ minWidth: 0, flex: 1 }}>
+        <span style={{ display: "block", fontSize: 13, fontWeight: 600 }}>{t("settings.language")}</span>
+        <span style={{ display: "block", marginTop: 2, color: "var(--text-muted)", fontSize: 11, lineHeight: 1.45 }}>{t("settings.languageDescription")}</span>
+      </span>
+      <select
+        value={locale}
+        onChange={(event) => onLocaleChange?.(event.target.value)}
+        aria-label={t("settings.language")}
+        style={{
+          minHeight: 29, padding: "0 6px",
+          border: "1px solid var(--border)", borderRadius: 6,
+          background: "var(--bg-panel)", color: "var(--text)",
+          fontSize: 11, cursor: "pointer", flexShrink: 0,
+          maxWidth: 160,
+        }}
+      >
+        {languageOptions.map((option) => (
+          <option key={option.id} value={option.id}>{option.label}</option>
+        ))}
+      </select>
+    </div>
+  );
+
   const visibleMcpServers = MCP_CATALOG.filter((preset) => {
     const query = mcpQuery.trim().toLocaleLowerCase();
     if (!query) return true;
@@ -257,6 +348,8 @@ export function SettingsPanel({ cwd, hasProject, projectTrusted, onClose, onOpen
 
         {view === "menu" ? (
           <div style={{ padding: 8 }}>
+            {renderThemeRow()}
+            {renderLanguageRow()}
             <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 10px", borderBottom: "1px solid var(--border)", marginBottom: 4 }}>
               <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, flexShrink: 0, borderRadius: 7, background: "var(--bg-hover)", color: "var(--text-muted)" }}>
                 <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

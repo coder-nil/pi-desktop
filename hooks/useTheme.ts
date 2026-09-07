@@ -43,6 +43,8 @@ function resolveTheme(preference: ThemePreference): ResolvedTheme {
   return preference === "auto" ? getSystemTheme() : preference;
 }
 
+export { resolveTheme };
+
 function applyDomTheme(theme: ResolvedTheme): void {
   if (typeof document === "undefined") return;
   document.documentElement.classList.toggle("dark", theme === "dark");
@@ -71,6 +73,8 @@ function setThemeState(preference: ThemePreference, theme: ResolvedTheme, persis
   state = { preference, theme };
   emit();
 }
+
+export { setThemeState };
 
 function syncAutoThemeFromSystem(): void {
   const current = ensureState();

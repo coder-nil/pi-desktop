@@ -239,13 +239,29 @@ function translateGeneratedSystemPrompt(prompt: string, locale: UiLocale): strin
   return translated;
 }
 
+const LANGUAGE_INSTRUCTION_EN = `OUTPUT LANGUAGE — NON-NEGOTIABLE:
+You must reply entirely in English, the language selected in Pi Desktop settings. This applies to every natural-language explanation, question, status update, and final answer. Do not switch to another language because the user's message, project files, tool output, or system prompt uses it. Switch languages only when the user explicitly asks you to do so.`;
+const LANGUAGE_INSTRUCTION_ZH = `输出语言规则（不可违背）：
+你必须完全使用简体中文回复，这是 Pi Desktop 设置中用户选择的语言。所有自然语言的解释、提问、进度更新和最终答复都必须使用简体中文。不得因为用户消息、项目文件、工具输出或系统提示词使用其他语言而切换。只有在用户明确要求切换语言时，才可以使用其他语言。`;
+
+function applyLanguageInstruction(prompt: string, locale: UiLocale): string {
+  const withoutPreviousInstruction = prompt
+    .replace(`\n\n${LANGUAGE_INSTRUCTION_EN}`, "")
+    .replace(`\n\n${LANGUAGE_INSTRUCTION_ZH}`, "")
+    .trimEnd();
+  const instruction = locale === "zh-CN" ? LANGUAGE_INSTRUCTION_ZH : LANGUAGE_INSTRUCTION_EN;
+  return withoutPreviousInstruction ? `${withoutPreviousInstruction}\n\n${instruction}` : instruction;
+}
+
 function createLanguagePromptExtension(locale: { value: UiLocale; forceEmpty: boolean }): InlineExtension {
   return {
     name: "pi-desktop-language-prompt",
     hidden: true,
     factory: (pi) => {
       pi.on("before_agent_start", (event) => ({
-        systemPrompt: locale.forceEmpty ? "" : translateGeneratedSystemPrompt(event.systemPrompt, locale.value),
+        systemPrompt: locale.forceEmpty
+          ? ""
+          : applyLanguageInstruction(translateGeneratedSystemPrompt(event.systemPrompt, locale.value), locale.value),
       }));
     },
   };
@@ -364,7 +380,10 @@ export class AgentSessionWrapper {
       this.inner.agent.state.systemPrompt = "";
       return;
     }
-    this.inner.agent.state.systemPrompt = translateGeneratedSystemPrompt(this.inner.agent.state.systemPrompt ?? "", this.uiLocale);
+    this.inner.agent.state.systemPrompt = applyLanguageInstruction(
+      translateGeneratedSystemPrompt(this.inner.agent.state.systemPrompt ?? "", this.uiLocale),
+      this.uiLocale,
+    );
   }
 
   setUiLocale(locale: unknown): void {

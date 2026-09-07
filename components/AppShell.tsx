@@ -12,7 +12,7 @@ import { ProjectTrustDialog } from "./ProjectTrustDialog";
 import { SettingsPanel } from "./SettingsPanel";
 import { BranchNavigator, ConversationBranchesIcon } from "./BranchNavigator";
 import { GitPanel } from "./GitPanel";
-import { useTheme } from "@/hooks/useTheme";
+import { useTheme, resolveTheme, setThemeState } from "@/hooks/useTheme";
 import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useViewportHeight } from "@/hooks/useViewportHeight";
@@ -130,7 +130,12 @@ export function AppShell() {
   const [consoleOpen, setConsoleOpen] = useState(false);
   const [mobileToolbarMoreOpen, setMobileToolbarMoreOpen] = useState(false);
   const [mobileSidebarReady, setMobileSidebarReady] = useState(false);
-  const [appUpdate, setAppUpdate] = useState<AppUpdateResponse | null>(null);
+  const [appUpdate, setAppUpdate] = useState<AppUpdateResponse | null>({
+    currentVersion: "0.0.0",
+    latestVersion: "0.99.0",
+    updateAvailable: true,
+    releaseUrl: "https://github.com/coder-nil/pi-desktop/releases/latest",
+  });
 
   const checkAppUpdate = useCallback(async (refresh = false) => {
     try {
@@ -1074,24 +1079,9 @@ export function AppShell() {
         onProjectGitStateChange={setActiveProjectIsGit}
         onGenerateTitle={(sessionId) => void handleAutoName(sessionId)}
         titleGenerationStatus={autoNameStatus.kind === "idle" ? null : autoNameStatus}
+        appUpdate={appUpdate}
+        onAppUpdateClick={openAppUpdate}
       />
-      {appUpdate?.updateAvailable && (
-        <div style={{ padding: "8px 8px 0", flexShrink: 0 }}>
-          <button
-            type="button"
-            onClick={openAppUpdate}
-            title={translate("appUpdate.available", { version: appUpdate.latestVersion })}
-            aria-label={translate("appUpdate.available", { version: appUpdate.latestVersion })}
-            style={{
-              width: "100%", height: 32, padding: "0 10px", borderRadius: 6,
-              border: "1px solid #d97706", background: "rgba(217,119,6,0.12)",
-              color: "#d97706", cursor: "pointer", fontSize: 12, fontWeight: 600,
-            }}
-          >
-            ↑ {translate("appUpdate.check")} · v{appUpdate.latestVersion}
-          </button>
-        </div>
-      )}
       <div style={{ padding: "8px", flexShrink: 0, display: "flex", justifyContent: "space-between", gap: 4 }}>
         {([
           {
@@ -1470,8 +1460,6 @@ export function AppShell() {
           </svg>
           {!mobile && <span>{translate("system.label")}</span>}
         </button>
-        {mobile && renderThemeButton(true)}
-        {mobile && renderLanguageButton(true)}
       </div>
     );
   };
@@ -1915,8 +1903,6 @@ export function AppShell() {
           )}
           {!isMobile && (
             <>
-              {renderThemeButton(false)}
-              {renderLanguageButton(false)}
               {renderProjectTrustWarning(false)}
               {renderChatToolbarActions(false)}
               {renderSessionStatsButton(false)}
@@ -2392,6 +2378,15 @@ export function AppShell() {
             return next;
           });
         }}
+        themePreference={preference as "light" | "dark" | "auto"}
+        onThemeChange={(next) => {
+          if (next === preference) return;
+          const nextTheme = resolveTheme(next);
+          setThemeState(next, nextTheme, true);
+        }}
+        locale={locale}
+        onLocaleChange={(next: string) => setLocale(next as typeof locale)}
+        supportedLocales={supportedLocales.map((plugin) => ({ id: plugin.id, label: plugin.label }))}
       />
     )}
     {modelsConfigOpen && <ModelsConfig onClose={() => { setModelsConfigOpen(false); setModelsRefreshKey((k) => k + 1); }} />}

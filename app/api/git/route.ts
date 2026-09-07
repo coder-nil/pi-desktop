@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-const ACTIONS = new Set<GitAction>(["stage", "unstage", "discard", "commit", "fetch", "pull", "push", "merge", "continue", "abort", "create_branch", "rename_branch", "delete_branch", "checkout_remote_branch", "delete_remote_branch", "pull_branch", "push_branch", "merge_branch"]);
+const ACTIONS = new Set<GitAction>(["stage", "unstage", "discard", "discard_all", "commit", "fetch", "pull", "push", "merge", "continue", "abort", "create_branch", "rename_branch", "delete_branch", "checkout_remote_branch", "delete_remote_branch", "pull_branch", "push_branch", "merge_branch"]);
 
 export async function POST(request: NextRequest) {
   try {
