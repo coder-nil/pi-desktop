@@ -19,6 +19,11 @@ test("supports staging and unstaging all visible changes in one Git action", () 
   assert.match(source, /label=\{t\("git\.unstageAll"\)\}/);
 });
 
+test("keeps change lists scrollable at a fixed height", () => {
+  assert.match(source, /height: 220/);
+  assert.match(source, /overflowY: "auto"/);
+});
+
 test("summarizes staged changes with or without a selected session", () => {
   assert.match(source, /sessionId: string \| null/);
   assert.match(source, /fetch\("\/api\/git\/commit-message"/);

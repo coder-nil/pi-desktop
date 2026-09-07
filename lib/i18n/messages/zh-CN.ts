@@ -103,7 +103,7 @@ export const zhCNLocale: LocalePlugin = {
     "git.stage": "暂存",
     "git.stageAll": "全部暂存",
     "git.unstage": "取消暂存",
-    "git.unstageAll": "全部取消暂存",
+    "git.unstageAll": "取消暂存",
     "git.discard": "丢弃",
     "git.discardFileConfirm": "丢弃 {file} 中的更改？",
     "appUpdate.check": "更新",
