@@ -53,6 +53,7 @@ import type { SessionStatsInfo } from "@/lib/pi-types";
 import type { FileViewerState } from "@/lib/file-viewer-state";
 
 const FileViewer = dynamic(() => import("./FileViewer").then((module) => module.FileViewer));
+const SimulatedConsole = dynamic(() => import("./SimulatedConsole").then((module) => module.SimulatedConsole));
 const ModelsConfig = dynamic(() => import("./ModelsConfig").then((module) => module.ModelsConfig));
 const SkillsConfig = dynamic(() => import("./SkillsConfig").then((module) => module.SkillsConfig));
 const PluginsConfig = dynamic(() => import("./PluginsConfig").then((module) => module.PluginsConfig));
@@ -67,6 +68,7 @@ const TOP_BAR_ICON_BUTTON_SIZE = 36;
 const LANGUAGE_MENU_WIDTH = 176;
 const NOTIFICATION_ICON = "/icons/icon-192.png";
 const NOTIFICATION_PROMPT_MAX_LENGTH = 100;
+const SIMULATED_CONSOLE_TAB_ID = "console:simulated";
 
 function summarizeNotificationPrompt(prompt: string | null): string | null {
   if (!prompt) return null;
@@ -387,6 +389,12 @@ export function AppShell() {
   ) => {
     setFileTabs((prev) => saveFileViewerState(prev, tabId, viewerRevision, viewerState));
   }, []);
+
+  useEffect(() => {
+    setFileTabs((prev) => prev.map((tab) => (
+      tab.kind === "console" ? { ...tab, label: translate("console.title") } : tab
+    )));
+  }, [translate]);
 
   // Same @mention format as the chat input's @ autocomplete, so the agent's
   // read tool resolves it the same way (it strips the @ prefix).
@@ -898,6 +906,28 @@ export function AppShell() {
   const handleOpenLinkedFile = useCallback((filePath: string) => {
     handleOpenFile(filePath, getFileName(filePath), { sourceSessionId: selectedSession?.id ?? null });
   }, [handleOpenFile, selectedSession?.id]);
+
+  const handleOpenConsole = useCallback(() => {
+    setFileTabs((prev) => {
+      if (prev.some((tab) => tab.id === SIMULATED_CONSOLE_TAB_ID)) return prev;
+      return [
+        ...prev,
+        {
+          id: SIMULATED_CONSOLE_TAB_ID,
+          label: translate("console.title"),
+          filePath: "simulated-console",
+          kind: "console",
+        },
+      ];
+    });
+    setActiveFileTabId(SIMULATED_CONSOLE_TAB_ID);
+    setRightPanelOpen(true);
+    if (isMobile) {
+      setSidebarOpen(false);
+      setActiveTopPanel(null);
+      setMobileToolbarMoreOpen(false);
+    }
+  }, [isMobile, translate]);
 
   const handleCloseFileTab = useCallback((tabId: string) => {
     setFileTabs((prev) => {
@@ -1615,6 +1645,42 @@ export function AppShell() {
     );
   };
 
+  const renderMainConsoleToggle = (mobile: boolean) => {
+    const covered = mobile && mobileToolbarMoreOpen;
+    const active = rightPanelOpen && activeFileTab?.kind === "console";
+    return (
+      <button
+        type="button"
+        onClick={handleOpenConsole}
+        disabled={covered}
+        tabIndex={covered ? -1 : undefined}
+        aria-controls="file-panel"
+        aria-pressed={active}
+        aria-hidden={covered ? true : undefined}
+        title={translate("console.open")}
+        aria-label={translate("console.open")}
+        data-mobile-toolbar-console={mobile ? "true" : undefined}
+        style={{
+          display: "flex", alignItems: "center", justifyContent: "center",
+          width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
+          visibility: covered ? "hidden" : "visible",
+          pointerEvents: covered ? "none" : "auto",
+          background: active ? "var(--bg-selected)" : "none",
+          border: "none", borderLeft: "1px solid var(--border)",
+          color: active ? "var(--text)" : "var(--text-muted)",
+          cursor: "pointer", flexShrink: 0, transition: "color 0.12s, background 0.12s",
+        }}
+        onMouseEnter={(event) => { if (!covered) event.currentTarget.style.color = "var(--text)"; }}
+        onMouseLeave={(event) => { event.currentTarget.style.color = active ? "var(--text)" : "var(--text-muted)"; }}
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <polyline points="4 17 10 11 4 5" />
+          <line x1="12" y1="19" x2="20" y2="19" />
+        </svg>
+      </button>
+    );
+  };
+
   return (
     <>
     <style>{`
@@ -1825,6 +1891,7 @@ export function AppShell() {
                 )}
               </button>
               {renderSessionStatsButton(true)}
+              {renderMainConsoleToggle(true)}
               {renderMainFileToggle(true)}
               {mobileToolbarMoreOpen && (
                 <div
@@ -1860,6 +1927,7 @@ export function AppShell() {
               {renderSessionStatsButton(false)}
             </>
           )}
+          {!isMobile && renderMainConsoleToggle(false)}
           {!isMobile && renderMainFileToggle(false)}
           {isMobile && (
             <BranchNavigator
@@ -2207,7 +2275,7 @@ export function AppShell() {
         />
       )}
 
-      {/* Right panel: file viewer — always mounted, width animated via CSS */}
+      {/* Right panel: files and simulated console — width animated via CSS */}
       <div
         ref={rightPanelResizer.panelRef}
         id="file-panel"
@@ -2260,9 +2328,15 @@ export function AppShell() {
           </button>
         </div>
 
-        {/* Only the active viewer is mounted. Lightweight per-tab state is restored on activation. */}
+        {/* Only the active panel body is mounted. Lightweight per-tab state is restored on activation. */}
         <div style={{ flex: 1, overflow: "hidden", paddingBottom: "env(safe-area-inset-bottom)" }}>
-          {activeFileTab?.filePath ? (
+          {activeFileTab?.kind === "console" ? (
+            <SimulatedConsole
+              cwd={activeCwd}
+              sessionId={selectedSession?.id ?? null}
+              sessionName={selectedSession?.name ?? null}
+            />
+          ) : activeFileTab?.filePath ? (
             <FileViewer
               key={`${activeFileTab.id}:${activeFileTab.viewerRevision ?? 0}`}
               filePath={activeFileTab.filePath}

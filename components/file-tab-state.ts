@@ -16,6 +16,7 @@ export function openFileTab(tabs: Tab[], input: OpenFileTabInput): Tab[] {
       id: input.tabId,
       label: input.fileName,
       filePath: input.filePath,
+      kind: "file",
       sourceSessionId: input.sourceSessionId,
       initialDisplayMode: input.modeHint,
       viewerState: input.modeHint ? {
