@@ -26,6 +26,18 @@ const nextConfig: NextConfig = {
   output: isDesktopFrontendBuild ? "export" : "standalone",
   distDir,
   outputFileTracingRoot: configDir,
+  // pi-coding-agent loads these assets through fs at runtime, so Next's static
+  // dependency tracing cannot discover them from the JavaScript imports alone.
+  // Without explicit includes, the standalone desktop server starts normally
+  // but creating/reloading an agent fails when initTheme() reads dark.json.
+  outputFileTracingIncludes: isDesktopFrontendBuild ? undefined : {
+    "/*": [
+      "node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/theme/*.json",
+      "node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/assets/*.png",
+      "node_modules/@earendil-works/pi-coding-agent/dist/core/export-html/template.*",
+      "node_modules/@earendil-works/pi-coding-agent/dist/core/export-html/vendor/*.js",
+    ],
+  },
   images: { unoptimized: true },
   serverExternalPackages: [
     "undici",

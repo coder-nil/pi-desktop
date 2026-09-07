@@ -16,6 +16,18 @@ const nodeBinary = useSystemNode
   : join(runtimeRoot, process.platform === "win32" ? "node.exe" : "node");
 const embeddedNodeBinary = join(runtimeRoot, process.platform === "win32" ? "node.exe" : "node");
 const logPath = join(tmpdir(), `pi-desktop-smoke-${process.pid}.log`);
+const codingAgentRoot = join(serverRoot, "node_modules", "@earendil-works", "pi-coding-agent", "dist");
+const requiredRuntimeAssets = [
+  join(codingAgentRoot, "modes", "interactive", "theme", "dark.json"),
+  join(codingAgentRoot, "modes", "interactive", "theme", "light.json"),
+  join(codingAgentRoot, "modes", "interactive", "theme", "theme-schema.json"),
+  join(codingAgentRoot, "modes", "interactive", "assets", "clankolas.png"),
+  join(codingAgentRoot, "core", "export-html", "template.html"),
+  join(codingAgentRoot, "core", "export-html", "template.css"),
+  join(codingAgentRoot, "core", "export-html", "template.js"),
+  join(codingAgentRoot, "core", "export-html", "vendor", "marked.min.js"),
+  join(codingAgentRoot, "core", "export-html", "vendor", "highlight.min.js"),
+];
 
 async function reservePort() {
   const server = createServer();
@@ -54,6 +66,10 @@ async function stopChild(child) {
 const nodeHandle = await open(embeddedNodeBinary, "r");
 const serverHandle = await open(join(serverRoot, "server.js"), "r");
 await Promise.all([nodeHandle.close(), serverHandle.close()]);
+for (const assetPath of requiredRuntimeAssets) {
+  const assetHandle = await open(assetPath, "r");
+  await assetHandle.close();
+}
 const port = await reservePort();
 const log = createWriteStream(logPath, { flags: "a" });
 await once(log, "open");
