@@ -10,6 +10,11 @@ export interface AddedProject {
   addedAt: string;
 }
 
+export interface SelectedProject {
+  projectKey: string;
+  projectRoot: string;
+}
+
 interface AddedProjectRow {
   project_key: string;
   project_root: string;
@@ -31,6 +36,11 @@ function openDatabase(databasePath = getPiDatabasePath()): DatabaseSync {
     );
     CREATE INDEX IF NOT EXISTS added_projects_added_at_idx
       ON added_projects(added_at DESC);
+    CREATE TABLE IF NOT EXISTS app_preferences (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
   `);
   return database;
 }
@@ -78,6 +88,52 @@ export function removeAddedProject(projectKey: string, databasePath?: string): b
   try {
     const result = database.prepare("DELETE FROM added_projects WHERE project_key = ?").run(projectKey);
     return result.changes > 0;
+  } finally {
+    database.close();
+  }
+}
+
+const SELECTED_PROJECT_PREFERENCE_KEY = "last_selected_project";
+
+export function getSelectedProject(databasePath?: string): SelectedProject | null {
+  const database = openDatabase(databasePath);
+  try {
+    const row = database.prepare(
+      "SELECT value FROM app_preferences WHERE key = ?",
+    ).get(SELECTED_PROJECT_PREFERENCE_KEY) as { value?: unknown } | undefined;
+    if (typeof row?.value !== "string") return null;
+    const parsed: unknown = JSON.parse(row.value);
+    if (
+      parsed === null
+      || typeof parsed !== "object"
+      || Array.isArray(parsed)
+      || !("projectKey" in parsed)
+      || !("projectRoot" in parsed)
+      || typeof parsed.projectKey !== "string"
+      || typeof parsed.projectRoot !== "string"
+      || !parsed.projectKey
+      || !parsed.projectRoot
+    ) {
+      return null;
+    }
+    return { projectKey: parsed.projectKey, projectRoot: parsed.projectRoot };
+  } catch {
+    return null;
+  } finally {
+    database.close();
+  }
+}
+
+export function saveSelectedProject(project: SelectedProject, databasePath?: string): void {
+  const database = openDatabase(databasePath);
+  try {
+    database.prepare(`
+      INSERT INTO app_preferences(key, value, updated_at)
+      VALUES (?, ?, ?)
+      ON CONFLICT(key) DO UPDATE SET
+        value = excluded.value,
+        updated_at = excluded.updated_at
+    `).run(SELECTED_PROJECT_PREFERENCE_KEY, JSON.stringify(project), new Date().toISOString());
   } finally {
     database.close();
   }

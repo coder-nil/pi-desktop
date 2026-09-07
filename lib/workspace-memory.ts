@@ -13,11 +13,17 @@
  */
 
 const STORAGE_KEY = "pi-desktop:last-open-by-workspace";
+const LAST_SELECTED_PROJECT_STORAGE_KEY = "pi-desktop:last-selected-project";
 
 interface StorageLike {
   getItem(key: string): string | null;
   setItem(key: string, value: string): void;
   removeItem(key: string): void;
+}
+
+export interface RememberedProject {
+  key: string;
+  root: string;
 }
 
 function getBrowserStorage(): StorageLike | null {
@@ -85,6 +91,57 @@ export function clearLastOpen(
     else storage.setItem(STORAGE_KEY, JSON.stringify(map));
   } catch {
     // ignore
+  }
+}
+
+/** The project shown when the app was last used. */
+export function getLastSelectedProject(
+  storage: StorageLike | null = getBrowserStorage(),
+): RememberedProject | null {
+  if (!storage) return null;
+  try {
+    const raw = storage.getItem(LAST_SELECTED_PROJECT_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed: unknown = JSON.parse(raw);
+    if (
+      parsed === null
+      || typeof parsed !== "object"
+      || Array.isArray(parsed)
+      || !("key" in parsed)
+      || !("root" in parsed)
+      || typeof parsed.key !== "string"
+      || typeof parsed.root !== "string"
+      || parsed.key.length === 0
+      || parsed.root.length === 0
+    ) {
+      return null;
+    }
+    return { key: parsed.key, root: parsed.root };
+  } catch {
+    return null;
+  }
+}
+
+export function setLastSelectedProject(
+  project: RememberedProject,
+  storage: StorageLike | null = getBrowserStorage(),
+): void {
+  if (!storage || !project.key || !project.root) return;
+  try {
+    storage.setItem(LAST_SELECTED_PROJECT_STORAGE_KEY, JSON.stringify(project));
+  } catch {
+    // storage unavailable — memory is best-effort
+  }
+}
+
+export function clearLastSelectedProject(
+  storage: StorageLike | null = getBrowserStorage(),
+): void {
+  if (!storage) return;
+  try {
+    storage.removeItem(LAST_SELECTED_PROJECT_STORAGE_KEY);
+  } catch {
+    // storage unavailable — memory is best-effort
   }
 }
 

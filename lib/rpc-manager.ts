@@ -916,7 +916,10 @@ export class AgentSessionWrapper {
           throw new Error("Cannot navigate while a shell command is running");
         }
         const result = await this.inner.navigateTree(command.targetId as string, {});
-        return { cancelled: result.cancelled };
+        return {
+          cancelled: result.cancelled,
+          leafId: this.inner.sessionManager.getLeafId(),
+        };
       }
 
       case "set_thinking_level": {

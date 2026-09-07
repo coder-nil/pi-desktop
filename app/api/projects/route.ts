@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
-import { listAddedProjects, removeAddedProject } from "@/lib/added-projects-store";
+import {
+  getSelectedProject,
+  listAddedProjects,
+  removeAddedProject,
+  saveSelectedProject,
+} from "@/lib/added-projects-store";
 import { allowFileRoot } from "@/lib/file-access";
 
 export const dynamic = "force-dynamic";
@@ -13,7 +18,32 @@ export async function GET() {
       allowFileRoot(project.projectRoot);
       allowFileRoot(project.cwd);
     });
-    return NextResponse.json({ projects }, { headers: { "Cache-Control": "no-store" } });
+    return NextResponse.json({
+      projects,
+      selectedProject: getSelectedProject(),
+    }, { headers: { "Cache-Control": "no-store" } });
+  } catch (error) {
+    return NextResponse.json({ error: String(error) }, { status: 500 });
+  }
+}
+
+// PUT /api/projects body: { selectedProject: { projectKey, projectRoot } }
+export async function PUT(req: Request) {
+  try {
+    const body = await req.json() as {
+      selectedProject?: { projectKey?: unknown; projectRoot?: unknown };
+    };
+    const projectKey = typeof body.selectedProject?.projectKey === "string"
+      ? body.selectedProject.projectKey.trim()
+      : "";
+    const projectRoot = typeof body.selectedProject?.projectRoot === "string"
+      ? body.selectedProject.projectRoot.trim()
+      : "";
+    if (!projectKey || !projectRoot) {
+      return NextResponse.json({ error: "selectedProject is invalid" }, { status: 400 });
+    }
+    saveSelectedProject({ projectKey, projectRoot });
+    return NextResponse.json({ success: true });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }

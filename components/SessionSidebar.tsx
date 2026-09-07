@@ -7,7 +7,11 @@ import { loadExplorerOpen, saveExplorerOpen } from "@/lib/file-explorer-state";
 import { dispatchSessionRowContextMenu } from "@/lib/session-row-context-menu";
 import { skillExpansionToCommand } from "@/lib/slash-display";
 import { getProjectActivity, getRecentProjects, sessionsForProject } from "@/lib/project-groups";
-import { workspaceKeyOf } from "@/lib/workspace-memory";
+import {
+  clearLastSelectedProject,
+  getLastSelectedProject,
+  workspaceKeyOf,
+} from "@/lib/workspace-memory";
 import { getFileName } from "@/lib/file-paths";
 import type { SessionSearchMatch } from "@/lib/session-search";
 import { useI18n } from "@/hooks/useI18n";
@@ -458,6 +462,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [customPathValidating, setCustomPathValidating] = useState(false);
   const [validatedProject, setValidatedProject] = useState<ValidatedProject | null>(null);
   const [addedProjects, setAddedProjects] = useState<AddedProject[]>([]);
+  const [storedSelectedProject, setStoredSelectedProject] = useState<ProjectSelection | null>(null);
+  const [projectListSettled, setProjectListSettled] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   // Worktree switcher state
   const [worktreeState, setWorktreeState] = useState<WorktreeState | null>(null);
@@ -686,13 +692,26 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     void fetch("/api/projects", { cache: "no-store", signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        return response.json() as Promise<{ projects?: AddedProject[] }>;
+        return response.json() as Promise<{
+          projects?: AddedProject[];
+          selectedProject?: { projectKey?: string; projectRoot?: string } | null;
+        }>;
       })
       .then((data) => {
-        if (!controller.signal.aborted) setAddedProjects(data.projects ?? []);
+        if (controller.signal.aborted) return;
+        setAddedProjects(data.projects ?? []);
+        const stored = data.selectedProject;
+        setStoredSelectedProject(
+          stored?.projectKey && stored.projectRoot
+            ? { key: stored.projectKey, root: stored.projectRoot }
+            : null,
+        );
       })
       .catch(() => {
         // Session-backed projects remain usable if this optional list cannot load.
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setProjectListSettled(true);
       });
     return () => controller.abort();
   }, []);
@@ -785,7 +804,27 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       project?.root ?? null,
       project?.key ?? null,
     );
-  }, [selectedCwd, onCwdChange, projectFor]);
+    if (project && selectedCwd && projectListSettled) {
+      if (storedSelectedProject?.key === project.key && storedSelectedProject.root === project.root) {
+        clearLastSelectedProject();
+        return;
+      }
+      void fetch("/api/projects", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          selectedProject: { projectKey: project.key, projectRoot: project.root },
+        }),
+      }).then((response) => {
+        if (response.ok) {
+          setStoredSelectedProject(project);
+          clearLastSelectedProject();
+        }
+      }).catch(() => {
+        // A later project change or app launch retries the database write.
+      });
+    }
+  }, [selectedCwd, onCwdChange, projectFor, projectListSettled, storedSelectedProject]);
 
   // Sync the worktree switcher to the selected session's cwd. Sessions of all
   // worktrees in a project share one list, so clicking a session from another
@@ -851,7 +890,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
 
   // Auto-select cwd and restore session from URL on first load
   useEffect(() => {
-    if (!initialLoadSettled) return;
+    if (!initialLoadSettled || !projectListSettled) return;
     const notifyReady = (hasInitialProject: boolean) => {
       if (initialReadyNotifiedRef.current) return;
       initialReadyNotifiedRef.current = true;
@@ -875,6 +914,19 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           return;
         }
       }
+      const legacyRememberedProject = getLastSelectedProject();
+      const rememberedProject = storedSelectedProject ?? legacyRememberedProject;
+      if (rememberedProject) {
+        const target = availableProjects.find((project) => (
+          project.key === rememberedProject.key || project.root === rememberedProject.root
+        ));
+        if (target) {
+          setSelectedCwd(target.root);
+          notifyReady(true);
+          return;
+        }
+        if (legacyRememberedProject && availableProjects.length > 0) clearLastSelectedProject();
+      }
       if (availableProjects.length > 0) {
         setSelectedCwd(availableProjects[0].root);
         notifyReady(true);
@@ -882,7 +934,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       }
     }
     notifyReady(selectedCwd !== null);
-  }, [allSessions, availableProjects, initialLoadSettled, selectedCwd, initialSessionId, skipInitialProjectSelection, onSelectSession, onInitialRestoreDone]);
+  }, [allSessions, availableProjects, initialLoadSettled, projectListSettled, storedSelectedProject, selectedCwd, initialSessionId, skipInitialProjectSelection, onSelectSession, onInitialRestoreDone]);
 
   // Prefer an exact UI selection while a refetch is in flight. Once the
   // response catches up, the server-resolved path handles Windows case and

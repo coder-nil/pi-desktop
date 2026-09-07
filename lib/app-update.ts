@@ -6,6 +6,20 @@ interface ParsedVersion {
   normalized: string;
 }
 
+interface PublishedRelease {
+  created_at?: unknown;
+  draft?: unknown;
+  html_url?: unknown;
+  published_at?: unknown;
+  tag_name?: unknown;
+}
+
+export interface LatestPublishedRelease {
+  version: string;
+  releaseUrl: string;
+  publishedAt: string;
+}
+
 function parseVersion(version: string): ParsedVersion | null {
   const match = SEMVER_PATTERN.exec(version.trim());
   if (!match) return null;
@@ -76,5 +90,37 @@ export function normalizeVersion(version: string): string | null {
 export function getPiDesktopReleaseUrl(version: string): string | null {
   const normalized = normalizeVersion(version);
   if (!normalized) return null;
-  return `https://github.com/mafousoftware/pi-desktop/releases/tag/v${normalized}`;
+  return `https://github.com/coder-nil/pi-desktop/releases/tag/v${normalized}`;
+}
+
+export function selectLatestPublishedRelease(
+  releases: PublishedRelease[],
+): LatestPublishedRelease | null {
+  let latest: LatestPublishedRelease | null = null;
+  let latestTimestamp = Number.NEGATIVE_INFINITY;
+
+  for (const release of releases) {
+    if (release.draft === true || typeof release.tag_name !== "string") continue;
+    const version = normalizeVersion(release.tag_name);
+    if (!version) continue;
+
+    const publishedAt = typeof release.published_at === "string"
+      ? release.published_at
+      : typeof release.created_at === "string"
+        ? release.created_at
+        : null;
+    if (!publishedAt) continue;
+    const timestamp = Date.parse(publishedAt);
+    if (!Number.isFinite(timestamp) || timestamp <= latestTimestamp) continue;
+
+    const releaseUrl = typeof release.html_url === "string"
+      ? release.html_url
+      : getPiDesktopReleaseUrl(version);
+    if (!releaseUrl) continue;
+
+    latest = { version, releaseUrl, publishedAt };
+    latestTimestamp = timestamp;
+  }
+
+  return latest;
 }

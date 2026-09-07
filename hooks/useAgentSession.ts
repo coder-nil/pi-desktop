@@ -1535,6 +1535,26 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     await loadContext(sid, entryId);
   }, [loadContext]);
 
+  const handleEditFromHere = useCallback(async (entryId: string) => {
+    if (bashRunningRef.current) return false;
+    const sid = sessionIdRef.current;
+    if (!sid) return false;
+    try {
+      const result = await sendAgentCommand<{ cancelled?: boolean; leafId?: string | null }>(sid, {
+        type: "navigate_tree",
+        targetId: entryId,
+      });
+      if (result?.cancelled) return false;
+      const leafId = result?.leafId ?? null;
+      setActiveLeafId(leafId);
+      await loadContext(sid, leafId);
+      return true;
+    } catch (e) {
+      console.error("Edit from here failed:", e);
+      return false;
+    }
+  }, [loadContext]);
+
   const handleLeafChange = useCallback(async (leafId: string | null) => {
     if (bashRunningRef.current) return;
     setActiveLeafId(leafId);
@@ -2036,7 +2056,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     sessionIdRef, messagesEndRef, scrollContainerRef,
     lastUserMsgRef, pendingScrollToUserRef, initialScrollDoneRef,
     // Actions
-    handleSend, handleRetryPrompt, handleAbort, handleFork, handleNavigate, handleModelChange,
+    handleSend, handleRetryPrompt, handleAbort, handleFork, handleNavigate, handleEditFromHere, handleModelChange,
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
     handleRecallQueue,
     handleBuiltinSlashCommand,

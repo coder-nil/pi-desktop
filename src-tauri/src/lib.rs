@@ -1,22 +1,26 @@
 use std::{
+    collections::HashMap,
     fs::{self, File, OpenOptions},
     io::{Read, Write},
     net::{Ipv4Addr, Shutdown, SocketAddr, SocketAddrV4, TcpListener, TcpStream},
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
-    sync::{mpsc, Mutex},
+    sync::{atomic::{AtomicU64, Ordering}, mpsc, Mutex},
     thread,
     time::{Duration, Instant},
 };
 
+use portable_pty::{native_pty_system, Child as PtyChild, CommandBuilder, MasterPty, PtySize};
+use serde::Serialize;
 use tauri::webview::PageLoadEvent;
 use tauri::window::Color;
-use tauri::{Manager, RunEvent, WebviewUrl, WebviewWindowBuilder, WindowEvent};
+use tauri::{Emitter, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 
 const HOST: &str = "127.0.0.1";
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(45);
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
 const SPLASH_MINIMUM_DURATION: Duration = Duration::from_millis(900);
+const RELEASE_URL_PREFIX: &str = "https://github.com/coder-nil/pi-desktop/releases/";
 
 #[cfg(windows)]
 const DESKTOP_API_ORIGIN: &str = "http://tauri.localhost";
@@ -28,6 +32,168 @@ struct DesktopServer {
 }
 
 struct ServerState(Mutex<Option<DesktopServer>>);
+
+struct TerminalSession {
+    master: Box<dyn MasterPty + Send>,
+    writer: Box<dyn Write + Send>,
+    child: Box<dyn PtyChild + Send + Sync>,
+}
+
+impl Drop for TerminalSession {
+    fn drop(&mut self) {
+        #[cfg(unix)]
+        {
+            // Interactive jobs have their own foreground process group.
+            // End that group as well as the shell's group when the panel closes.
+            if let Some(group) = self.master.process_group_leader() {
+                if group > 0 { unsafe { libc::kill(-group, libc::SIGKILL); } }
+            }
+            if let Some(pid) = self.child.process_id() {
+                if pid > 0 { unsafe { libc::kill(-(pid as i32), libc::SIGKILL); } }
+            }
+        }
+        #[cfg(windows)]
+        if let Some(pid) = self.child.process_id() {
+            let _ = Command::new("taskkill").args(["/PID", &pid.to_string(), "/T", "/F"]).status();
+        }
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+struct TerminalState {
+    sessions: Mutex<HashMap<String, TerminalSession>>,
+    next_id: AtomicU64,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TerminalOutput {
+    terminal_id: String,
+    data: Vec<u8>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TerminalExit {
+    terminal_id: String,
+}
+
+fn create_terminal(command: CommandBuilder, cols: u16, rows: u16) -> Result<(TerminalSession, Box<dyn Read + Send>), String> {
+    let pair = native_pty_system()
+        .openpty(PtySize { rows: rows.clamp(2, 500), cols: cols.clamp(2, 500), pixel_width: 0, pixel_height: 0 })
+        .map_err(|error| format!("Could not create terminal: {error}"))?;
+    let reader = pair.master.try_clone_reader().map_err(|error| error.to_string())?;
+    let writer = pair.master.take_writer().map_err(|error| error.to_string())?;
+    let child = pair.slave.spawn_command(command).map_err(|error| format!("Could not start shell: {error}"))?;
+    drop(pair.slave);
+    Ok((TerminalSession { master: pair.master, writer, child }, reader))
+}
+
+#[tauri::command]
+fn terminal_start(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, TerminalState>,
+    cwd: String,
+    cols: u16,
+    rows: u16,
+) -> Result<String, String> {
+    let directory = PathBuf::from(&cwd);
+    if !directory.is_dir() {
+        return Err("The terminal working directory does not exist.".to_string());
+    }
+
+    let mut command = if cfg!(windows) {
+        CommandBuilder::new("powershell.exe")
+    } else {
+        CommandBuilder::new_default_prog()
+    };
+    command.cwd(&directory);
+    command.env("TERM", "xterm-256color");
+    command.env("COLORTERM", "truecolor");
+
+    let mut sessions = state.sessions.lock().map_err(|_| "Terminal registry is unavailable.".to_string())?;
+    if sessions.len() >= 16 { return Err("Close an existing terminal before opening another.".to_string()); }
+    let (session, mut reader) = create_terminal(command, cols, rows)?;
+    let terminal_id = format!("terminal-{}", state.next_id.fetch_add(1, Ordering::Relaxed));
+    sessions.insert(terminal_id.clone(), session);
+    drop(sessions);
+
+    let output_id = terminal_id.clone();
+    thread::spawn(move || {
+        let mut buffer = [0_u8; 8192];
+        loop {
+            match reader.read(&mut buffer) {
+                Ok(0) | Err(_) => break,
+                Ok(length) => {
+                    let _ = app.emit_to("main", "terminal-output", TerminalOutput {
+                        terminal_id: output_id.clone(),
+                        data: buffer[..length].to_vec(),
+                    });
+                }
+            }
+        }
+        let state = app.state::<TerminalState>();
+        let session = state.sessions.lock().ok().and_then(|mut sessions| sessions.remove(&output_id));
+        drop(session);
+        let _ = app.emit_to("main", "terminal-exit", TerminalExit { terminal_id: output_id });
+    });
+
+    Ok(terminal_id)
+}
+
+#[tauri::command]
+fn terminal_write(state: tauri::State<'_, TerminalState>, terminal_id: String, data: Vec<u8>) -> Result<(), String> {
+    if data.len() > 1024 * 1024 { return Err("Terminal input is too large.".to_string()); }
+    let mut sessions = state.sessions.lock().map_err(|_| "Terminal registry is unavailable.".to_string())?;
+    let session = sessions.get_mut(&terminal_id).ok_or_else(|| "Terminal is not running.".to_string())?;
+    session.writer.write_all(&data).map_err(|error| format!("Could not write to terminal: {error}"))?;
+    session.writer.flush().map_err(|error| format!("Could not flush terminal input: {error}"))
+}
+
+#[tauri::command]
+fn terminal_resize(state: tauri::State<'_, TerminalState>, terminal_id: String, cols: u16, rows: u16) -> Result<(), String> {
+    let sessions = state.sessions.lock().map_err(|_| "Terminal registry is unavailable.".to_string())?;
+    let session = sessions.get(&terminal_id).ok_or_else(|| "Terminal is not running.".to_string())?;
+    session.master.resize(PtySize { rows: rows.clamp(2, 500), cols: cols.clamp(2, 500), pixel_width: 0, pixel_height: 0 })
+        .map_err(|error| format!("Could not resize terminal: {error}"))
+}
+
+#[tauri::command]
+fn terminal_close(state: tauri::State<'_, TerminalState>, terminal_id: String) -> Result<(), String> {
+    let session = state.sessions.lock().map_err(|_| "Terminal registry is unavailable.".to_string())?.remove(&terminal_id);
+    drop(session);
+    Ok(())
+}
+
+fn stop_terminals(app: &tauri::AppHandle) {
+    let state = app.state::<TerminalState>();
+    if let Ok(mut sessions) = state.sessions.lock() {
+        sessions.clear();
+    };
+}
+
+#[tauri::command]
+fn open_release_url(url: String) -> Result<(), String> {
+    if !url.starts_with(RELEASE_URL_PREFIX) {
+        return Err("Only the official Pi Desktop release page can be opened.".to_string());
+    }
+
+    #[cfg(target_os = "macos")]
+    let status = Command::new("open").arg(&url).status();
+    #[cfg(target_os = "windows")]
+    let status = Command::new("rundll32")
+        .args(["url.dll,FileProtocolHandler", &url])
+        .status();
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let status = Command::new("xdg-open").arg(&url).status();
+
+    status
+        .map_err(|error| format!("Could not open the release page: {error}"))?
+        .success()
+        .then_some(())
+        .ok_or_else(|| "The operating system could not open the release page.".to_string())
+}
 
 fn reserve_port() -> Result<u16, String> {
     let listener = TcpListener::bind((HOST, 0))
@@ -222,6 +388,9 @@ fn create_main_window(app: &tauri::AppHandle, port: u16) -> Result<(), String> {
             )
             .initialization_script(initialization_script)
             .on_page_load(move |window, payload| {
+                if payload.event() == PageLoadEvent::Started {
+                    stop_terminals(window.app_handle());
+                }
                 if payload.event() == PageLoadEvent::Finished
                     && payload.url().path().ends_with("desktop-splash.html")
                 {
@@ -380,7 +549,18 @@ fn force_kill(child: &mut Child) {
 pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
+        .invoke_handler(tauri::generate_handler![
+            open_release_url,
+            terminal_start,
+            terminal_write,
+            terminal_resize,
+            terminal_close,
+        ])
         .manage(ServerState(Mutex::new(None)))
+        .manage(TerminalState {
+            sessions: Mutex::new(HashMap::new()),
+            next_id: AtomicU64::new(1),
+        })
         .setup(|app| {
             let handle = app.handle().clone();
             thread::spawn(move || start_application(handle));
@@ -389,6 +569,7 @@ pub fn run() {
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { .. } = event {
                 let app = window.app_handle().clone();
+                stop_terminals(&app);
                 stop_server(&app);
                 app.exit(0);
             }
@@ -398,6 +579,7 @@ pub fn run() {
 
     app.run(|handle, event| {
         if matches!(event, RunEvent::ExitRequested { .. } | RunEvent::Exit) {
+            stop_terminals(handle);
             stop_server(handle);
         }
     });
@@ -406,6 +588,50 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn terminal_shell_reads_input_reports_cwd_and_tracks_resize() {
+        let directory = std::env::temp_dir().canonicalize().unwrap();
+        let mut command = CommandBuilder::new("/bin/sh");
+        command.args(["-c", "read value; printf 'received:%s\\n' \"$value\"; pwd; stty size"]);
+        command.cwd(&directory);
+        let (mut session, mut reader) = create_terminal(command, 80, 24).unwrap();
+        session.master.resize(PtySize { cols: 100, rows: 30, pixel_width: 0, pixel_height: 0 }).unwrap();
+        assert_eq!(session.master.get_size().unwrap().cols, 100);
+        let (sender, receiver) = mpsc::channel();
+        thread::spawn(move || {
+            let mut output = Vec::new();
+            let _ = reader.read_to_end(&mut output);
+            let _ = sender.send(output);
+        });
+        session.writer.write_all(b"hello-terminal\n").unwrap();
+        session.writer.flush().unwrap();
+        let output = receiver.recv_timeout(Duration::from_secs(5)).unwrap();
+        let text = String::from_utf8_lossy(&output);
+        assert!(text.contains("received:hello-terminal"), "{text}");
+        assert!(text.contains(directory.to_str().unwrap()), "{text}");
+        assert!(text.contains("30 100"), "{text}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn dropping_terminal_stops_the_running_shell() {
+        let mut command = CommandBuilder::new("/bin/sh");
+        command.args(["-c", "exec sleep 30"]);
+        let (session, _reader) = create_terminal(command, 80, 24).unwrap();
+        let pid = session.child.process_id().unwrap() as i32;
+        drop(session);
+        assert_eq!(unsafe { libc::kill(pid, 0) }, -1);
+    }
+
+    #[test]
+    fn release_page_opener_accepts_only_the_official_repository() {
+        assert!("https://github.com/coder-nil/pi-desktop/releases/tag/v1.0.0"
+            .starts_with(RELEASE_URL_PREFIX));
+        assert!(!"https://github.com/example/pi-desktop/releases/tag/v1.0.0"
+            .starts_with(RELEASE_URL_PREFIX));
+    }
 
     #[test]
     fn reserved_port_accepts_loopback_connections() {

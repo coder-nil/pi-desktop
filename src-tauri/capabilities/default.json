@@ -6,5 +6,14 @@
   "remote": {
     "urls": ["http://127.0.0.1:*"]
   },
-  "permissions": ["notification:default"]
+  "permissions": [
+    "notification:default",
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "allow-open-release-url",
+    "allow-terminal-start",
+    "allow-terminal-write",
+    "allow-terminal-resize",
+    "allow-terminal-close"
+  ]
 }

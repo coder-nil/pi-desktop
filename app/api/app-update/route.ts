@@ -1,22 +1,22 @@
 import { NextResponse } from "next/server";
 import type { AppUpdateResponse } from "@/lib/api-types";
 import {
-  compareVersions,
-  getPiDesktopReleaseUrl,
   isNewerVersion,
-  normalizeVersion,
+  selectLatestPublishedRelease,
 } from "@/lib/app-update";
 
 export const dynamic = "force-dynamic";
 
 const CURRENT_VERSION = process.env.NEXT_PUBLIC_PACKAGE_VERSION ?? "0.0.0";
-const GITHUB_RELEASES_URL = "https://api.github.com/repos/mafousoftware/pi-desktop/releases?per_page=20";
+const GITHUB_RELEASES_URL = "https://api.github.com/repos/coder-nil/pi-desktop/releases?per_page=20";
 const CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 5_000;
 
 interface GitHubRelease {
+  created_at?: unknown;
   draft?: unknown;
   html_url?: unknown;
+  published_at?: unknown;
   tag_name?: unknown;
 }
 
@@ -49,20 +49,7 @@ async function fetchLatestVersion(): Promise<AppUpdateResponse> {
   const body = await response.json() as unknown;
   if (!Array.isArray(body)) throw new Error("GitHub Releases returned an invalid response");
 
-  let latest: { version: string; releaseUrl: string } | null = null;
-  for (const item of body as GitHubRelease[]) {
-    if (item.draft === true || typeof item.tag_name !== "string") continue;
-    const version = normalizeVersion(item.tag_name);
-    if (!version) continue;
-
-    const releaseUrl = typeof item.html_url === "string"
-      ? item.html_url
-      : getPiDesktopReleaseUrl(version);
-    if (!releaseUrl) continue;
-    if (!latest || compareVersions(version, latest.version) === 1) {
-      latest = { version, releaseUrl };
-    }
-  }
+  const latest = selectLatestPublishedRelease(body as GitHubRelease[]);
   if (!latest) throw new Error("GitHub Releases did not contain a valid version");
 
   return {

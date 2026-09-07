@@ -59,6 +59,8 @@ interface Props {
   onLoadSlashCommands?: () => Promise<SlashCommandInfo[]> | SlashCommandInfo[];
   onBuiltinCommand?: (message: string) => Promise<BuiltinSlashCommandResult>;
   onAudioUnlock?: () => void;
+  onOpenConsole?: () => void;
+  consoleActive?: boolean;
   draftKey?: string;
   /** Session working directory — enables the @ file autocomplete menu */
   cwd?: string | null;
@@ -467,6 +469,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   slashCommands, slashCommandsLoading, onLoadSlashCommands,
   onBuiltinCommand,
   onAudioUnlock,
+  onOpenConsole,
+  consoleActive = false,
   onPromptWithStreamingBehavior,
   draftKey,
   cwd,
@@ -2650,6 +2654,36 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 </div>
               )}
             </div>
+            {onOpenConsole && (
+              <button
+                type="button"
+                onClick={onOpenConsole}
+                title={t("console.open")}
+                aria-label={t("console.open")}
+                aria-pressed={consoleActive}
+                style={{
+                  flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                  width: 32, height: 32, padding: 0,
+                  background: consoleActive ? "var(--bg-hover)" : "none",
+                  border: "none", borderRadius: 9,
+                  color: consoleActive ? "var(--text)" : "var(--text-muted)",
+                  cursor: "pointer", transition: "background 0.12s, color 0.12s",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = "var(--bg-hover)";
+                  e.currentTarget.style.color = "var(--text)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = consoleActive ? "var(--bg-hover)" : "none";
+                  e.currentTarget.style.color = consoleActive ? "var(--text)" : "var(--text-muted)";
+                }}
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <polyline points="4 17 10 11 4 5" />
+                  <line x1="12" y1="19" x2="20" y2="19" />
+                </svg>
+              </button>
+            )}
             {/* Model selector — visible always, disabled while the session or switch is busy */}
             {(modelOptions.length > 0 || currentName || modelError) && onModelChange && (
                 <div ref={dropdownRef} style={{

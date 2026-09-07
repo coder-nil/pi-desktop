@@ -137,6 +137,19 @@ test("renders user-message images as buttons that open a larger preview", () => 
   assert.match(html, /<img[^>]+src="data:image\/png;base64,YWJj"/);
 });
 
+test("offers edit-from-here for a persisted root user message", () => {
+  const html = renderMessage({
+    role: "user",
+    content: "first prompt",
+  }, {
+    entryId: "root-user-entry",
+    onEditFromHere: async () => true,
+    onEditContent: () => {},
+  });
+
+  assert.match(html, /Edit from here/);
+});
+
 test("renders custom-message images as buttons that open a larger preview", () => {
   const html = renderMessage({
     role: "custom",

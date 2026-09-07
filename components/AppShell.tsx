@@ -47,13 +47,13 @@ import {
   SIDEBAR_MIN_WIDTH,
 } from "@/lib/panel-layout";
 import type { BlockingExtensionUiRequest, SessionInfo, SessionTreeNode } from "@/lib/types";
-import type { ProjectTrustStatus } from "@/lib/api-types";
+import type { AppUpdateResponse, ProjectTrustStatus } from "@/lib/api-types";
 import type { ChatInputHandle } from "./ChatInput";
 import type { SessionStatsInfo } from "@/lib/pi-types";
 import type { FileViewerState } from "@/lib/file-viewer-state";
 
 const FileViewer = dynamic(() => import("./FileViewer").then((module) => module.FileViewer));
-const SimulatedConsole = dynamic(() => import("./SimulatedConsole").then((module) => module.SimulatedConsole));
+const TerminalPanel = dynamic(() => import("./TerminalPanel").then((module) => module.TerminalPanel), { ssr: false });
 const ModelsConfig = dynamic(() => import("./ModelsConfig").then((module) => module.ModelsConfig));
 const SkillsConfig = dynamic(() => import("./SkillsConfig").then((module) => module.SkillsConfig));
 const PluginsConfig = dynamic(() => import("./PluginsConfig").then((module) => module.PluginsConfig));
@@ -68,7 +68,6 @@ const TOP_BAR_ICON_BUTTON_SIZE = 36;
 const LANGUAGE_MENU_WIDTH = 176;
 const NOTIFICATION_ICON = "/icons/icon-192.png";
 const NOTIFICATION_PROMPT_MAX_LENGTH = 100;
-const SIMULATED_CONSOLE_TAB_ID = "console:simulated";
 
 function summarizeNotificationPrompt(prompt: string | null): string | null {
   if (!prompt) return null;
@@ -127,8 +126,39 @@ export function AppShell() {
   const [projectTrustError, setProjectTrustError] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
+  const [terminalCwds, setTerminalCwds] = useState<string[]>([]);
+  const [consoleOpen, setConsoleOpen] = useState(false);
   const [mobileToolbarMoreOpen, setMobileToolbarMoreOpen] = useState(false);
   const [mobileSidebarReady, setMobileSidebarReady] = useState(false);
+  const [appUpdate, setAppUpdate] = useState<AppUpdateResponse | null>(null);
+
+  const checkAppUpdate = useCallback(async (refresh = false) => {
+    try {
+      const response = await fetch(`/api/app-update${refresh ? "?refresh=1" : ""}`, { cache: "no-store" });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const value = await response.json() as AppUpdateResponse;
+      setAppUpdate(value);
+    } catch {
+      // Update checks are best-effort; don't disturb the rest of the shell.
+    }
+  }, []);
+
+  useEffect(() => {
+    void checkAppUpdate(true);
+  }, [checkAppUpdate]);
+
+  const openAppUpdate = useCallback(() => {
+    if (!appUpdate?.updateAvailable) return;
+    if (window.__PI_WEB_API_ORIGIN__) {
+      void import("@tauri-apps/api/core")
+        .then(({ invoke }) => invoke("open_release_url", { url: appUpdate.releaseUrl }))
+        .catch(() => {
+          window.location.href = appUpdate.releaseUrl;
+        });
+      return;
+    }
+    window.open(appUpdate.releaseUrl, "_blank", "noopener,noreferrer");
+  }, [appUpdate]);
 
   useEffect(() => {
     setBannerEnabledState(getBannerEnabled());
@@ -908,26 +938,11 @@ export function AppShell() {
   }, [handleOpenFile, selectedSession?.id]);
 
   const handleOpenConsole = useCallback(() => {
-    setFileTabs((prev) => {
-      if (prev.some((tab) => tab.id === SIMULATED_CONSOLE_TAB_ID)) return prev;
-      return [
-        ...prev,
-        {
-          id: SIMULATED_CONSOLE_TAB_ID,
-          label: translate("console.title"),
-          filePath: "simulated-console",
-          kind: "console",
-        },
-      ];
-    });
-    setActiveFileTabId(SIMULATED_CONSOLE_TAB_ID);
-    setRightPanelOpen(true);
-    if (isMobile) {
-      setSidebarOpen(false);
-      setActiveTopPanel(null);
-      setMobileToolbarMoreOpen(false);
-    }
-  }, [isMobile, translate]);
+    const cwd = selectedSession?.cwd ?? newSessionCwd ?? activeCwd;
+    if (!cwd) return;
+    setTerminalCwds((current) => current.includes(cwd) ? current : [...current, cwd]);
+    setConsoleOpen((current) => terminalCwds.includes(cwd) ? !current : true);
+  }, [activeCwd, newSessionCwd, selectedSession?.cwd, terminalCwds]);
 
   const handleCloseFileTab = useCallback((tabId: string) => {
     setFileTabs((prev) => {
@@ -1060,6 +1075,23 @@ export function AppShell() {
         onGenerateTitle={(sessionId) => void handleAutoName(sessionId)}
         titleGenerationStatus={autoNameStatus.kind === "idle" ? null : autoNameStatus}
       />
+      {appUpdate?.updateAvailable && (
+        <div style={{ padding: "8px 8px 0", flexShrink: 0 }}>
+          <button
+            type="button"
+            onClick={openAppUpdate}
+            title={translate("appUpdate.available", { version: appUpdate.latestVersion })}
+            aria-label={translate("appUpdate.available", { version: appUpdate.latestVersion })}
+            style={{
+              width: "100%", height: 32, padding: "0 10px", borderRadius: 6,
+              border: "1px solid #d97706", background: "rgba(217,119,6,0.12)",
+              color: "#d97706", cursor: "pointer", fontSize: 12, fontWeight: 600,
+            }}
+          >
+            ↑ {translate("appUpdate.check")} · v{appUpdate.latestVersion}
+          </button>
+        </div>
+      )}
       <div style={{ padding: "8px", flexShrink: 0, display: "flex", justifyContent: "space-between", gap: 4 }}>
         {([
           {
@@ -1645,42 +1677,6 @@ export function AppShell() {
     );
   };
 
-  const renderMainConsoleToggle = (mobile: boolean) => {
-    const covered = mobile && mobileToolbarMoreOpen;
-    const active = rightPanelOpen && activeFileTab?.kind === "console";
-    return (
-      <button
-        type="button"
-        onClick={handleOpenConsole}
-        disabled={covered}
-        tabIndex={covered ? -1 : undefined}
-        aria-controls="file-panel"
-        aria-pressed={active}
-        aria-hidden={covered ? true : undefined}
-        title={translate("console.open")}
-        aria-label={translate("console.open")}
-        data-mobile-toolbar-console={mobile ? "true" : undefined}
-        style={{
-          display: "flex", alignItems: "center", justifyContent: "center",
-          width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
-          visibility: covered ? "hidden" : "visible",
-          pointerEvents: covered ? "none" : "auto",
-          background: active ? "var(--bg-selected)" : "none",
-          border: "none", borderLeft: "1px solid var(--border)",
-          color: active ? "var(--text)" : "var(--text-muted)",
-          cursor: "pointer", flexShrink: 0, transition: "color 0.12s, background 0.12s",
-        }}
-        onMouseEnter={(event) => { if (!covered) event.currentTarget.style.color = "var(--text)"; }}
-        onMouseLeave={(event) => { event.currentTarget.style.color = active ? "var(--text)" : "var(--text-muted)"; }}
-      >
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <polyline points="4 17 10 11 4 5" />
-          <line x1="12" y1="19" x2="20" y2="19" />
-        </svg>
-      </button>
-    );
-  };
-
   return (
     <>
     <style>{`
@@ -1891,7 +1887,6 @@ export function AppShell() {
                 )}
               </button>
               {renderSessionStatsButton(true)}
-              {renderMainConsoleToggle(true)}
               {renderMainFileToggle(true)}
               {mobileToolbarMoreOpen && (
                 <div
@@ -1927,7 +1922,6 @@ export function AppShell() {
               {renderSessionStatsButton(false)}
             </>
           )}
-          {!isMobile && renderMainConsoleToggle(false)}
           {!isMobile && renderMainFileToggle(false)}
           {isMobile && (
             <BranchNavigator
@@ -2225,6 +2219,8 @@ export function AppShell() {
               onSessionStatsPanelOpen={openSessionStatsPanel}
               onContextUsageChange={handleContextUsageChange}
               onOpenFile={handleOpenLinkedFile}
+              onOpenConsole={handleOpenConsole}
+              consoleActive={consoleOpen && terminalCwds.includes(selectedSession?.cwd ?? effectiveNewSessionCwd ?? "")}
               soundEnabled={soundEnabled}
               playDoneSound={playDoneSound}
               unlockAudio={unlockAudio}
@@ -2258,6 +2254,18 @@ export function AppShell() {
             ) : null
           ) : null}
         </div>
+        {terminalCwds.map((cwd) => (
+          <TerminalPanel
+            key={cwd}
+            cwd={cwd}
+            visible={consoleOpen && cwd === (selectedSession?.cwd ?? newSessionCwd ?? activeCwd)}
+            onMinimize={() => setConsoleOpen(false)}
+            onClose={() => {
+              setTerminalCwds((current) => current.filter((value) => value !== cwd));
+              setConsoleOpen(false);
+            }}
+          />
+        ))}
       </div>
 
       <div
@@ -2275,7 +2283,7 @@ export function AppShell() {
         />
       )}
 
-      {/* Right panel: files and simulated console — width animated via CSS */}
+      {/* Right panel: files — width animated via CSS */}
       <div
         ref={rightPanelResizer.panelRef}
         id="file-panel"
@@ -2330,13 +2338,7 @@ export function AppShell() {
 
         {/* Only the active panel body is mounted. Lightweight per-tab state is restored on activation. */}
         <div style={{ flex: 1, overflow: "hidden", paddingBottom: "env(safe-area-inset-bottom)" }}>
-          {activeFileTab?.kind === "console" ? (
-            <SimulatedConsole
-              cwd={activeCwd}
-              sessionId={selectedSession?.id ?? null}
-              sessionName={selectedSession?.name ?? null}
-            />
-          ) : activeFileTab?.filePath ? (
+          {activeFileTab?.filePath ? (
             <FileViewer
               key={`${activeFileTab.id}:${activeFileTab.viewerRevision ?? 0}`}
               filePath={activeFileTab.filePath}
