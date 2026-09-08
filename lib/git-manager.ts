@@ -14,7 +14,7 @@ const MAX_STAGED_DIFF_CHARS = 60_000;
 
 export type GitOperationKind = "merge" | "rebase" | "cherry-pick" | "revert" | null;
 export type GitAction =
-  | "stage" | "unstage" | "discard" | "commit" | "fetch" | "pull" | "push" | "merge" | "continue" | "abort"
+  | "stage" | "unstage" | "discard" | "discard_all" | "commit" | "fetch" | "pull" | "push" | "merge" | "continue" | "abort"
   | "create_branch" | "rename_branch" | "delete_branch" | "checkout_remote_branch" | "delete_remote_branch"
   | "pull_branch" | "push_branch" | "merge_branch";
 
