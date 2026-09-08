@@ -1311,21 +1311,23 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       >
         <div style={{ display: "flex", alignItems: "center", marginBottom: 10, gap: 6 }}>
           <PiWebTitle />
-          {appUpdate?.updateAvailable && onAppUpdateClick && (
+          {appUpdate && onAppUpdateClick && (
             <button
               type="button"
               onClick={onAppUpdateClick}
-              title={t("appUpdate.available", { version: appUpdate.latestVersion })}
-              aria-label={t("appUpdate.available", { version: appUpdate.latestVersion })}
+              title={appUpdate.updateAvailable ? t("appUpdate.available", { version: appUpdate.latestVersion }) : t("appUpdate.check")}
+              aria-label={appUpdate.updateAvailable ? t("appUpdate.available", { version: appUpdate.latestVersion }) : t("appUpdate.check")}
               style={{
                 flexShrink: 0,
                 display: "inline-flex", alignItems: "center", gap: 4,
                 height: 20, padding: "0 8px", borderRadius: 5,
-                border: "1px solid #d97706", background: "rgba(217,119,6,0.12)",
-                color: "#d97706", cursor: "pointer", fontSize: 11, fontWeight: 600,
+                border: appUpdate.updateAvailable ? "1px solid #d97706" : "1px solid var(--border)",
+                background: appUpdate.updateAvailable ? "rgba(217,119,6,0.12)" : "transparent",
+                color: appUpdate.updateAvailable ? "#d97706" : "var(--text-muted)",
+                cursor: "pointer", fontSize: 11, fontWeight: 600,
               }}
             >
-              ↑ v{appUpdate.latestVersion}
+              {appUpdate.updateAvailable ? `↑ v${appUpdate.latestVersion}` : t("appUpdate.check")}
             </button>
           )}
         </div>

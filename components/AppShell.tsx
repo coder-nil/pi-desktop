@@ -130,12 +130,7 @@ export function AppShell() {
   const [consoleOpen, setConsoleOpen] = useState(false);
   const [mobileToolbarMoreOpen, setMobileToolbarMoreOpen] = useState(false);
   const [mobileSidebarReady, setMobileSidebarReady] = useState(false);
-  const [appUpdate, setAppUpdate] = useState<AppUpdateResponse | null>({
-    currentVersion: "0.0.0",
-    latestVersion: "0.99.0",
-    updateAvailable: true,
-    releaseUrl: "https://github.com/coder-nil/pi-desktop/releases/latest",
-  });
+  const [appUpdate, setAppUpdate] = useState<AppUpdateResponse | null>(null);
 
   const checkAppUpdate = useCallback(async (refresh = false) => {
     try {

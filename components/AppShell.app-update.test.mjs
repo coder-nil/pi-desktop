@@ -10,7 +10,8 @@ test("checks for an application update when the shell mounts", () => {
 });
 
 test("shows the update button only for a newer release and opens GitHub", () => {
-  assert.match(source, /appUpdate\?\.updateAvailable &&/);
+  assert.match(source, /appUpdate && onAppUpdateClick &&/);
+  assert.match(source, /appUpdate\.updateAvailable \? `↑ v\$\{appUpdate\.latestVersion\}` : t\("appUpdate\.check"\)`/);
   assert.match(source, /if \(window\.__PI_WEB_API_ORIGIN__\)/);
   assert.match(source, /invoke\("open_release_url", \{ url: appUpdate\.releaseUrl \}\)/);
   assert.match(source, /window\.location\.href = appUpdate\.releaseUrl/);
