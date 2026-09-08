@@ -4,7 +4,7 @@
 
 [pi 编程智能体](https://github.com/earendil-works/pi)的本地浏览器界面。Pi Desktop 与 pi 共用本机配置和会话文件，可在浏览器中查找和继续对话、运行智能体、配置模型与资源，并查看项目文件。
 
-![Pi Desktop 展示包含结构化 Markdown、工具调用和项目导航的 pi 会话](https://raw.githubusercontent.com/mafousoftware/pi-desktop/main/docs/screenshot.png)
+![Pi Desktop 展示包含结构化 Markdown、工具调用和项目导航的 pi 会话](docs/screenshot.png)
 
 ## 功能
 
