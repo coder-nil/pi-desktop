@@ -23,6 +23,12 @@ export function registerAbortHandler(handler: (() => void) | null): void {
 interface UseGlobalKeyboardShortcutsOptions {
   /** Called when Ctrl/Cmd+N is pressed. Receives current cwd. */
   onNewSession?: (cwd: string) => void;
+  /** Called when Ctrl/Cmd+B is pressed to show the sidebar. */
+  onShowSidebar?: () => void;
+  /** Called when Ctrl/Cmd+` is pressed to toggle the console. */
+  onToggleConsole?: () => void;
+  /** Called when Ctrl/Cmd+O is pressed to open the directory picker. */
+  onOpenDirectory?: () => void;
   /** The currently selected project directory (sidebar cwd). */
   activeCwd?: string | null;
 }
@@ -33,6 +39,8 @@ interface UseGlobalKeyboardShortcutsOptions {
  * Shortcuts handled here:
  *   Esc          – stop the running agent (via module-level abort handler)
  *   Ctrl/Cmd+N   – create a new session in the active project directory
+ *   Ctrl/Cmd+B   – show the sidebar
+ *   Ctrl/Cmd+`   – toggle the console
  *
  * Note: Esc inside <textarea> or <input> is deliberately NOT handled here.
  * ChatInput manages its own Esc logic (closing slash / @ file menus, stopping
@@ -42,7 +50,7 @@ interface UseGlobalKeyboardShortcutsOptions {
 export function useGlobalKeyboardShortcuts(
   options: UseGlobalKeyboardShortcutsOptions,
 ): void {
-  const { onNewSession, activeCwd } = options;
+  const { onNewSession, onShowSidebar, onToggleConsole, onOpenDirectory, activeCwd } = options;
 
   useEffect(() => {
     const handler = (e: KeyboardEvent): void => {
@@ -64,10 +72,35 @@ export function useGlobalKeyboardShortcuts(
         if (!activeCwd || !onNewSession) return;
         e.preventDefault();
         onNewSession(activeCwd);
+        return;
+      }
+
+      // ---- Ctrl/Cmd+B: show sidebar ----
+      if ((e.code === "KeyB" || e.key.toLowerCase() === "b") && (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey) {
+        if (!onShowSidebar) return;
+        e.preventDefault();
+        onShowSidebar();
+        return;
+      }
+
+      // ---- Ctrl/Cmd+`: toggle console ----
+      if ((e.code === "Backquote" || e.key === "`") && (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey) {
+        if (!onToggleConsole) return;
+        e.preventDefault();
+        onToggleConsole();
+        return;
+      }
+
+      // ---- Ctrl/Cmd+O: open directory picker ----
+      if ((e.code === "KeyO" || e.key.toLowerCase() === "o") && (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey) {
+        if (!onOpenDirectory) return;
+        e.preventDefault();
+        onOpenDirectory();
       }
     };
 
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [activeCwd, onNewSession]);
+    // Capture before editor/input handlers can stop propagation of browser-level shortcuts.
+    document.addEventListener("keydown", handler, true);
+    return () => document.removeEventListener("keydown", handler, true);
+  }, [activeCwd, onNewSession, onShowSidebar, onToggleConsole, onOpenDirectory]);
 }

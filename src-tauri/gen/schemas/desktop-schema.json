@@ -177,6 +177,12 @@
       "description": "Permission identifier",
       "oneOf": [
         {
+          "description": "Enables the hide_startup_overlay command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-hide-startup-overlay",
+          "markdownDescription": "Enables the hide_startup_overlay command without any pre-configured scope."
+        },
+        {
           "description": "Enables the open_release_url command without any pre-configured scope.",
           "type": "string",
           "const": "allow-open-release-url",
@@ -205,6 +211,12 @@
           "type": "string",
           "const": "allow-terminal-write",
           "markdownDescription": "Enables the terminal_write command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the hide_startup_overlay command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-hide-startup-overlay",
+          "markdownDescription": "Denies the hide_startup_overlay command without any pre-configured scope."
         },
         {
           "description": "Denies the open_release_url command without any pre-configured scope.",

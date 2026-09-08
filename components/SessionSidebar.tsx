@@ -120,6 +120,8 @@ interface Props {
   /** Update notification shown in the sidebar title row */
   appUpdate?: AppUpdateResponse | null;
   onAppUpdateClick?: () => void;
+  onHideSidebar?: () => void;
+  openDirectoryRequest?: number;
 }
 
 interface WorktreeEntry {
@@ -431,7 +433,7 @@ function PiWebTitle() {
   );
 }
 
-export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onProjectGitStateChange, onGenerateTitle, titleGenerationStatus, appUpdate, onAppUpdateClick }: Props) {
+export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onProjectGitStateChange, onGenerateTitle, titleGenerationStatus, appUpdate, onAppUpdateClick, onHideSidebar, openDirectoryRequest }: Props) {
   const { t } = useI18n();
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1005,6 +1007,13 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     setCustomPathError(null);
     setDropdownOpen(false);
   }, []);
+
+  const openDirectoryRequestRef = useRef(openDirectoryRequest ?? 0);
+  useEffect(() => {
+    if ((openDirectoryRequest ?? 0) === openDirectoryRequestRef.current) return;
+    openDirectoryRequestRef.current = openDirectoryRequest ?? 0;
+    handleCustomPathClick();
+  }, [handleCustomPathClick, openDirectoryRequest]);
   const handleDefaultCwd = useCallback(async () => {
     try {
       const res = await fetch("/api/default-cwd", { method: "POST" });
@@ -1195,10 +1204,6 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const visibleProjects = availableProjects.filter((project) => (
     !projectFilter.trim() || project.root.toLowerCase().includes(projectFilter.trim().toLowerCase())
   ));
-  const addedProjectKeys = useMemo(
-    () => new Set(addedProjects.map((project) => project.projectKey)),
-    [addedProjects],
-  );
 
   const handleRemoveAddedProject = useCallback(async (projectKey: string, selected: boolean, nextPath: string | null) => {
     try {
@@ -1311,7 +1316,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       >
         <div style={{ display: "flex", alignItems: "center", marginBottom: 10, gap: 6 }}>
           <PiWebTitle />
-          {appUpdate && onAppUpdateClick && (
+          {appUpdate && onAppUpdateClick && appUpdate.updateAvailable && (
             <button
               type="button"
               onClick={onAppUpdateClick}
@@ -1330,10 +1335,30 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
               {appUpdate.updateAvailable ? `↑ v${appUpdate.latestVersion}` : t("appUpdate.check")}
             </button>
           )}
+          {onHideSidebar && (
+            <button
+              type="button"
+              onClick={onHideSidebar}
+              title={t("sidebar.hide")}
+              aria-label={t("sidebar.hide")}
+              style={{
+                marginLeft: "auto", flexShrink: 0,
+                display: "inline-flex", alignItems: "center", justifyContent: "center",
+                width: 24, height: 24, padding: 0, border: "none", borderRadius: 5,
+                background: "transparent", color: "var(--text-muted)", cursor: "pointer",
+              }}
+              onMouseEnter={(event) => { event.currentTarget.style.background = "var(--bg-hover)"; event.currentTarget.style.color = "var(--text)"; }}
+              onMouseLeave={(event) => { event.currentTarget.style.background = "transparent"; event.currentTarget.style.color = "var(--text-muted)"; }}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <rect x="3" y="3" width="18" height="18" rx="2" /><line x1="9" y1="3" x2="9" y2="21" />
+              </svg>
+            </button>
+          )}
         </div>
 
         {/* CWD picker */}
-        <div ref={dropdownRef} style={{ position: "relative", display: "flex", gap: 4 }}>
+        <div ref={dropdownRef} style={{ position: "relative", display: "flex", gap: 0 }}>
           <button
             onClick={() => setDropdownOpen((v) => !v)}
             title={selectedProject?.root ?? selectedCwd ?? ""}
@@ -1342,14 +1367,22 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
               display: "flex",
               alignItems: "center",
               padding: "6px 10px",
+              height: 32,
+              boxSizing: "border-box",
               background: selectedCwd ? "var(--bg-hover)" : "rgba(37,99,235,0.06)",
               border: "none",
-              borderRadius: 6,
+              borderRadius: "6px 0 0 6px",
               cursor: "pointer",
               fontSize: 12,
               color: "var(--text)",
               textAlign: "left",
               transition: "border-color 0.15s, background 0.15s",
+            }}
+            onMouseEnter={(event) => {
+              event.currentTarget.style.background = "var(--bg-selected)";
+            }}
+            onMouseLeave={(event) => {
+              event.currentTarget.style.background = selectedCwd ? "var(--bg-hover)" : "rgba(37,99,235,0.06)";
             }}
           >
             {selectedCwd ? (
@@ -1409,7 +1442,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
               flexShrink: 0,
               padding: 0,
               border: "none",
-              borderRadius: 6,
+              borderRadius: "0 6px 6px 0",
               background: "var(--bg-hover)",
               color: "var(--text-muted)",
               cursor: "pointer",
@@ -1474,7 +1507,29 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
               )}
               <div style={{ maxHeight: "min(50vh, 380px)", overflowY: "auto" }}>
                 {visibleProjects.map((project, index) => (
-                  <div key={project.key} style={{ display: "flex", alignItems: "center", minWidth: 0, padding: "0 6px 0 10px", background: "var(--bg)", borderBottom: "1px solid var(--border)" }}>
+                  <div key={project.key} style={{ display: "flex", alignItems: "center", minWidth: 0, padding: "0 6px 0 10px", margin: project.key === selectedProject?.key ? "3px 5px" : "3px 0", background: project.key === selectedProject?.key ? "var(--bg-selected)" : "none", borderRadius: project.key === selectedProject?.key ? "6px" : "0", overflow: "hidden" }} onMouseEnter={(event) => {
+                      if (project.key !== selectedProject?.key) {
+                        event.currentTarget.style.background = "var(--bg-hover)";
+                        event.currentTarget.style.borderRadius = "6px";
+                        event.currentTarget.style.margin = "3px 5px";
+                        const removeBtn = event.currentTarget.querySelector('[data-remove-btn]');
+                        if (removeBtn) {
+                          (removeBtn as HTMLElement).style.opacity = '1';
+                          (removeBtn as HTMLElement).style.pointerEvents = 'auto';
+                        }
+                      }
+                    }} onMouseLeave={(event) => {
+                      if (project.key !== selectedProject?.key) {
+                        event.currentTarget.style.background = "none";
+                        event.currentTarget.style.borderRadius = "0";
+                        event.currentTarget.style.margin = "3px 0";
+                        const removeBtn = event.currentTarget.querySelector('[data-remove-btn]');
+                        if (removeBtn) {
+                          (removeBtn as HTMLElement).style.opacity = '0';
+                          (removeBtn as HTMLElement).style.pointerEvents = 'none';
+                        }
+                      }
+                    }}>
                     <button
                       type="button"
                       onClick={() => {
@@ -1485,33 +1540,33 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                         setCustomPathError(null);
                         setDropdownOpen(false);
                       }}
-                      style={{ display: "flex", alignItems: "center", gap: 7, flex: 1, minWidth: 0, padding: "8px 0", background: "none", border: "none", color: project.key === selectedProject?.key ? "var(--text)" : "var(--text-muted)", cursor: "pointer", textAlign: "left", fontSize: 11, fontFamily: "var(--font-mono)" }}
+                      style={{
+                        display: "flex", alignItems: "center", gap: 7, flex: 1, minWidth: 0, padding: "8px 10px",
+                        color: project.key === selectedProject?.key ? "var(--text)" : "var(--text-muted)",
+                        cursor: "pointer", textAlign: "left", fontSize: 11, fontFamily: "var(--font-mono)"
+                      }}
                       title={project.root}
                     >
-                      {project.key === selectedProject?.key && (
-                        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                          <polyline points="1.5 5 4 7.5 8.5 2.5" />
-                        </svg>
-                      )}
-                      {project.key !== selectedProject?.key && <span style={{ width: 10, flexShrink: 0 }} />}
-                      <PathLabel text={displayCwd(project.root, homeDir)} style={{ flex: 1 }} />
+                      <span style={{ flex: 1, fontFamily: "var(--font-mono)", fontSize: 11, color: project.key === selectedProject?.key ? "var(--text)" : "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{getFileName(project.root) || project.root}</span>
                       {showProjectActivity(projectActivity.get(project.key), t)}
+                      <span style={{ width: 10, flexShrink: 0 }} />
                     </button>
-                    {addedProjectKeys.has(project.key) && <button
+                    <button
                       type="button"
                       onClick={() => void handleRemoveAddedProject(
                         project.key,
                         project.key === selectedProject?.key,
                         visibleProjects[index + 1]?.root ?? visibleProjects[index - 1]?.root ?? null,
                       )}
+                      data-remove-btn
                       title={t("sidebar.removeProjectHistory", { path: project.root })}
                       aria-label={t("sidebar.removeProjectHistory", { path: project.root })}
-                      style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 24, height: 24, padding: 0, border: "none", borderRadius: 4, background: "transparent", color: "var(--text-dim)", cursor: "pointer", flexShrink: 0 }}
+                      style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 24, height: 24, padding: 0, border: "none", borderRadius: 4, background: "transparent", color: "var(--text-muted)", cursor: "pointer", flexShrink: 0, opacity: 0, pointerEvents: "none", transition: "opacity 0.15s, background 0.15s" }}
                     >
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
                         <path d="m6 6 12 12M18 6 6 18" />
                       </svg>
-                    </button>}
+                    </button>
                   </div>
                 ))}
                 {visibleProjects.length === 0 && projectFilter.trim() && (
@@ -1563,6 +1618,15 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                   cursor: "pointer",
                   textAlign: "left",
                   fontSize: 11,
+                  transition: "color 0.12s, background 0.12s",
+                }}
+                onMouseEnter={(event) => {
+                  event.currentTarget.style.color = "var(--text)";
+                  event.currentTarget.style.background = "var(--bg-hover)";
+                }}
+                onMouseLeave={(event) => {
+                  event.currentTarget.style.color = "var(--text-muted)";
+                  event.currentTarget.style.background = "none";
                 }}
               >
                 <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" style={{ flexShrink: 0 }}>
@@ -1826,7 +1890,19 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                       const branchWorktree = worktreeState.worktrees.find((worktree) => worktree.branch === branch);
                       const isCurrent = branchWorktree?.path === currentWorktreePath;
                       return (
-                        <div key={branch} style={{ position: "relative" }}>
+                        <div key={branch} style={{ display: "flex", alignItems: "center", minWidth: 0, padding: "0 6px 0 10px", margin: "3px 0", background: branchMenu === branch ? "var(--bg-hover)" : "none", borderRadius: branchMenu === branch ? "6px" : "0", overflow: "hidden" }} onMouseEnter={(event) => {
+                          if (branchMenu !== branch) {
+                            (event.currentTarget as HTMLElement).style.background = "var(--bg-hover)";
+                            (event.currentTarget as HTMLElement).style.borderRadius = "6px";
+                            (event.currentTarget as HTMLElement).style.margin = "3px 5px";
+                          }
+                        }} onMouseLeave={(event) => {
+                          if (branchMenu !== branch) {
+                            (event.currentTarget as HTMLElement).style.background = "none";
+                            (event.currentTarget as HTMLElement).style.borderRadius = "0";
+                            (event.currentTarget as HTMLElement).style.margin = "3px 0";
+                          }
+                        }}>
                           <button
                             type="button"
                             onClick={(event) => {
@@ -1846,7 +1922,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                               alignItems: "center",
                               gap: 7,
                               padding: "8px 10px",
-                              background: branchMenu === branch ? "var(--bg-hover)" : "var(--bg-panel)",
+                              background: "none",
                               border: "none",
                               color: "var(--text)",
                               cursor: wtBusy ? "not-allowed" : "pointer",
@@ -1864,9 +1940,6 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                               <span style={{ width: 10, flexShrink: 0 }} />
                             )}
                             <PathLabel text={branch} style={{ flex: 1 }} />
-                            <span style={{ flexShrink: 0, color: isCurrent ? "var(--accent)" : "var(--text-dim)", fontSize: 10 }}>
-                              {isCurrent ? t("sidebar.current") : branchWorktree ? t("sidebar.worktrees") : t("sidebar.checkout")}
-                            </span>
                             <svg width="8" height="8" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, color: "var(--text-dim)" }}><polyline points="3 2 7 5 3 8" /></svg>
                           </button>
                           {branchMenu === branch && branchMenuPosition && (
@@ -1922,7 +1995,19 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                       <span>{worktreeState.remoteBranches.length}</span>
                     </button>
                     {remoteBranchesOpen && visibleRemoteBranches.map((branch) => (
-                      <div key={branch} style={{ position: "relative" }}>
+                      <div key={branch} style={{ display: "flex", alignItems: "center", minWidth: 0, padding: "0 6px 0 10px", margin: "3px 0", background: remoteBranchMenu === branch ? "var(--bg-hover)" : "none", borderRadius: remoteBranchMenu === branch ? "6px" : "0", overflow: "hidden" }} onMouseEnter={(event) => {
+                        if (remoteBranchMenu !== branch) {
+                          (event.currentTarget as HTMLElement).style.background = "var(--bg-hover)";
+                          (event.currentTarget as HTMLElement).style.borderRadius = "6px";
+                          (event.currentTarget as HTMLElement).style.margin = "3px 5px";
+                        }
+                      }} onMouseLeave={(event) => {
+                        if (remoteBranchMenu !== branch) {
+                          (event.currentTarget as HTMLElement).style.background = "none";
+                          (event.currentTarget as HTMLElement).style.borderRadius = "0";
+                          (event.currentTarget as HTMLElement).style.margin = "3px 0";
+                        }
+                      }}>
                         <button
                           type="button"
                           onClick={(event) => {
@@ -1933,7 +2018,21 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                           }}
                           aria-haspopup="menu"
                           aria-expanded={remoteBranchMenu === branch}
-                          style={{ width: "100%", minWidth: 0, display: "flex", alignItems: "center", gap: 7, padding: "8px 10px", border: "none", background: remoteBranchMenu === branch ? "var(--bg-hover)" : "var(--bg-panel)", color: "var(--text)", cursor: "pointer", fontSize: 11, fontFamily: "var(--font-mono)", textAlign: "left" }}
+                          style={{
+                            width: "100%",
+                            minWidth: 0,
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 7,
+                            padding: "8px 10px",
+                            background: "none",
+                            border: "none",
+                            color: "var(--text)",
+                            cursor: "pointer",
+                            fontSize: 11,
+                            fontFamily: "var(--font-mono)",
+                            textAlign: "left",
+                          }}
                         >
                           <span style={{ width: 10, flexShrink: 0 }} />
                           <PathLabel text={branch} style={{ flex: 1 }} />

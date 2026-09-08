@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-hide-startup-overlay"
+description = "Enables the hide_startup_overlay command without any pre-configured scope."
+commands.allow = ["hide_startup_overlay"]
+
+[[permission]]
+identifier = "deny-hide-startup-overlay"
+description = "Denies the hide_startup_overlay command without any pre-configured scope."
+commands.deny = ["hide_startup_overlay"]

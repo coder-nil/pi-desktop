@@ -128,6 +128,7 @@ export function AppShell() {
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
   const [terminalCwds, setTerminalCwds] = useState<string[]>([]);
   const [consoleOpen, setConsoleOpen] = useState(false);
+  const [openDirectoryRequest, setOpenDirectoryRequest] = useState(0);
   const [mobileToolbarMoreOpen, setMobileToolbarMoreOpen] = useState(false);
   const [mobileSidebarReady, setMobileSidebarReady] = useState(false);
   const [appUpdate, setAppUpdate] = useState<AppUpdateResponse | null>(null);
@@ -341,6 +342,14 @@ export function AppShell() {
       setMobileToolbarMoreOpen(false);
     }
     setSidebarOpen((open) => !open);
+  }, [isMobile]);
+
+  const handleSidebarShow = useCallback(() => {
+    if (isMobile) {
+      setActiveTopPanel(null);
+      setMobileToolbarMoreOpen(false);
+    }
+    setSidebarOpen(true);
   }, [isMobile]);
 
   const handleMobileToolbarMoreToggle = useCallback(() => {
@@ -682,12 +691,6 @@ export function AppShell() {
     router.replace("/", { scroll: false });
   }, [invalidateWorkspaceRestore, router, isMobile]);
 
-  // Global keyboard shortcuts (handles Esc, Ctrl/Cmd+N etc.)
-  useGlobalKeyboardShortcuts({
-    onNewSession: (cwd: string) => handleNewSession(`kb-${Date.now()}`, cwd),
-    activeCwd,
-  });
-
   // Client-built transient SessionInfo (new session / fork) lacks the
   // server-computed projectKey, which the same-project check in
   // handleCwdChange relies on. Hydrate it from the session list so switching
@@ -940,9 +943,23 @@ export function AppShell() {
   const handleOpenConsole = useCallback(() => {
     const cwd = selectedSession?.cwd ?? newSessionCwd ?? activeCwd;
     if (!cwd) return;
-    setTerminalCwds((current) => current.includes(cwd) ? current : [...current, cwd]);
-    setConsoleOpen((current) => terminalCwds.includes(cwd) ? !current : true);
+    const hasTerminal = terminalCwds.includes(cwd);
+    if (!hasTerminal) {
+      setTerminalCwds((current) => current.includes(cwd) ? current : [...current, cwd]);
+      setConsoleOpen(true);
+      return;
+    }
+    setConsoleOpen((current) => !current);
   }, [activeCwd, newSessionCwd, selectedSession?.cwd, terminalCwds]);
+
+  // Global keyboard shortcuts (handles Esc, Ctrl/Cmd+N, Ctrl/Cmd+B, Ctrl/Cmd+` etc.)
+  useGlobalKeyboardShortcuts({
+    onNewSession: (cwd: string) => handleNewSession(`kb-${Date.now()}`, cwd),
+    onShowSidebar: handleSidebarShow,
+    onToggleConsole: handleOpenConsole,
+    onOpenDirectory: () => setOpenDirectoryRequest((value) => value + 1),
+    activeCwd,
+  });
 
   const handleCloseFileTab = useCallback((tabId: string) => {
     setFileTabs((prev) => {
@@ -1076,6 +1093,8 @@ export function AppShell() {
         titleGenerationStatus={autoNameStatus.kind === "idle" ? null : autoNameStatus}
         appUpdate={appUpdate}
         onAppUpdateClick={openAppUpdate}
+        onHideSidebar={handleSidebarToggle}
+        openDirectoryRequest={openDirectoryRequest}
       />
       <div style={{ padding: "8px", flexShrink: 0, display: "flex", justifyContent: "space-between", gap: 4 }}>
         {([
@@ -1801,10 +1820,10 @@ export function AppShell() {
 
       {/* Center: chat */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
-        {/* Top bar with sidebar toggle */}
+        {/* Top bar keeps the sidebar opener available after the sidebar is hidden. */}
         <div ref={topBarRef} style={{ flexShrink: 0, background: "var(--bg-panel)" }}>
         <div style={{ display: "flex", alignItems: "center", position: "relative", borderBottom: "1px solid var(--border)", height: "calc(36px + env(safe-area-inset-top))", paddingTop: "env(safe-area-inset-top)" }}>
-          <button
+          {!sidebarOpen && <button
             onClick={handleSidebarToggle}
              title={sidebarOpen ? translate("sidebar.hide") : translate("sidebar.show")}
              aria-label={sidebarOpen ? translate("sidebar.hide") : translate("sidebar.show")}
@@ -1816,17 +1835,11 @@ export function AppShell() {
             }}
             onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; }}
             onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-muted)"; }}
-          >
-            {sidebarOpen ? (
+            >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <rect x="3" y="3" width="18" height="18" rx="2" /><line x1="9" y1="3" x2="9" y2="21" />
               </svg>
-            ) : (
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                <line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" />
-              </svg>
-            )}
-          </button>
+          </button>}
           {isMobile && (
             <div
               ref={mobileToolbarRef}
@@ -1840,25 +1853,24 @@ export function AppShell() {
                 height: "100%",
               }}
             >
-              <button
-                type="button"
-                onClick={handleMobileToolbarMoreToggle}
-                title={mobileToolbarMoreOpen ? translate("chat.close") : translate("chat.moreControls")}
-                aria-label={mobileToolbarMoreOpen ? translate("chat.close") : translate("chat.moreControls")}
-                aria-controls="mobile-toolbar-actions"
-                aria-expanded={mobileToolbarMoreOpen}
-                data-mobile-toolbar-more="true"
-                style={{
-                  position: "relative",
-                  zIndex: mobileToolbarMoreOpen ? 21 : undefined,
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
-                  background: mobileToolbarMoreOpen ? "var(--bg-selected)" : "none",
-                  border: "none", borderRight: "1px solid var(--border)",
-                  color: mobileToolbarMoreOpen ? "var(--text)" : "var(--text-muted)",
-                  cursor: "pointer", flexShrink: 0, transition: "color 0.12s, background 0.12s",
-                }}
-              >
+            <button
+              type="button"
+              onClick={handleMobileToolbarMoreToggle}
+              title={mobileToolbarMoreOpen ? translate("chat.close") : translate("chat.moreControls")}
+              aria-label={mobileToolbarMoreOpen ? translate("chat.close") : translate("chat.moreControls")}
+              aria-controls="mobile-toolbar-actions"
+              aria-expanded={mobileToolbarMoreOpen}
+              data-mobile-toolbar-more="true"
+              style={{
+                position: "relative",
+                zIndex: mobileToolbarMoreOpen ? 21 : undefined,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
+                background: mobileToolbarMoreOpen ? "var(--bg-selected)" : "none",
+                border: "none", borderRight: "1px solid var(--border)",
+                color: mobileToolbarMoreOpen ? "var(--text)" : "var(--text-muted)",
+                cursor: "pointer", flexShrink: 0, transition: "color 0.12s, background 0.12s",
+              }}>
                 {mobileToolbarMoreOpen ? (
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
                     <line x1="5" y1="5" x2="19" y2="19" /><line x1="19" y1="5" x2="5" y2="19" />

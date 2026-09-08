@@ -19,7 +19,6 @@ use tauri::{Emitter, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder, Window
 const HOST: &str = "127.0.0.1";
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(45);
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
-const SPLASH_MINIMUM_DURATION: Duration = Duration::from_millis(900);
 const RELEASE_URL_PREFIX: &str = "https://github.com/coder-nil/pi-desktop/releases/";
 
 #[cfg(windows)]
@@ -370,68 +369,94 @@ fn show_startup_error(app: &tauri::AppHandle, message: &str, log_path: &Path) {
     }
 }
 
-fn create_main_window(app: &tauri::AppHandle, port: u16) -> Result<(), String> {
+#[cfg(target_os = "macos")]
+extern "C" {
+    fn pi_show_startup_overlay(window: *mut std::ffi::c_void, bytes: *const u8, length: usize) -> bool;
+    fn pi_raise_startup_overlay(window: *mut std::ffi::c_void);
+    fn pi_hide_startup_overlay(window: *mut std::ffi::c_void);
+}
+
+// Called synchronously in setup, before creating a WebView or starting Node.
+fn create_main_window(app: &tauri::AppHandle) -> Result<(), String> {
+    let window = tauri::window::WindowBuilder::new(app, "main")
+        .title("Pi Desktop")
+        .background_color(Color(255, 255, 255, 255))
+        .inner_size(1280.0, 820.0)
+        .min_inner_size(720.0, 520.0)
+        .visible(false)
+        .build()
+        .map_err(|error| error.to_string())?;
+    #[cfg(target_os = "macos")]
+    {
+        let image = include_bytes!("../../public/icons/splash.png");
+        let native = window.ns_window().map_err(|error| error.to_string())?;
+        if !unsafe { pi_show_startup_overlay(native, image.as_ptr(), image.len()) } {
+            return Err("Could not create the native startup overlay.".into());
+        }
+        window.show().map_err(|error| error.to_string())?;
+        window.set_focus().map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn hide_startup_overlay(app: tauri::AppHandle) -> Result<(), String> {
+    let window = app.get_window("main").ok_or_else(|| "The application window is unavailable.".to_string())?;
+    #[cfg(target_os = "macos")]
+    if let Ok(native) = window.ns_window() {
+        unsafe { pi_hide_startup_overlay(native); }
+    }
+    Ok(())
+}
+
+fn create_main_webview(app: &tauri::AppHandle, port: u16) -> Result<(), String> {
     let handle = app.clone();
     let (sender, receiver) = mpsc::sync_channel(1);
-    let (page_sender, page_receiver) = mpsc::sync_channel(1);
     app.run_on_main_thread(move || {
         let result: Result<(), String> = (|| {
+            let window = handle.get_window("main")
+                .ok_or_else(|| "The application window is unavailable.".to_string())?;
             let api_origin = format!("http://{HOST}:{port}");
-            let initialization_script = format!(
-                "window.__PI_WEB_API_ORIGIN__ = {}; window.__PI_WEB_DESKTOP__ = true;",
-                serde_json::to_string(&api_origin).map_err(|error| error.to_string())?,
-            );
-            let window = WebviewWindowBuilder::new(
-                &handle,
-                "main",
-                WebviewUrl::App("desktop-splash.html".into()),
-            )
-            .initialization_script(initialization_script)
-            .on_page_load(move |window, payload| {
-                if payload.event() == PageLoadEvent::Started {
-                    stop_terminals(window.app_handle());
-                }
-                if payload.event() == PageLoadEvent::Finished
-                    && payload.url().path().ends_with("desktop-splash.html")
-                {
-                    let result = window
-                        .show()
-                        .map_err(|error| format!("Could not show the application window: {error}"))
-                        .and_then(|_| {
-                            window.set_focus().map_err(|error| {
-                                format!("Could not focus the application window: {error}")
-                            })
+            let url = if cfg!(debug_assertions) {
+                WebviewUrl::External(api_origin.parse().map_err(|error| format!("Invalid application URL: {error}"))?)
+            } else {
+                WebviewUrl::App("index.html".into())
+            };
+            let builder = tauri::webview::WebviewBuilder::new("main", url)
+                .initialization_script(format!(
+                    "window.__PI_WEB_API_ORIGIN__ = {}; window.__PI_WEB_DESKTOP__ = true; window.addEventListener('pi-app-ready', () => window.__TAURI_INTERNALS__.invoke('hide_startup_overlay').catch(console.error), {{ once: true }});",
+                    serde_json::to_string(&api_origin).map_err(|error| error.to_string())?,
+                ))
+                .auto_resize()
+                .on_page_load(|webview, payload| {
+                    if payload.event() == PageLoadEvent::Started {
+                        stop_terminals(webview.app_handle());
+                    }
+                    if payload.event() == PageLoadEvent::Finished {
+                        let handle = webview.app_handle().clone();
+                        let _ = webview.run_on_main_thread(move || {
+                            if let Some(window) = handle.get_window("main") {
+                                let _ = window.show();
+                            }
                         });
-                    let _ = page_sender.try_send(result);
-                }
-            })
-            .title("Pi Desktop")
-            .background_color(Color(26, 26, 26, 255))
-            .inner_size(1280.0, 820.0)
-            .min_inner_size(720.0, 520.0)
-            .visible(false)
-            .build()
-            .map_err(|error| format!("Could not create the application window: {error}"))?;
-            let _ = window;
+                    }
+                });
+            window.add_child(builder, tauri::LogicalPosition::new(0.0, 0.0), window.inner_size().map_err(|error| error.to_string())?)
+                .map_err(|error| error.to_string())?;
+            #[cfg(target_os = "macos")]
+            unsafe { pi_raise_startup_overlay(window.ns_window().map_err(|error| error.to_string())?); }
             Ok(())
         })();
         let _ = sender.send(result);
-    })
-    .map_err(|error| format!("Could not schedule the application window: {error}"))?;
-    receiver
-        .recv_timeout(Duration::from_secs(10))
-        .map_err(|_| "Timed out while creating the application window.".to_string())??;
-    page_receiver
-        .recv_timeout(Duration::from_secs(10))
-        .map_err(|_| "Timed out while loading the application startup page.".to_string())?
+    }).map_err(|error| error.to_string())?;
+    receiver.recv_timeout(Duration::from_secs(30))
+        .map_err(|_| "Timed out while creating the application WebView.".to_string())?
 }
 
 fn start_application(app: tauri::AppHandle) {
     let log_path = log_path(&app);
     let result: Result<(), String> = (|| {
         let port = reserve_port()?;
-        create_main_window(&app, port)?;
-        let splash_started = Instant::now();
         let server = spawn_server(&app, port, &log_path)?;
         {
             let state = app.state::<ServerState>();
@@ -455,29 +480,14 @@ fn start_application(app: tauri::AppHandle) {
                 .map(|status| status.is_none())
                 .map_err(|error| format!("Could not inspect the Pi Desktop server: {error}"))
         })?;
-        if let Some(remaining) = SPLASH_MINIMUM_DURATION.checked_sub(splash_started.elapsed()) {
-            thread::sleep(remaining);
-        }
-        if cfg!(debug_assertions) {
-            let url = format!("http://{HOST}:{port}")
-                .parse()
-                .map_err(|error| format!("Invalid application URL: {error}"))?;
-            app.get_webview_window("main")
-                .ok_or_else(|| "The Pi Desktop startup window is unavailable.".to_string())?
-                .navigate(url)
-                .map_err(|error| format!("Could not load the Pi Desktop interface: {error}"))?;
-        } else if let Some(window) = app.get_webview_window("main") {
-            window
-                .eval("window.location.replace('index.html')")
-                .map_err(|error| format!("Could not load the Pi Desktop interface: {error}"))?;
-        }
+        create_main_webview(&app, port)?;
         Ok(())
     })();
 
     if let Err(error) = result {
         stop_server(&app);
-        if let Some(window) = app.get_webview_window("main") {
-            let _ = window.close();
+        if let Some(window) = app.get_window("main") {
+            let _ = window.destroy();
         }
         show_startup_error(&app, &error, &log_path);
     }
@@ -550,6 +560,7 @@ pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
         .invoke_handler(tauri::generate_handler![
+            hide_startup_overlay,
             open_release_url,
             terminal_start,
             terminal_write,
@@ -562,6 +573,7 @@ pub fn run() {
             next_id: AtomicU64::new(1),
         })
         .setup(|app| {
+            create_main_window(app.handle()).map_err(std::io::Error::other)?;
             let handle = app.handle().clone();
             thread::spawn(move || start_application(handle));
             Ok(())

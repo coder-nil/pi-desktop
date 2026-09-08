@@ -1,6 +1,5 @@
 import type { Metadata, Viewport } from "next";
 import { Noto_Sans_Mono } from "next/font/google";
-import { DesktopStartupSkeleton } from "@/components/DesktopStartupSkeleton";
 import { PwaRegistration } from "@/components/PwaRegistration";
 import "katex/dist/katex.min.css";
 import "./globals.css";
@@ -84,7 +83,6 @@ export default function RootLayout({
       </head>
       <body translate="no" className="notranslate" suppressHydrationWarning>
         {children}
-        <DesktopStartupSkeleton />
         <PwaRegistration />
       </body>
     </html>

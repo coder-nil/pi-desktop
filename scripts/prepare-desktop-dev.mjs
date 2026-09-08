@@ -11,3 +11,4 @@ const placeholder = await open(join(runtimeRoot, process.platform === "win32" ? 
 await placeholder.close();
 await mkdir(join(frontendRoot, "icons"), { recursive: true });
 await cp(join(root, "public", "icons", "icon-192.png"), join(frontendRoot, "icons", "icon-192.png"));
+

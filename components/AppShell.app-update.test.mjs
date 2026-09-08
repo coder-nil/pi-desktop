@@ -3,6 +3,7 @@ import test from "node:test";
 import { readFile } from "node:fs/promises";
 
 const source = await readFile(new URL("./AppShell.tsx", import.meta.url), "utf8");
+const sidebarSource = await readFile(new URL("./SessionSidebar.tsx", import.meta.url), "utf8");
 
 test("checks for an application update when the shell mounts", () => {
   assert.match(source, /fetch\(`\/api\/app-update/);
@@ -10,11 +11,11 @@ test("checks for an application update when the shell mounts", () => {
 });
 
 test("shows the update button only for a newer release and opens GitHub", () => {
-  assert.match(source, /appUpdate && onAppUpdateClick &&/);
-  assert.match(source, /appUpdate\.updateAvailable \? `↑ v\$\{appUpdate\.latestVersion\}` : t\("appUpdate\.check"\)`/);
+  assert.match(sidebarSource, /appUpdate && onAppUpdateClick && appUpdate\.updateAvailable &&/);
+  assert.match(sidebarSource, /↑ v\$\{appUpdate\.latestVersion\}/);
   assert.match(source, /if \(window\.__PI_WEB_API_ORIGIN__\)/);
   assert.match(source, /invoke\("open_release_url", \{ url: appUpdate\.releaseUrl \}\)/);
   assert.match(source, /window\.location\.href = appUpdate\.releaseUrl/);
   assert.match(source, /window\.open\(appUpdate\.releaseUrl, "_blank", "noopener,noreferrer"\)/);
-  assert.match(source, /onClick=\{openAppUpdate\}/);
+  assert.match(sidebarSource, /onClick=\{onAppUpdateClick\}/);
 });

@@ -13,6 +13,9 @@ function apiSetsModels(payload: unknown) {
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: model.contextWindow ?? 128_000,
     maxTokens: model.maxTokens ?? 16_384,
+    // Coding's GLM 5.3 emits unsigned thinking. Without this compatibility
+    // flag, the Messages adapter replays that reasoning as assistant text.
+    ...(model.id === "glm-5.3" ? { compat: { allowEmptySignature: true } } : {}),
   }));
 }
 
