@@ -1,6 +1,12 @@
 import { ModelRuntime, type CreateModelRuntimeOptions } from "@earendil-works/pi-coding-agent";
 import { parseDiscoveredModels } from "./model-discovery";
 import { APISETS_BASE_URL, APISETS_PROVIDER_ID } from "./desktop-provider-constants";
+import { responsesTerminalFetch } from "./responses-terminal-fetch";
+import type { FetchFunction } from "@earendil-works/pi-ai";
+
+function withResponsesFetch<T extends { fetch?: FetchFunction }>(options: T | undefined): T {
+  return { ...options, fetch: responsesTerminalFetch(options?.fetch) } as T;
+}
 
 export { APISETS_BASE_URL, APISETS_PROVIDER_ID } from "./desktop-provider-constants";
 
@@ -8,6 +14,10 @@ function apiSetsModels(payload: unknown) {
   return parseDiscoveredModels(payload).map((model) => ({
     id: model.id,
     name: model.name ?? model.id,
+    // Coding exposes GPT through Responses, matching Codex's wire protocol.
+    // Keep tool results and reasoning in their native format instead of
+    // round-tripping them through the provider's Anthropic compatibility layer.
+    ...(model.id.startsWith("gpt-") ? { api: "openai-responses" as const } : {}),
     reasoning: true,
     input: ["text", "image"] as ("text" | "image")[],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
@@ -47,6 +57,16 @@ export function registerDesktopProviders(modelRuntime: ModelRuntime): void {
 /** Create a standalone runtime with Pi Desktop's built-in providers registered. */
 export async function createDesktopModelRuntime(options?: CreateModelRuntimeOptions): Promise<ModelRuntime> {
   const modelRuntime = await ModelRuntime.create(options);
+  const stream = modelRuntime.stream.bind(modelRuntime);
+  const streamSimple = modelRuntime.streamSimple.bind(modelRuntime);
+  modelRuntime.stream = (model, context, requestOptions) => stream(model, context,
+    model.api === "openai-responses"
+      ? withResponsesFetch(requestOptions)
+      : requestOptions);
+  modelRuntime.streamSimple = (model, context, requestOptions) => streamSimple(model, context,
+    model.api === "openai-responses"
+      ? withResponsesFetch(requestOptions)
+      : requestOptions);
   registerDesktopProviders(modelRuntime);
   return modelRuntime;
 }

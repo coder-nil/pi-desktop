@@ -72,6 +72,8 @@ jobs:
           key: tauri-windows-nsis-${{ hashFiles('scripts/prepare-windows-bundler.mjs') }}
       - name: Install JavaScript dependencies
         run: npm ci
+      - name: Verify release versions
+        run: npm run version:check
       - name: Prepare and verify Windows bundler tools
         if: runner.os == 'Windows'
         run: node scripts/prepare-windows-bundler.mjs

@@ -1,6 +1,7 @@
 "use client";
 
 import { forwardRef, useState, useCallback, useEffect, useImperativeHandle, useMemo, useRef } from "react";
+import { RevealFileButton } from "./RevealFileButton";
 import { getFileIcon, FolderIcon } from "./FileIcons";
 import {
   encodeFilePathForApi,
@@ -368,7 +369,7 @@ function TreeNode({
             title={t("files.insertPath")}
             style={{
               position: "absolute",
-              right: !node.isDir ? 28 : 4,
+              right: 28,
               top: "50%",
               transform: "translateY(-50%)",
               display: "flex",
@@ -391,12 +392,9 @@ function TreeNode({
             {t("files.mention")}
           </button>
         )}
-        {hovered && !node.isDir && (
-          <a
-            href={`/api/files/${encodeFilePathForApi(node.fullPath)}?type=download`}
-            download
-            onClick={(e) => e.stopPropagation()}
-            title={t("files.download")}
+        {hovered && (
+          <RevealFileButton
+            filePath={node.fullPath}
             style={{
               position: "absolute",
               right: 4,
@@ -418,13 +416,7 @@ function TreeNode({
               whiteSpace: "nowrap",
               textDecoration: "none",
             }}
-          >
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="7 10 12 15 17 10" />
-              <line x1="12" y1="15" x2="12" y2="3" />
-            </svg>
-          </a>
+          />
         )}
       </div>
       {node.isDir && open && (

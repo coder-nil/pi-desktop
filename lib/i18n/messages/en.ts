@@ -316,6 +316,8 @@ export const enLocale: LocalePlugin = {
     "files.containsChangedFiles": "Contains changed files",
     "files.insertPath": "Insert path into chat",
     "files.mention": "mention",
+    "files.reveal": "Show in Finder / file manager",
+    "files.revealFailed": "Could not open the file location",
     "files.download": "Download file",
     "files.dismissError": "Dismiss error",
     "files.addUploadedFile": "Add uploaded file to chat",

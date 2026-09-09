@@ -316,6 +316,8 @@ export const zhCNLocale: LocalePlugin = {
     "files.containsChangedFiles": "包含已更改文件",
     "files.insertPath": "将路径插入聊天",
     "files.mention": "提及",
+    "files.reveal": "在 Finder / 文件管理器中显示",
+    "files.revealFailed": "无法打开文件所在位置",
     "files.download": "下载文件",
     "files.dismissError": "关闭错误",
     "files.addUploadedFile": "将上传的文件添加到聊天",

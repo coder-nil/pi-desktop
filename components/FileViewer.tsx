@@ -1,5 +1,7 @@
 "use client";
 
+import { RevealFileButton } from "./RevealFileButton";
+
 import { useEffect, useState, useRef, useCallback, useMemo, type CSSProperties, type MouseEvent } from "react";
 import {
   Prism as SyntaxHighlighter,
@@ -218,24 +220,6 @@ function getFileApiUrl(
   return `/api/files/${encoded}?${searchParams.toString()}`;
 }
 
-function DownloadLink({ filePath, sourceSessionId }: { filePath: string; sourceSessionId?: string | null }) {
-  const { t } = useI18n();
-  return (
-    <a
-      href={getFileApiUrl(filePath, "download", sourceSessionId)}
-      download={getFileName(filePath)}
-      title={t("i18n.downloadFile")}
-      aria-label={t("i18n.downloadFile")}
-      className="file-viewer-icon-button"
-    >
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-        <polyline points="7 10 12 15 17 10" />
-        <line x1="12" y1="15" x2="12" y2="3" />
-      </svg>
-    </a>
-  );
-}
 
 type DiffLine = {
   type: "unchanged" | "removed" | "added";
@@ -543,7 +527,7 @@ function ImageViewer({ filePath, cwd, sourceSessionId, watchEnabled = true }: Pr
           />
           {watching ? "live" : "static"}
         </span>
-        <DownloadLink filePath={filePath} sourceSessionId={sourceSessionId} />
+        <RevealFileButton filePath={filePath} sourceSessionId={sourceSessionId} className="file-viewer-icon-button" />
       </div>
       <div
         style={{
@@ -713,7 +697,7 @@ function AudioViewer({ filePath, cwd, sourceSessionId, watchEnabled = true }: Pr
           />
           {watching ? "live" : "static"}
         </span>
-        <DownloadLink filePath={filePath} sourceSessionId={sourceSessionId} />
+        <RevealFileButton filePath={filePath} sourceSessionId={sourceSessionId} className="file-viewer-icon-button" />
       </div>
       <div
         style={{
@@ -881,7 +865,7 @@ function DocumentViewer({ filePath, cwd, sourceSessionId, watchEnabled = true }:
         </span>
         <span style={{ marginLeft: "auto" }}>{ext === "docx" ? "docx preview" : "pdf"}</span>
         {size != null && <span>{formatSize(size)}</span>}
-        <DownloadLink filePath={filePath} sourceSessionId={sourceSessionId} />
+        <RevealFileButton filePath={filePath} sourceSessionId={sourceSessionId} className="file-viewer-icon-button" />
         <span
           title={watching ? t("i18n.liveSync") : t("i18n.notWatching")}
           style={{ display: "flex", alignItems: "center", gap: 4, color: watching ? "#4ade80" : "var(--text-dim)", flexShrink: 0 }}
@@ -1411,7 +1395,7 @@ function TextFileViewer({
             )}
           </div>
 
-          {!isDeletedDiff && <DownloadLink filePath={filePath} sourceSessionId={sourceSessionId} />}
+          {!isDeletedDiff && <RevealFileButton filePath={filePath} sourceSessionId={sourceSessionId} className="file-viewer-icon-button" />}
         </div>
       </div>
 

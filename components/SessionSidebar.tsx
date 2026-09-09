@@ -395,7 +395,7 @@ function PiWebTitle() {
   const [scrambling, setScrambling] = useState(false);
   const revertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const target = showVersion ? (process.env.NEXT_PUBLIC_APP_VERSION ?? "alpha.3") : "Pi Desktop";
+  const target = showVersion ? (process.env.NEXT_PUBLIC_APP_VERSION ?? "dev") : "Pi Desktop";
   const display = useScramble(target, scrambling);
 
   const triggerScramble = useCallback((toVersion: boolean) => {
@@ -1324,15 +1324,18 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
               aria-label={appUpdate.updateAvailable ? t("appUpdate.available", { version: appUpdate.latestVersion }) : t("appUpdate.check")}
               style={{
                 flexShrink: 0,
-                display: "inline-flex", alignItems: "center", gap: 4,
-                height: 20, padding: "0 8px", borderRadius: 5,
+                display: "inline-flex", alignItems: "center", justifyContent: "center",
+                width: 24, height: 24, padding: 0, borderRadius: 5,
                 border: appUpdate.updateAvailable ? "1px solid #d97706" : "1px solid var(--border)",
                 background: appUpdate.updateAvailable ? "rgba(217,119,6,0.12)" : "transparent",
                 color: appUpdate.updateAvailable ? "#d97706" : "var(--text-muted)",
                 cursor: "pointer", fontSize: 11, fontWeight: 600,
               }}
             >
-              {appUpdate.updateAvailable ? `↑ v${appUpdate.latestVersion}` : t("appUpdate.check")}
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M12 16V4m-4 4 4-4 4 4" />
+                <path d="M4 16v4h16v-4" />
+              </svg>
             </button>
           )}
           {onHideSidebar && (
