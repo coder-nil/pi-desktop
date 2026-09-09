@@ -1,0 +1,23 @@
+# Changelog
+
+所有重要变更都会记录在此文件中。
+
+## [0.85.1-alpha.7] - 2026-09-09
+
+### Added
+
+- 增加统一版本同步脚本 `npm run version:sync`。
+- 增加版本一致性检查 `npm run version:check`，并接入 GitHub Actions。
+- 更新入口改为图标显示，完整版本号通过悬停提示查看。
+
+### Changed
+
+- Pi 核心包升级至 0.85.1：`pi-agent-core`、`pi-ai`、`pi-coding-agent`、`pi-tui`。
+- APIsets 的 `gpt-*` 模型改用 OpenAI Responses API，其他模型继续使用 Anthropic Messages API。
+- 应用、npm、Tauri 和 Cargo 版本号统一为 `0.85.1-alpha.7`。
+
+### Fixed
+
+- 修复 Responses API 已发送终态事件但 SSE 连接未关闭时，Agent 状态持续运行的问题。
+- 修复 Pi 0.85.1 更新后纯文本主题缺少基础颜色导致 RPC 初始化失败的问题。
+- 修复 Windows CRLF 换行导致版本检查误报不一致的问题。

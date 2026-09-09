@@ -270,6 +270,8 @@ export const CodeBlock = memo(function CodeBlock({ code, lang, headerAction, isS
             fontSize: 12,
             lineHeight: 1.55,
             overflowX: "auto",
+            border: 0,
+            boxShadow: "none",
             backgroundColor: "color-mix(in srgb, var(--bg) 92%, var(--bg-panel))",
           }}
         >
@@ -292,6 +294,8 @@ export const CodeBlock = memo(function CodeBlock({ code, lang, headerAction, isS
             fontSize: 12,
             lineHeight: 1.55,
             borderRadius: 0,
+            border: 0,
+            boxShadow: "none",
             backgroundColor: "color-mix(in srgb, var(--bg) 92%, var(--bg-panel))",
           }}
           codeTagProps={{ style: { fontFamily: "var(--font-mono)" } }}
