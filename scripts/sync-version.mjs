@@ -16,14 +16,19 @@ function update(path, transform) {
 }
 update('package-lock.json', (text) => {
   const data = JSON.parse(text);
+  // Check version fields, not serialized formatting (Windows checkouts use CRLF).
+  if (data.version === version && data.packages[''].version === version) return text;
   data.version = version;
   data.packages[''].version = version;
-  return JSON.stringify(data, null, 2) + '\n';
+  const newline = text.includes('\r\n') ? '\r\n' : '\n';
+  return (JSON.stringify(data, null, 2) + '\n').replace(/\n/g, newline);
 });
 update('src-tauri/tauri.conf.json', (text) => {
   const data = JSON.parse(text);
+  if (data.version === version) return text;
   data.version = version;
-  return JSON.stringify(data, null, 2) + '\n';
+  const newline = text.includes('\r\n') ? '\r\n' : '\n';
+  return (JSON.stringify(data, null, 2) + '\n').replace(/\n/g, newline);
 });
 for (const path of ['src-tauri/Cargo.toml', 'src-tauri/Cargo.lock']) {
   update(path, (text) => {
