@@ -27,7 +27,7 @@ jobs:
             node_target: darwin-arm64
             rust_target: aarch64-apple-darwin
             artifact: macos-arm64
-            smoke_with_system_node: true
+            smoke_with_system_node: false
           - os: macos-14
             name: macOS Intel
             node_target: darwin-x64
@@ -97,9 +97,14 @@ jobs:
           codesign \
             --force \
             --options runtime \
+            --entitlements src-tauri/entitlements.plist \
             --sign - \
             desktop-dist/node
           codesign --verify --strict --verbose=2 desktop-dist/node
+
+      - name: Smoke test signed embedded Node runtime
+        if: runner.os == 'macOS' && !matrix.smoke_with_system_node
+        run: npm run desktop:smoke
 
       - name: Build ad-hoc signed macOS bundle
         if: runner.os == 'macOS'
@@ -122,12 +127,18 @@ jobs:
 
           codesign --verify --deep --strict --verbose=2 "$app_path"
           codesign -dv --verbose=4 "$app_path" 2>&1 | grep -q '^Signature=adhoc$'
+          embedded_node="$app_path/Contents/Resources/runtime/node"
+          "$embedded_node" -e 'process.stdout.write("embedded Node startup OK\\n")'
+          codesign -d --entitlements :- "$embedded_node" 2>&1 \
+            | grep -q 'com.apple.security.cs.allow-jit'
 
           mount_point="$RUNNER_TEMP/pi-desktop-dmg-${{ matrix.artifact }}"
           mkdir -p "$mount_point"
           hdiutil attach "$dmg_path" -readonly -nobrowse -mountpoint "$mount_point"
           trap 'hdiutil detach "$mount_point"' EXIT
           codesign --verify --deep --strict --verbose=2 "$mount_point/Pi Desktop.app"
+          "$mount_point/Pi Desktop.app/Contents/Resources/runtime/node" \
+            -e 'process.stdout.write("DMG embedded Node startup OK\\n")'
 
           dmg_directory="$(dirname "$dmg_path")"
           dmg_name="$(basename "$dmg_path")"

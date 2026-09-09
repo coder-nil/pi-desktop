@@ -6,8 +6,6 @@ import {
   createElement as renderSyntaxNode,
   type SyntaxHighlighterProps,
 } from "react-syntax-highlighter";
-import { vs } from "react-syntax-highlighter/dist/cjs/styles/prism";
-import { vscDarkPlus } from "react-syntax-highlighter/dist/cjs/styles/prism";
 import ReactMarkdown from "react-markdown";
 import { useTheme } from "@/hooks/useTheme";
 import {
@@ -26,6 +24,7 @@ import { FrontmatterCard } from "./FrontmatterCard";
 import { parseUnifiedPatch } from "@/lib/patch";
 import type { GitFileDiffResponse } from "@/lib/git-types";
 import { useI18n } from "@/hooks/useI18n";
+import { darkSyntaxTheme, lightSyntaxTheme } from "@/lib/syntax-highlighter-theme";
 import {
   resolveInitialFileDisplayMode,
   type FileViewerDisplayMode as DisplayMode,
@@ -1505,7 +1504,7 @@ function TextFileViewer({
           <SyntaxHighlighter
             className={wrapLines ? "file-source-view is-wrapped" : "file-source-view"}
             language={language === "text" ? "plaintext" : language}
-            style={isDark ? vscDarkPlus : vs}
+            style={isDark ? darkSyntaxTheme : lightSyntaxTheme}
             showLineNumbers
             lineNumberStyle={{
               ...FILE_LINE_NUMBER_STYLE,
@@ -1514,7 +1513,7 @@ function TextFileViewer({
               margin: 0,
               padding: 0,
               border: 0,
-              background: "var(--bg)",
+              backgroundColor: "var(--bg)",
               ...FILE_CODE_STYLE,
               width: wrapLines ? "100%" : "max-content",
               minWidth: "100%",
