@@ -36,7 +36,7 @@ For macOS, the workflow adds `Fix Pi Desktop.command` to each DMG after Tauri pa
 
 ## 3. Commit the Version
 
-Replace `<version>` with the release version, for example `0.84.2-alpha.2`.
+Replace `<version>` with the release version, for example `0.85.1-alpha.8`.
 
 ```bash
 git commit -m "Release v<version>"

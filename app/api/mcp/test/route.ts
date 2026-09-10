@@ -11,6 +11,7 @@ import { join, resolve } from "node:path";
 
 const execFileAsync = promisify(execFile);
 const TEST_TIMEOUT_MS = 10_000;
+const APP_VERSION = process.env.NEXT_PUBLIC_PACKAGE_VERSION ?? "0.0.0";
 
 function configPath(cwd: string): string {
   return join(resolve(cwd), ".mcp.json");
@@ -45,7 +46,7 @@ async function testHttpServer(serverName: string, url: string): Promise<{ status
         params: {
           protocolVersion: "2025-06-18",
           capabilities: {},
-          clientInfo: { name: "pi-desktop", version: "0.1.0" },
+          clientInfo: { name: "pi-desktop", version: APP_VERSION },
         },
       }),
       signal: AbortSignal.timeout(TEST_TIMEOUT_MS),
