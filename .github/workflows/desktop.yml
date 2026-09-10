@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag to build and publish (for example, v0.85.1-alpha.8)"
+        description: "Tag to build and publish (for example, v1.2.3)"
         required: true
         type: string
 

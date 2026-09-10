@@ -34,11 +34,14 @@ The workflow installs the required dependencies and uploads four distinctly name
 
 For macOS, the workflow adds `Fix Pi Desktop.command` to each DMG after Tauri packaging, then verifies its contents and executable permission alongside the app signature before generating checksums. The helper must be run manually after copying the app into Applications. To add it to a locally built DMG, run `bash scripts/add-macos-dmg-helper.sh "/path/to/Pi Desktop.dmg"` before computing checksums.
 
-## 3. Commit the Version
+## 3. Set the Version
 
-Replace `<version>` with the release version, for example `0.85.1-alpha.8`.
+`package.json` is the single source of truth. Set the release version and
+update the lockfiles, desktop metadata, and README with:
 
 ```bash
+npm run version:set -- <version>
+npm run version:check
 git commit -m "Release v<version>"
 ```
 

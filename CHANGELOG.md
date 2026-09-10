@@ -13,6 +13,7 @@
 
 - 聊天输入栏改为队列菜单，并改进面板切换时的滚动行为。
 - 应用、npm、Tauri 和 Cargo 版本号统一为 `0.85.1-alpha.8`。
+- `package.json` 作为唯一版本源，`npm run version:set -- <version>` 会同步全部派生版本字段。
 
 ### Fixed
 
