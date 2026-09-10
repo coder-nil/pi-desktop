@@ -21,7 +21,7 @@
 
 ### macOS 首次打开（无需付费证书）
 
-发布到 GitHub Releases 的 macOS 安装包采用无需证书的 ad-hoc 签名。这可以校验应用包是否被意外修改，但不能建立受 Apple 信任的开发者身份，也无法让互联网下载文件自动通过 Gatekeeper。将 Pi Desktop 拖入“应用程序”后，请在首次启动前执行：
+发布到 GitHub Releases 的 macOS 安装包采用无需证书的 ad-hoc 签名。这可以校验应用包是否被意外修改，但不能建立受 Apple 信任的开发者身份，也无法让互联网下载文件自动通过 Gatekeeper。将 Pi Desktop 拖入“应用程序”后，在首次启动前双击 DMG 中的 `Fix Pi Desktop.command`，即可通过终端移除已安装应用的下载隔离属性。脚本不会在拷贝应用后自动执行。如果 macOS 也拦截了脚本，请直接在终端执行：
 
 ```bash
 xattr -dr com.apple.quarantine "/Applications/Pi Desktop.app"

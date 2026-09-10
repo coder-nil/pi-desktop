@@ -23,7 +23,7 @@ The recommended way to use Pi Desktop is to download the latest desktop applicat
 
 ### Opening on macOS without a paid certificate
 
-Published macOS packages use certificate-free ad-hoc signing. This protects the bundle from accidental modification but cannot establish an Apple-trusted developer identity or satisfy Gatekeeper for internet downloads. After dragging Pi Desktop into Applications, run the following command before the first launch:
+Published macOS packages use certificate-free ad-hoc signing. This protects the bundle from accidental modification but cannot establish an Apple-trusted developer identity or satisfy Gatekeeper for internet downloads. After dragging Pi Desktop into Applications, double-click `Fix Pi Desktop.command` in the DMG before the first launch. It opens Terminal and removes the installed app's download quarantine attribute; it does not run automatically when you copy the app. If macOS blocks the helper itself, run the following command in Terminal instead:
 
 ```bash
 xattr -dr com.apple.quarantine "/Applications/Pi Desktop.app"

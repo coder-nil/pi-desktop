@@ -32,6 +32,8 @@ npm run desktop:build:linux
 
 The workflow installs the required dependencies and uploads four distinctly named artifacts. Branch builds keep them as Actions artifacts; tag builds also publish them to the GitHub Release.
 
+For macOS, the workflow adds `Fix Pi Desktop.command` to each DMG after Tauri packaging, then verifies its contents and executable permission alongside the app signature before generating checksums. The helper must be run manually after copying the app into Applications. To add it to a locally built DMG, run `bash scripts/add-macos-dmg-helper.sh "/path/to/Pi Desktop.dmg"` before computing checksums.
+
 ## 3. Commit the Version
 
 Replace `<version>` with the release version, for example `0.84.2-alpha.2`.

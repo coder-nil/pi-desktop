@@ -114,6 +114,15 @@ jobs:
           APPLE_SIGNING_IDENTITY: "-"
         run: cargo tauri build --target ${{ matrix.rust_target }}
 
+      - name: Add macOS startup repair helper to DMG
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          bundle_root="src-tauri/target/${{ matrix.rust_target }}/release/bundle"
+          dmg_path="$(find "$bundle_root/dmg" -maxdepth 1 -type f -name '*.dmg' -print -quit)"
+          test -n "$dmg_path"
+          bash scripts/add-macos-dmg-helper.sh "$dmg_path"
+
       - name: Verify macOS bundle integrity
         if: runner.os == 'macOS'
         shell: bash
@@ -138,6 +147,9 @@ jobs:
           mkdir -p "$mount_point"
           hdiutil attach "$dmg_path" -readonly -nobrowse -mountpoint "$mount_point"
           trap 'hdiutil detach "$mount_point"' EXIT
+          test -x "$mount_point/Fix Pi Desktop.command"
+          cmp "scripts/macos/Fix Pi Desktop.command" "$mount_point/Fix Pi Desktop.command"
+          bash -n "$mount_point/Fix Pi Desktop.command"
           codesign --verify --deep --strict --verbose=2 "$mount_point/Pi Desktop.app"
           "$mount_point/Pi Desktop.app/Contents/Resources/runtime/node" \
             -e 'process.stdout.write("DMG embedded Node startup OK\\n")'
