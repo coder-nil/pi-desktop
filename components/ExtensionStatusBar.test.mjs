@@ -11,6 +11,7 @@ const jiti = createJiti(import.meta.url, {
 const {
   ExtensionStatusBar,
   formatExtensionStatusLine,
+  formatExtensionStatusParts,
   sanitizeExtensionStatusText,
 } = await jiti.import("./ExtensionStatusBar.tsx");
 const { I18nProvider } = await jiti.import("../hooks/useI18n.tsx");
@@ -58,9 +59,25 @@ test("renders a single status line without identifier keys", () => {
   assert.match(html, /extension-status-shelf/);
   assert.match(html, /extension-status-line/);
   assert.match(html, /extension-status-text/);
-  assert.match(html, />ponytail <\/span>/);
+  assert.match(html, />ponytail<\/span>/);
   assert.match(html, />memory</);
   assert.doesNotMatch(html, /05-ponytail|20-memory/);
+});
+
+test("replaces the MCP plug emoji with the MCP icon", () => {
+  assert.deepEqual(
+    formatExtensionStatusParts([{ key: "mcp", text: "🔌 MCP: 2 servers enabled" }]),
+    [{ key: "mcp", text: "MCP: 2 servers enabled", icon: "mcp" }],
+  );
+
+  const html = renderStatusBar({
+    statuses: [{ key: "mcp", text: "🔌 MCP: 2 servers enabled" }],
+  });
+
+  assert.match(html, /extension-status-icon/);
+  assert.match(html, />MCP: 2 servers enabled</);
+  assert.doesNotMatch(html, /🔌/u);
+  assert.match(html, /aria-label="MCP: 2 servers enabled"/);
 });
 
 test("renders widgets and status text in one footer", () => {

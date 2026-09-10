@@ -53,6 +53,13 @@
     "version:sync": "node scripts/sync-version.mjs",
     "version:check": "node scripts/sync-version.mjs --check"
   },
+  "allowScripts": {
+    "@google/genai@1.52.0": true,
+    "esbuild@0.28.1": true,
+    "protobufjs@7.6.5": true,
+    "protobufjs@7.6.6": true,
+    "unrs-resolver@1.11.1": true
+  },
   "dependencies": {
     "@earendil-works/pi-agent-core": "0.85.1",
     "@earendil-works/pi-ai": "0.85.1",

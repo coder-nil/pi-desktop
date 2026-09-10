@@ -490,6 +490,11 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const [toolDropdownOpen, setToolDropdownOpen] = useState(false);
   const [thinkingDropdownOpen, setThinkingDropdownOpen] = useState(false);
   const [controlsMenuOpen, setControlsMenuOpen] = useState(false);
+  const [queueMenuOpen, setQueueMenuOpen] = useState(false);
+  const [queueCountdown, setQueueCountdown] = useState(3);
+  const queueActionsRef = useRef<HTMLDivElement>(null);
+  const queueDefaultOptionRef = useRef<HTMLButtonElement>(null);
+  const queueMenuId = React.useId();
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>(() => (
     draftKey ? draftImagesToAttachedImages(getDraft(draftKey)?.images) : []
   ));
@@ -932,6 +937,11 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     : t(slashQuery ? "chat.matches" : "chat.commands", { count: filteredSlashCommands.length });
   const hasInputText = Boolean(value.trim()) || selectedSlashCommand !== null || selectedAtMentions.length > 0;
   const canQueueStreamingMessage = hasInputText || attachedImages.length > 0;
+  const queueMenuVisible = queueMenuOpen && isStreaming && canQueueStreamingMessage && !!(onSteer || onFollowUp);
+  useEffect(() => {
+    if (queueMenuVisible) queueDefaultOptionRef.current?.focus();
+    else setQueueMenuOpen(false);
+  }, [queueMenuVisible]);
 
   // ── @ file autocomplete ──────────────────────────────────────────────────
   // Recomputed from the text before the caret on every change/caret move.
@@ -1156,6 +1166,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const sendQueued = useCallback((mode: "steer" | "followup") => {
     const msg = buildComposerMessage(value, selectedSlashCommand, selectedAtMentions);
     if (!msg && !attachedImages.length) return;
+    setQueueMenuOpen(false);
+    textareaRef.current?.focus();
     onAudioUnlock?.();
     const streamingBehavior = mode === "steer" ? "steer" : "followUp";
     if (msg.startsWith("/") && onPromptWithStreamingBehavior) {
@@ -1170,6 +1182,25 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       onFollowUp(msg, attachedImages.length ? attachedImages : undefined);
     }
   }, [value, attachedImages, onPromptWithStreamingBehavior, onSteer, onFollowUp, clearInput, onAudioUnlock, selectedAtMentions, selectedSlashCommand]);
+
+  const requestQueuedSend = useCallback(() => {
+    if (!canQueueStreamingMessage) return;
+    if (onSteer && onFollowUp) {
+      setQueueCountdown(3);
+      setQueueMenuOpen(true);
+    }
+    else if (onSteer || onFollowUp) sendQueued(onSteer ? "steer" : "followup");
+  }, [canQueueStreamingMessage, onSteer, onFollowUp, sendQueued]);
+
+  useEffect(() => {
+    if (!queueMenuVisible || !onFollowUp) return;
+    const countdownTimers = [
+      window.setTimeout(() => setQueueCountdown(2), 1000),
+      window.setTimeout(() => setQueueCountdown(1), 2000),
+      window.setTimeout(() => sendQueued("followup"), 3000),
+    ];
+    return () => countdownTimers.forEach(window.clearTimeout);
+  }, [queueMenuVisible, onFollowUp, sendQueued]);
 
   const getNextSlashIndex = useCallback((direction: "up" | "down" | "left" | "right") => {
     const lastIndex = displayedSlashCommands.length - 1;
@@ -1348,14 +1379,14 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       if (sendShortcut) {
         e.preventDefault();
         if (isStreaming && (onSteer || onFollowUp)) {
-          // Enter steers by default; Alt+Enter explicitly queues a follow-up.
-          sendQueued(e.altKey && onFollowUp ? "followup" : onSteer ? "steer" : "followup");
+          if (e.altKey && onFollowUp) sendQueued("followup");
+          else requestQueuedSend();
         } else {
           handleSend();
         }
       }
     },
-    [isMobile, isStreaming, onSteer, onFollowUp, onAbort, slashMenuOpen, slashQuery, displayedSlashCommands, slashActiveIndex, applySlashCommand, sendQueued, handleSend, getNextSlashIndex, atMenuOpen, atQuery, atMatches, atActiveIndex, applyAtCompletion, historyMenuOpen, inputHistory, historyActiveIndex, applyHistoryInput, value, selectedAtMentions, selectedSlashCommand, removeSelectedAtMention, removeSelectedSlashCommand]
+    [isMobile, isStreaming, onSteer, onFollowUp, onAbort, requestQueuedSend, slashMenuOpen, slashQuery, displayedSlashCommands, slashActiveIndex, applySlashCommand, sendQueued, handleSend, getNextSlashIndex, atMenuOpen, atQuery, atMatches, atActiveIndex, applyAtCompletion, historyMenuOpen, inputHistory, historyActiveIndex, applyHistoryInput, value, selectedAtMentions, selectedSlashCommand, removeSelectedAtMention, removeSelectedSlashCommand]
   );
 
   const handleInput = useCallback(() => {
@@ -2151,20 +2182,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             );
           })()}
           <div
-            style={{
-              minWidth: 0,
-              display: "flex",
-              gap: 8,
-              alignItems: "center",
-              background: "var(--bg)",
-              border: `1px solid ${bashMode ? "var(--tool-bg)" : isStreaming && (onSteer || onFollowUp)
-                ? "rgba(234,179,8,0.4)"
-                : "color-mix(in srgb, var(--border) 70%, transparent)"}`,
-              borderRadius: 14,
-              padding: "10px 10px 10px 14px",
-              boxShadow: "0 1px 2px rgba(15,23,42,0.04), 0 8px 24px -12px rgba(15,23,42,0.10)",
-              transition: "border-color 0.15s, background 0.15s, box-shadow 0.15s",
-            } as React.CSSProperties}
+            className="chat-composer-field"
           >
           <span
             aria-hidden="true"
@@ -2331,54 +2349,63 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           />
 
           {isStreaming ? (
-            <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0, alignSelf: "flex-end" }}>
-              {onSteer && (
+            <div
+              ref={queueActionsRef}
+              className="chat-composer-queue-actions"
+              onKeyDown={(event) => {
+                if (!queueMenuVisible) return;
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setQueueMenuOpen(false);
+                  textareaRef.current?.focus();
+                }
+                if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                  event.preventDefault();
+                  const items = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'));
+                  const index = items.indexOf(document.activeElement as HTMLButtonElement);
+                  items[(index + (event.key === "ArrowDown" ? 1 : items.length - 1)) % items.length]?.focus();
+                }
+              }}
+            >
+              {canQueueStreamingMessage && (onSteer || onFollowUp) && (
+                <>
+                {queueMenuVisible && (
+                  <div id={queueMenuId} role="menu" aria-label={t("chat.send")} className="chat-composer-queue-menu">
+                    {onSteer && <button role="menuitem" onClick={() => sendQueued("steer")}>{t("chat.steer")}</button>}
+                    {onFollowUp && (
+                      <button ref={queueDefaultOptionRef} role="menuitem" className="chat-composer-queue-default" onClick={() => sendQueued("followup")}>
+                        <span>{t("chat.followUp")}</span>
+                        <span className="chat-composer-queue-countdown" aria-label={`${queueCountdown}s`}>{queueCountdown}s</span>
+                      </button>
+                    )}
+                  </div>
+                )}
                 <button
-                  onClick={() => sendQueued("steer")}
-                  disabled={!canQueueStreamingMessage}
-                  title="Interrupt the current run and inject this message now (Enter)"
-                  style={{
-                    display: "flex", alignItems: "center", gap: 5,
-                    padding: "7px 12px",
-                    background: canQueueStreamingMessage ? "rgba(234,179,8,0.12)" : "none",
-                    border: "1px solid rgba(234,179,8,0.35)",
-                    borderRadius: 8,
-                    color: canQueueStreamingMessage ? "rgba(180,130,0,1)" : "var(--text-dim)",
-                    cursor: canQueueStreamingMessage ? "pointer" : "not-allowed",
-                    fontSize: 13, fontWeight: 600, letterSpacing: "-0.01em",
-                    transition: "background 0.12s",
-                  }}
+                  onClick={requestQueuedSend}
+                  aria-label={t("chat.send")}
+                  title={t("chat.send")}
+                  aria-haspopup={onSteer && onFollowUp ? "menu" : undefined}
+                  aria-expanded={onSteer && onFollowUp ? queueMenuVisible : undefined}
+                  aria-controls={queueMenuVisible ? queueMenuId : undefined}
+                  className="chat-composer-queue-button chat-composer-queue-primary"
                 >
                   <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M5 1 L9 5 L5 9" /><line x1="1" y1="5" x2="9" y2="5" />
                   </svg>
-                  {t("chat.steer")}
                 </button>
+                </>
               )}
-              {onFollowUp && (
                 <button
-                  onClick={() => sendQueued("followup")}
-                  disabled={!canQueueStreamingMessage}
-                  title="Queue this message after the agent finishes (Alt+Enter)"
-                  style={{
-                    display: "flex", alignItems: "center", gap: 5,
-                    padding: "7px 12px",
-                    background: canQueueStreamingMessage ? "rgba(129,140,248,0.12)" : "none",
-                    border: "1px solid rgba(129,140,248,0.35)",
-                    borderRadius: 8,
-                    color: canQueueStreamingMessage ? "rgba(99,102,241,1)" : "var(--text-dim)",
-                    cursor: canQueueStreamingMessage ? "pointer" : "not-allowed",
-                    fontSize: 13, fontWeight: 600, letterSpacing: "-0.01em",
-                    transition: "background 0.12s",
-                  }}
+                  onClick={onAbort}
+                  title={t("chat.stopAgent")}
+                  aria-label={t("chat.stopAgent")}
+                  className="chat-composer-queue-button chat-composer-stop"
                 >
-                  <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                    <line x1="5" y1="1" x2="5" y2="6" /><polyline points="2.5 3.5 5 1 7.5 3.5" />
-                    <line x1="2" y1="9" x2="8" y2="9" />
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
+                    <rect x="2" y="2" width="8" height="8" rx="1.5" />
                   </svg>
-                  {t("chat.followUp")}
                 </button>
-              )}
             </div>
           ) : (
             <button
@@ -3105,33 +3132,6 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   </div>
                 )}
               </div>
-            )}
-
-            {isStreaming && (
-              <button
-                onClick={onAbort}
-                 title={t("chat.stopAgent")}
-                style={{
-                  display: "flex", alignItems: "center", gap: 6,
-                  padding: "8px 14px",
-                  height: 32,
-                  background: "rgba(239,68,68,0.08)",
-                  border: "1px solid rgba(239,68,68,0.3)",
-                  borderRadius: 9,
-                  color: "#ef4444",
-                  cursor: "pointer",
-                  fontSize: 12, fontWeight: 600,
-                  whiteSpace: "nowrap", letterSpacing: "-0.01em",
-                  transition: "background 0.12s",
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(239,68,68,0.16)"; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(239,68,68,0.08)"; }}
-              >
-                <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                  <rect x="1.5" y="1.5" width="7" height="7" rx="1.5" fill="currentColor" />
-                </svg>
-                 {t("chat.stop")}
-              </button>
             )}
 
             {isMobile && controlsMenuOpen && (

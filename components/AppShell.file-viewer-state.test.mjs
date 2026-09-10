@@ -5,12 +5,22 @@ import test from "node:test";
 const source = await readFile(new URL("./AppShell.tsx", import.meta.url), "utf8");
 
 function fileContentBlock() {
-  const start = source.indexOf("{/* Only the active viewer");
+  const start = source.indexOf("{activeFileTab?.filePath ? (");
   const end = source.indexOf("</div>\n      </div>\n    </div>", start);
-  assert.notEqual(start, -1, "file content comment not found");
+  assert.notEqual(start, -1, "active file content branch not found");
   assert.notEqual(end, -1, "end of file content block not found");
   return source.slice(start, end);
 }
+
+test("opening the file panel preserves the visible chat message during desktop resize", () => {
+  assert.match(source, /if \(!rightPanelOpen && !isMobile && window\.matchMedia\("\(min-width: 960px\)"\)\.matches\)/);
+  assert.match(source, /preserveChatScrollDuringPanelTransition\(container\)/);
+  assert.ok(
+    source.indexOf("preserveChatScrollDuringPanelTransition(container)")
+      < source.indexOf("setRightPanelOpen(true)", source.indexOf("const handleOpenFile")),
+    "scroll preservation must start before the panel expands",
+  );
+});
 
 test("only the active file tab mounts a FileViewer", () => {
   const block = fileContentBlock();

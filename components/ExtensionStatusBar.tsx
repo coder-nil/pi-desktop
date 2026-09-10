@@ -1,5 +1,6 @@
 "use client";
 
+import McpIcon from "@lobehub/icons/es/MCP/components/Mono";
 import { parseAnsiLine, stripAnsi } from "@/lib/ansi";
 import type { ExtensionStatusItem, ExtensionWidgetItem } from "@/lib/types";
 import { ExtensionWidgets } from "./ExtensionWidgets";
@@ -18,6 +19,27 @@ export function formatExtensionStatusLine(statuses: ExtensionStatusItem[]): stri
     .join(" ");
 }
 
+const MCP_STATUS_PREFIX = /^🔌\s*/u;
+
+export function formatExtensionStatusParts(statuses: ExtensionStatusItem[]): Array<{
+  key: string;
+  text: string;
+  icon: "mcp" | null;
+}> {
+  return [...statuses]
+    .sort((a, b) => a.key.localeCompare(b.key))
+    .map(({ key, text }) => {
+      const sanitized = sanitizeExtensionStatusText(text);
+      const plain = stripAnsi(sanitized);
+      const isMcpStatus = MCP_STATUS_PREFIX.test(plain);
+      return {
+        key,
+        text: isMcpStatus ? sanitized.replace(MCP_STATUS_PREFIX, "") : sanitized,
+        icon: isMcpStatus ? "mcp" : null,
+      };
+    });
+}
+
 export function ExtensionStatusBar({
   statuses,
   widgets = [],
@@ -27,8 +49,8 @@ export function ExtensionStatusBar({
 }) {
   if (statuses.length === 0 && widgets.length === 0) return null;
 
-  const statusLine = formatExtensionStatusLine(statuses);
-  const plainStatusLine = stripAnsi(statusLine);
+  const statusParts = formatExtensionStatusParts(statuses);
+  const plainStatusLine = statusParts.map(({ text }) => stripAnsi(text)).join(" ");
 
   return (
     <div
@@ -43,8 +65,14 @@ export function ExtensionStatusBar({
           title={plainStatusLine}
         >
           <span className="extension-status-text">
-            {parseAnsiLine(statusLine).map((segment, index) => (
-              <span key={index} style={segment.style}>{segment.text}</span>
+            {statusParts.map((part, partIndex) => (
+              <span key={part.key} className="extension-status-part">
+                {partIndex > 0 && <span aria-hidden="true"> </span>}
+                {part.icon === "mcp" && <McpIcon size={14} className="extension-status-icon" aria-hidden="true" />}
+                {parseAnsiLine(part.text).map((segment, segmentIndex) => (
+                  <span key={segmentIndex} style={segment.style}>{segment.text}</span>
+                ))}
+              </span>
             ))}
           </span>
         </div>

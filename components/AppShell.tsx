@@ -68,6 +68,45 @@ const TOP_BAR_ICON_BUTTON_SIZE = 36;
 const LANGUAGE_MENU_WIDTH = 176;
 const NOTIFICATION_ICON = "/icons/icon-192.png";
 const NOTIFICATION_PROMPT_MAX_LENGTH = 100;
+const RIGHT_PANEL_TRANSITION_MS = 200;
+
+function preserveChatScrollDuringPanelTransition(container: HTMLDivElement): () => void {
+  const content = container.querySelector<HTMLElement>("[data-chat-message-content]");
+  const containerRect = container.getBoundingClientRect();
+  const anchor = content
+    ? Array.from(content.children).find((child): child is HTMLElement => {
+        if (!(child instanceof HTMLElement)) return false;
+        const rect = child.getBoundingClientRect();
+        return rect.height > 0 && rect.bottom > containerRect.top && rect.top < containerRect.bottom;
+      }) ?? null
+    : null;
+  const anchorOffset = anchor
+    ? anchor.getBoundingClientRect().top - containerRect.top
+    : null;
+  const fallbackScrollTop = container.scrollTop;
+  const startedAt = performance.now();
+  let frameId: number | null = null;
+  let cancelled = false;
+
+  const restore = () => {
+    if (cancelled || !container.isConnected) return;
+    if (anchor?.isConnected && anchorOffset !== null) {
+      const currentOffset = anchor.getBoundingClientRect().top - container.getBoundingClientRect().top;
+      container.scrollTop += currentOffset - anchorOffset;
+    } else {
+      container.scrollTop = fallbackScrollTop;
+    }
+    if (performance.now() - startedAt <= RIGHT_PANEL_TRANSITION_MS + 100) {
+      frameId = requestAnimationFrame(restore);
+    }
+  };
+
+  frameId = requestAnimationFrame(restore);
+  return () => {
+    cancelled = true;
+    if (frameId !== null) cancelAnimationFrame(frameId);
+  };
+}
 
 function summarizeNotificationPrompt(prompt: string | null): string | null {
   if (!prompt) return null;
@@ -126,6 +165,8 @@ export function AppShell() {
   const [projectTrustError, setProjectTrustError] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
+  const chatScrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const cancelChatScrollPreservationRef = useRef<(() => void) | null>(null);
   const [terminalCwds, setTerminalCwds] = useState<string[]>([]);
   const [consoleOpen, setConsoleOpen] = useState(false);
   const [openDirectoryRequest, setOpenDirectoryRequest] = useState(0);
@@ -231,6 +272,11 @@ export function AppShell() {
     reclampRightPanelWidth();
   }, [reclampRightPanelWidth, reclampSidebarWidth, rightPanelOpen]);
   const chatInputRef = useRef<ChatInputHandle | null>(null);
+  const handleChatScrollContainerChange = useCallback((container: HTMLDivElement | null) => {
+    chatScrollContainerRef.current = container;
+  }, []);
+
+  useEffect(() => () => cancelChatScrollPreservationRef.current?.(), []);
   const topBarRef = useRef<HTMLDivElement>(null);
   const mobileToolbarRef = useRef<HTMLDivElement>(null);
   const languageBtnRef = useRef<HTMLButtonElement>(null);
@@ -920,6 +966,13 @@ export function AppShell() {
     fileName: string,
     options?: { sourceSessionId?: string | null; modeHint?: "diff" },
   ) => {
+    if (!rightPanelOpen && !isMobile && window.matchMedia("(min-width: 960px)").matches) {
+      cancelChatScrollPreservationRef.current?.();
+      const container = chatScrollContainerRef.current;
+      cancelChatScrollPreservationRef.current = container
+        ? preserveChatScrollDuringPanelTransition(container)
+        : null;
+    }
     const sourceSessionId = options?.sourceSessionId;
     const modeHint = options?.modeHint;
     const tabId = `file:${filePath}`;
@@ -934,7 +987,7 @@ export function AppShell() {
     setRightPanelOpen(true);
     // On mobile the file panel is full-screen; close the drawer so it shows.
     if (isMobile) setSidebarOpen(false);
-  }, [isMobile]);
+  }, [isMobile, rightPanelOpen]);
 
   const handleOpenLinkedFile = useCallback((filePath: string) => {
     handleOpenFile(filePath, getFileName(filePath), { sourceSessionId: selectedSession?.id ?? null });
@@ -2211,6 +2264,7 @@ export function AppShell() {
               onSessionStatsChange={handleSessionStatsChange}
               onSessionStatsPanelOpen={openSessionStatsPanel}
               onContextUsageChange={handleContextUsageChange}
+              onScrollContainerChange={handleChatScrollContainerChange}
               onOpenFile={handleOpenLinkedFile}
               onOpenConsole={handleOpenConsole}
               consoleActive={consoleOpen && terminalCwds.includes(selectedSession?.cwd ?? effectiveNewSessionCwd ?? "")}
