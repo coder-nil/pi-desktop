@@ -37,18 +37,15 @@ test("shows the main file toggle only while the file panel is closed", () => {
   assert.match(source, /onClick=\{\(\) => setRightPanelOpen\(false\)\}[\s\S]*?aria-label=\{translate\("files\.hidePanel"\)\}/);
 });
 
-test("keeps the lazy FileViewer loading state inside the file panel", () => {
-  assert.match(source, /function FileViewerLoading\(\)[\s\S]*?t\("i18n\.loading"\)/);
-  assert.match(dynamicDeclaration("FileViewer"), /\{ loading: FileViewerLoading \}/);
+test("eagerly loads file and configuration components", () => {
+  for (const component of ["FileViewer", "ModelsConfig", "SkillsConfig", "PluginsConfig"]) {
+    assert.match(source, new RegExp(`import \\{ ${component} \\} from \\"\\./${component}\\";`));
+    assert.doesNotMatch(source, new RegExp(`const ${component} = dynamic\\(`));
+  }
 });
 
-test("keeps lazy configuration dialogs behind an empty local backdrop", () => {
-  assert.match(source, /function LazyDialogBackdrop\(\)[\s\S]*?aria-hidden="true"[\s\S]*?background: "rgba\(0,0,0,0\.35\)"/);
-  assert.doesNotMatch(dynamicDeclaration("ModelsConfig"), /i18n\.loading/);
+test("keeps the terminal panel lazy-loaded", () => {
   assert.match(dynamicDeclaration("TerminalPanel"), /\{ ssr: false \}/);
-  for (const component of ["ModelsConfig", "SkillsConfig", "PluginsConfig"]) {
-    assert.match(dynamicDeclaration(component), /\{ loading: LazyDialogBackdrop \}/);
-  }
 });
 
 test("only the active file tab mounts a FileViewer", () => {

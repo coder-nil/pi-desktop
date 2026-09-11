@@ -51,51 +51,12 @@ import type { AppUpdateResponse, ProjectTrustStatus } from "@/lib/api-types";
 import type { ChatInputHandle } from "./ChatInput";
 import type { SessionStatsInfo } from "@/lib/pi-types";
 import type { FileViewerState } from "@/lib/file-viewer-state";
+import { FileViewer } from "./FileViewer";
+import { ModelsConfig } from "./ModelsConfig";
+import { SkillsConfig } from "./SkillsConfig";
+import { PluginsConfig } from "./PluginsConfig";
 
-function FileViewerLoading() {
-  const { t } = useI18n();
-
-  return (
-    <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", fontSize: 13 }}>
-      {t("i18n.loading")}
-    </div>
-  );
-}
-
-function LazyDialogBackdrop() {
-  return (
-    <div
-      aria-hidden="true"
-      style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: 1000,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        background: "rgba(0,0,0,0.35)",
-      }}
-    />
-  );
-}
-
-const FileViewer = dynamic(
-  () => import("./FileViewer").then((module) => module.FileViewer),
-  { loading: FileViewerLoading },
-);
 const TerminalPanel = dynamic(() => import("./TerminalPanel").then((module) => module.TerminalPanel), { ssr: false });
-const ModelsConfig = dynamic(
-  () => import("./ModelsConfig").then((module) => module.ModelsConfig),
-  { loading: LazyDialogBackdrop },
-);
-const SkillsConfig = dynamic(
-  () => import("./SkillsConfig").then((module) => module.SkillsConfig),
-  { loading: LazyDialogBackdrop },
-);
-const PluginsConfig = dynamic(
-  () => import("./PluginsConfig").then((module) => module.PluginsConfig),
-  { loading: LazyDialogBackdrop },
-);
 
 type SessionCopyField = "file" | "id";
 type AutoNameStatus =
