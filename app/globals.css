@@ -88,9 +88,10 @@
   cursor: pointer;
 }
 
-.chat-composer-queue-menu .chat-composer-queue-default {
-  background: color-mix(in srgb, var(--accent) 9%, var(--bg));
-  color: var(--accent);
+.chat-composer-queue-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .chat-composer-queue-countdown {
@@ -101,10 +102,39 @@
   text-align: end;
 }
 
-.chat-composer-queue-menu button:hover,
-.chat-composer-queue-menu button:focus-visible {
+.chat-composer-queue-shortcut {
+  min-width: 38px;
+  padding: 2px 5px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-panel);
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.chat-composer-queue-menu button:hover:not(.chat-composer-queue-selected) {
   background: var(--bg-hover);
+}
+
+.chat-composer-queue-menu button:focus-visible {
   outline: none;
+}
+
+.chat-composer-queue-menu .chat-composer-queue-selected {
+  background: color-mix(in srgb, var(--accent) 14%, var(--bg));
+  color: var(--accent);
+  box-shadow: inset 3px 0 0 var(--accent);
+  font-weight: 600;
+}
+
+.chat-composer-queue-menu .chat-composer-queue-selected .chat-composer-queue-shortcut {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg-panel));
+  color: var(--accent);
 }
 
 .chat-composer-stop {

@@ -88,6 +88,21 @@ const COMPOSITION_END_ENTER_GRACE_MS = 100;
 const MODEL_FILTER_THRESHOLD = 8;
 const MODEL_OPTION_COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
 const ANCHORED_MENU_GAP = 8;
+type QueueSendMode = "steer" | "followup";
+
+export function getQueueShortcutMode(event: {
+  altKey: boolean;
+  ctrlKey: boolean;
+  metaKey: boolean;
+  shiftKey: boolean;
+  code: string;
+  key: string;
+}): QueueSendMode | null {
+  if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return null;
+  if (event.code === "KeyF" || event.key.toLowerCase() === "f") return "steer";
+  if (event.code === "KeyQ" || event.key.toLowerCase() === "q") return "followup";
+  return null;
+}
 
 export function getUpwardMenuMaxHeight(menuBottom: number, visibleTop: number, gap = ANCHORED_MENU_GAP): number {
   return Math.max(0, Math.floor(menuBottom - visibleTop - gap));
@@ -492,7 +507,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const [controlsMenuOpen, setControlsMenuOpen] = useState(false);
   const [queueMenuOpen, setQueueMenuOpen] = useState(false);
   const [queueCountdown, setQueueCountdown] = useState(3);
+  const [queueCountdownPaused, setQueueCountdownPaused] = useState(false);
+  const [queueActiveMode, setQueueActiveMode] = useState<QueueSendMode>("followup");
   const queueActionsRef = useRef<HTMLDivElement>(null);
+  const queueSteerOptionRef = useRef<HTMLButtonElement>(null);
   const queueDefaultOptionRef = useRef<HTMLButtonElement>(null);
   const queueMenuId = React.useId();
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>(() => (
@@ -1163,7 +1181,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     requestAnimationFrame(() => textareaRef.current?.focus());
   }, []);
 
-  const sendQueued = useCallback((mode: "steer" | "followup") => {
+  const sendQueued = useCallback((mode: QueueSendMode) => {
     const msg = buildComposerMessage(value, selectedSlashCommand, selectedAtMentions);
     if (!msg && !attachedImages.length) return;
     setQueueMenuOpen(false);
@@ -1187,20 +1205,29 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     if (!canQueueStreamingMessage) return;
     if (onSteer && onFollowUp) {
       setQueueCountdown(3);
+      setQueueCountdownPaused(false);
+      setQueueActiveMode("followup");
       setQueueMenuOpen(true);
     }
     else if (onSteer || onFollowUp) sendQueued(onSteer ? "steer" : "followup");
   }, [canQueueStreamingMessage, onSteer, onFollowUp, sendQueued]);
 
+  const selectQueueMode = useCallback((mode: QueueSendMode) => {
+    setQueueCountdownPaused(true);
+    setQueueActiveMode(mode);
+    const option = mode === "steer" ? queueSteerOptionRef.current : queueDefaultOptionRef.current;
+    option?.focus();
+  }, []);
+
   useEffect(() => {
-    if (!queueMenuVisible || !onFollowUp) return;
+    if (!queueMenuVisible || !onFollowUp || queueCountdownPaused) return;
     const countdownTimers = [
       window.setTimeout(() => setQueueCountdown(2), 1000),
       window.setTimeout(() => setQueueCountdown(1), 2000),
       window.setTimeout(() => sendQueued("followup"), 3000),
     ];
     return () => countdownTimers.forEach(window.clearTimeout);
-  }, [queueMenuVisible, onFollowUp, sendQueued]);
+  }, [queueCountdownPaused, queueMenuVisible, onFollowUp, sendQueued]);
 
   const getNextSlashIndex = useCallback((direction: "up" | "down" | "left" | "right") => {
     const lastIndex = displayedSlashCommands.length - 1;
@@ -1376,6 +1403,19 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         return;
       }
 
+      const queueShortcutMode = getQueueShortcutMode(e);
+      if (
+        queueShortcutMode &&
+        !isComposing &&
+        isStreaming &&
+        canQueueStreamingMessage &&
+        (queueShortcutMode === "steer" ? onSteer : onFollowUp)
+      ) {
+        e.preventDefault();
+        sendQueued(queueShortcutMode);
+        return;
+      }
+
       if (sendShortcut) {
         e.preventDefault();
         if (isStreaming && (onSteer || onFollowUp)) {
@@ -1386,7 +1426,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         }
       }
     },
-    [isMobile, isStreaming, onSteer, onFollowUp, onAbort, requestQueuedSend, slashMenuOpen, slashQuery, displayedSlashCommands, slashActiveIndex, applySlashCommand, sendQueued, handleSend, getNextSlashIndex, atMenuOpen, atQuery, atMatches, atActiveIndex, applyAtCompletion, historyMenuOpen, inputHistory, historyActiveIndex, applyHistoryInput, value, selectedAtMentions, selectedSlashCommand, removeSelectedAtMention, removeSelectedSlashCommand]
+    [isMobile, isStreaming, canQueueStreamingMessage, onSteer, onFollowUp, onAbort, requestQueuedSend, slashMenuOpen, slashQuery, displayedSlashCommands, slashActiveIndex, applySlashCommand, sendQueued, handleSend, getNextSlashIndex, atMenuOpen, atQuery, atMatches, atActiveIndex, applyAtCompletion, historyMenuOpen, inputHistory, historyActiveIndex, applyHistoryInput, value, selectedAtMentions, selectedSlashCommand, removeSelectedAtMention, removeSelectedSlashCommand]
   );
 
   const handleInput = useCallback(() => {
@@ -2354,17 +2394,30 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               className="chat-composer-queue-actions"
               onKeyDown={(event) => {
                 if (!queueMenuVisible) return;
+                const shortcutMode = getQueueShortcutMode(event);
+                if (shortcutMode && (shortcutMode === "steer" ? onSteer : onFollowUp)) {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  if (!event.repeat) sendQueued(shortcutMode);
+                  return;
+                }
                 if (event.key === "Escape") {
                   event.preventDefault();
                   event.stopPropagation();
                   setQueueMenuOpen(false);
                   textareaRef.current?.focus();
+                  return;
                 }
                 if (event.key === "ArrowDown" || event.key === "ArrowUp") {
                   event.preventDefault();
-                  const items = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'));
-                  const index = items.indexOf(document.activeElement as HTMLButtonElement);
-                  items[(index + (event.key === "ArrowDown" ? 1 : items.length - 1)) % items.length]?.focus();
+                  event.stopPropagation();
+                  selectQueueMode(queueActiveMode === "followup" ? "steer" : "followup");
+                  return;
+                }
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  if (!event.repeat) sendQueued(queueActiveMode);
                 }
               }}
             >
@@ -2372,11 +2425,39 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 <>
                 {queueMenuVisible && (
                   <div id={queueMenuId} role="menu" aria-label={t("chat.send")} className="chat-composer-queue-menu">
-                    {onSteer && <button role="menuitem" onClick={() => sendQueued("steer")}>{t("chat.steer")}</button>}
+                    {onSteer && (
+                      <button
+                        ref={queueSteerOptionRef}
+                        role="menuitemradio"
+                        aria-checked={queueActiveMode === "steer"}
+                        tabIndex={queueActiveMode === "steer" ? 0 : -1}
+                        className={queueActiveMode === "steer" ? "chat-composer-queue-selected" : undefined}
+                        onFocus={() => setQueueActiveMode("steer")}
+                        onMouseEnter={() => setQueueActiveMode("steer")}
+                        onClick={() => sendQueued("steer")}
+                      >
+                        <span>{t("chat.steer")}</span>
+                        <kbd className="chat-composer-queue-shortcut">Alt+F</kbd>
+                      </button>
+                    )}
                     {onFollowUp && (
-                      <button ref={queueDefaultOptionRef} role="menuitem" className="chat-composer-queue-default" onClick={() => sendQueued("followup")}>
+                      <button
+                        ref={queueDefaultOptionRef}
+                        role="menuitemradio"
+                        aria-checked={queueActiveMode === "followup"}
+                        tabIndex={queueActiveMode === "followup" ? 0 : -1}
+                        className={queueActiveMode === "followup" ? "chat-composer-queue-selected" : undefined}
+                        onFocus={() => setQueueActiveMode("followup")}
+                        onMouseEnter={() => setQueueActiveMode("followup")}
+                        onClick={() => sendQueued("followup")}
+                      >
                         <span>{t("chat.followUp")}</span>
-                        <span className="chat-composer-queue-countdown" aria-label={`${queueCountdown}s`}>{queueCountdown}s</span>
+                        <span className="chat-composer-queue-meta">
+                          {!queueCountdownPaused && (
+                            <span className="chat-composer-queue-countdown" aria-label={`${queueCountdown}s`}>{queueCountdown}s</span>
+                          )}
+                          <kbd className="chat-composer-queue-shortcut">Alt+Q</kbd>
+                        </span>
                       </button>
                     )}
                   </div>
