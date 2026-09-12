@@ -51,12 +51,12 @@ import type { AppUpdateResponse, ProjectTrustStatus } from "@/lib/api-types";
 import type { ChatInputHandle } from "./ChatInput";
 import type { SessionStatsInfo } from "@/lib/pi-types";
 import type { FileViewerState } from "@/lib/file-viewer-state";
+import { FileViewer } from "./FileViewer";
+import { ModelsConfig } from "./ModelsConfig";
+import { SkillsConfig } from "./SkillsConfig";
+import { PluginsConfig } from "./PluginsConfig";
 
-const FileViewer = dynamic(() => import("./FileViewer").then((module) => module.FileViewer));
 const TerminalPanel = dynamic(() => import("./TerminalPanel").then((module) => module.TerminalPanel), { ssr: false });
-const ModelsConfig = dynamic(() => import("./ModelsConfig").then((module) => module.ModelsConfig));
-const SkillsConfig = dynamic(() => import("./SkillsConfig").then((module) => module.SkillsConfig));
-const PluginsConfig = dynamic(() => import("./PluginsConfig").then((module) => module.PluginsConfig));
 
 type SessionCopyField = "file" | "id";
 type AutoNameStatus =
@@ -1698,6 +1698,7 @@ export function AppShell() {
   };
 
   const renderMainFileToggle = (mobile: boolean) => {
+    if (rightPanelOpen) return null;
     const covered = mobile && mobileToolbarMoreOpen;
     return (
       <button

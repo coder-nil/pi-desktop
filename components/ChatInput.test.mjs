@@ -9,7 +9,7 @@ const jiti = createJiti(import.meta.url, {
   jsx: { runtime: "automatic" },
   tsconfigPaths: true,
 });
-const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, buildComposerMessage, buildSkillMenuGroups, canRestoreUserMessage, filterModelOptions, getSlashCommandTagKind, getUpwardMenuMaxHeight, getUserMessageText, getUserMessageDraftImages, parseSelectedAtMention, parseSelectedAtMentions } = await jiti.import("./ChatInput.tsx");
+const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, buildComposerMessage, buildSkillMenuGroups, canRestoreUserMessage, filterModelOptions, getQueueShortcutMode, getSlashCommandTagKind, getUpwardMenuMaxHeight, getUserMessageText, getUserMessageDraftImages, parseSelectedAtMention, parseSelectedAtMentions } = await jiti.import("./ChatInput.tsx");
 const { clearDraft, getDraft, mergeRestoredSubmissionDraft, mergeRestoredSubmissionText, rekeyDraft, setDraft } = await jiti.import("../lib/draft-store.ts");
 const { I18nProvider } = await jiti.import("../hooks/useI18n.tsx");
 const source = await readFile(new URL("./ChatInput.tsx", import.meta.url), "utf8");
@@ -210,6 +210,34 @@ test("filters model options by name and id", () => {
 test("caps an upward menu to the visible space above its anchor", () => {
   assert.equal(getUpwardMenuMaxHeight(343, 36), 299);
   assert.equal(getUpwardMenuMaxHeight(40, 36), 0);
+});
+
+test("maps queue shortcuts by physical key while requiring Alt only", () => {
+  const event = (overrides) => ({
+    altKey: true,
+    ctrlKey: false,
+    metaKey: false,
+    shiftKey: false,
+    code: "",
+    key: "",
+    ...overrides,
+  });
+
+  assert.equal(getQueueShortcutMode(event({ code: "KeyF", key: "ƒ" })), "steer");
+  assert.equal(getQueueShortcutMode(event({ code: "KeyQ", key: "œ" })), "followup");
+  assert.equal(getQueueShortcutMode(event({ code: "KeyF", key: "f", ctrlKey: true })), null);
+  assert.equal(getQueueShortcutMode(event({ code: "KeyQ", key: "q", altKey: false })), null);
+});
+
+test("arrow keys select a queue mode, pause auto-send, and Enter confirms it", () => {
+  assert.match(source, /const selectQueueMode = useCallback\(\(mode: QueueSendMode\) => \{\s*setQueueCountdownPaused\(true\);\s*setQueueActiveMode\(mode\);/);
+  assert.match(source, /selectQueueMode\(queueActiveMode === "followup" \? "steer" : "followup"\)/);
+  assert.match(source, /if \(event\.key === "Enter"\) \{[\s\S]*?sendQueued\(queueActiveMode\)/);
+  assert.match(source, /if \(!queueMenuVisible \|\| !onFollowUp \|\| queueCountdownPaused\) return/);
+  assert.match(source, /role="menuitemradio"[\s\S]*?aria-checked=\{queueActiveMode === "steer"\}/);
+  assert.match(source, /role="menuitemradio"[\s\S]*?aria-checked=\{queueActiveMode === "followup"\}/);
+  assert.match(source, /<kbd className="chat-composer-queue-shortcut">Alt\+F<\/kbd>/);
+  assert.match(source, /<kbd className="chat-composer-queue-shortcut">Alt\+Q<\/kbd>/);
 });
 
 test("caps the skill menu to the measured visible space above its trigger", () => {

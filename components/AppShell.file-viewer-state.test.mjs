@@ -12,6 +12,16 @@ function fileContentBlock() {
   return source.slice(start, end);
 }
 
+function dynamicDeclaration(component) {
+  const start = source.indexOf(`const ${component} = dynamic(`);
+  const boundaries = [source.indexOf("\nconst ", start + 1), source.indexOf("\ntype ", start + 1)]
+    .filter((index) => index > start);
+  const end = Math.min(...boundaries);
+  assert.notEqual(start, -1, `${component} dynamic declaration not found`);
+  assert.ok(Number.isFinite(end), `${component} dynamic declaration end not found`);
+  return source.slice(start, end);
+}
+
 test("opening the file panel preserves the visible chat message during desktop resize", () => {
   assert.match(source, /if \(!rightPanelOpen && !isMobile && window\.matchMedia\("\(min-width: 960px\)"\)\.matches\)/);
   assert.match(source, /preserveChatScrollDuringPanelTransition\(container\)/);
@@ -20,6 +30,22 @@ test("opening the file panel preserves the visible chat message during desktop r
       < source.indexOf("setRightPanelOpen(true)", source.indexOf("const handleOpenFile")),
     "scroll preservation must start before the panel expands",
   );
+});
+
+test("shows the main file toggle only while the file panel is closed", () => {
+  assert.match(source, /const renderMainFileToggle = \(mobile: boolean\) => \{\s*if \(rightPanelOpen\) return null;/);
+  assert.match(source, /onClick=\{\(\) => setRightPanelOpen\(false\)\}[\s\S]*?aria-label=\{translate\("files\.hidePanel"\)\}/);
+});
+
+test("eagerly loads file and configuration components", () => {
+  for (const component of ["FileViewer", "ModelsConfig", "SkillsConfig", "PluginsConfig"]) {
+    assert.match(source, new RegExp(`import \\{ ${component} \\} from \\"\\./${component}\\";`));
+    assert.doesNotMatch(source, new RegExp(`const ${component} = dynamic\\(`));
+  }
+});
+
+test("keeps the terminal panel lazy-loaded", () => {
+  assert.match(dynamicDeclaration("TerminalPanel"), /\{ ssr: false \}/);
 });
 
 test("only the active file tab mounts a FileViewer", () => {
