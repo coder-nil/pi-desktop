@@ -1,6 +1,6 @@
 [package]
 name = "pi-desktop"
-version = "0.85.1-alpha.8"
+version = "0.85.1-alpha.9"
 description = "Desktop shell for Pi Desktop"
 authors = ["Pi Desktop contributors"]
 edition = "2021"
