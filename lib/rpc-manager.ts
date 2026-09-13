@@ -15,6 +15,7 @@ import {
   preferUserBashExtension,
 } from "./project-command-env";
 import { createSystemTimeExtension } from "./system-time-tool";
+import { createAskUserExtension } from "./ask-user-tool";
 import { cacheSessionPath, invalidateSessionListCache } from "./session-reader";
 import { getProjectTrustStatus, projectTrustReloadOptions } from "./project-trust";
 import { persistExplicitStartupPreferences } from "./startup-preferences";
@@ -872,6 +873,7 @@ export class AgentSessionWrapper {
           thinkingLevel: this.inner.agent.state?.thinkingLevel ?? "off",
           extensionStatuses: this.getExtensionStatuses(),
           extensionWidgets: this.getExtensionWidgets(),
+          pendingUiRequests: [...this.pendingUiRequests.values()],
         };
       }
 
@@ -1572,7 +1574,7 @@ export class AgentSessionWrapper {
         opts?.signal,
       ),
       input: (title, placeholder, opts) => this.requestExtensionUi(
-        { method: "input", title, ...(placeholder !== undefined ? { placeholder } : {}), ...(opts?.timeout ? { timeout: opts.timeout } : {}) },
+        { method: "input", title, ...(placeholder !== undefined ? { placeholder } : {}), ...(opts?.sensitive ? { sensitive: true } : {}), ...(opts?.timeout ? { timeout: opts.timeout } : {}) },
         undefined,
         (response) => "value" in response ? response.value : undefined,
         opts?.timeout,
@@ -1979,6 +1981,7 @@ export async function startRpcSession(
         extensionFactories: [
           createLanguagePromptExtension(sessionLocale),
           createSystemTimeExtension(),
+          createAskUserExtension(),
           createProjectCommandBashExtension({
             cwd: sessionCwd,
             settings: settingsManager,

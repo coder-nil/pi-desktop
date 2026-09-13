@@ -328,6 +328,23 @@ test("plays the enabled sound once for each extension dialog", () => {
   assert.match(chatWindowSource, /playDoneSoundRef\.current\(\)/);
 });
 
+test("restores pending extension dialogs from authoritative agent state", () => {
+  const loadSource = source.slice(
+    source.indexOf("  const loadSession = useCallback"),
+    source.indexOf("  const loadContext = useCallback"),
+  );
+  const reconcileSource = source.slice(
+    source.indexOf("  const reconcileAgentState = useCallback"),
+    source.indexOf("  // Recovery net for missed SSE events"),
+  );
+
+  assert.match(source, /function latestExtensionDialog\(requests: ExtensionUiRequest\[\] \| undefined\)/);
+  assert.match(loadSource, /const pendingDialog = latestExtensionDialog\(liveState\.pendingUiRequests\)/);
+  assert.match(loadSource, /if \(pendingDialog\) setExtensionDialog\(pendingDialog\)/);
+  assert.match(reconcileSource, /const pendingDialog = latestExtensionDialog\(state\?\.pendingUiRequests\)/);
+  assert.match(reconcileSource, /if \(pendingDialog\) setExtensionDialog\(pendingDialog\)/);
+});
+
 test("routes blocking extension requests through deduplicated browser attention notifications", () => {
   const completionSource = appShellSource.slice(
     appShellSource.indexOf("  const handleAgentEnd = useCallback"),

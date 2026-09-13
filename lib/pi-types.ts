@@ -82,6 +82,7 @@ interface ExtensionRunnerLike {
 type DialogOptionsLike = {
   signal?: AbortSignal;
   timeout?: number;
+  sensitive?: boolean;
 };
 
 type WidgetOptionsLike = {

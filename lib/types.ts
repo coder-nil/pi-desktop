@@ -136,6 +136,7 @@ export type ExtensionUiRequest =
       method: "input";
       title: string;
       placeholder?: string;
+      sensitive?: boolean;
       timeout?: number;
       expiresAt?: number;
     }

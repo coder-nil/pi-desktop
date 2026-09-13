@@ -72,6 +72,7 @@ type AgentStateResponse = {
   extensionStatuses?: ExtensionStatusItem[];
   extensionWidgets?: ExtensionWidgetItem[];
   queuedMessages?: { steering?: string[]; followUp?: string[] } | null;
+  pendingUiRequests?: ExtensionUiRequest[];
 };
 
 export interface QueuedMessages {
@@ -86,6 +87,22 @@ function normalizeQueuedMessages(q?: { steering?: string[]; followUp?: string[] 
 type ExtensionUiDialogRequest = Extract<ExtensionUiRequest, { method: "select" | "confirm" | "input" | "editor" }>;
 type ExtensionUiCustomRequest = Extract<ExtensionUiRequest, { method: "custom" }>;
 export type NoticeType = "info" | "success" | "warning" | "error";
+
+function latestExtensionDialog(requests: ExtensionUiRequest[] | undefined): ExtensionUiDialogRequest | null {
+  if (!requests) return null;
+  for (let index = requests.length - 1; index >= 0; index -= 1) {
+    const request = requests[index];
+    if (
+      request.method === "select"
+      || request.method === "confirm"
+      || request.method === "input"
+      || request.method === "editor"
+    ) {
+      return request;
+    }
+  }
+  return null;
+}
 
 export type NoticeItem = {
   id: string;
@@ -533,6 +550,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           if (liveState.extensionStatuses !== undefined) setExtensionStatuses(liveState.extensionStatuses ?? []);
           if (liveState.extensionWidgets !== undefined) setExtensionWidgets(liveState.extensionWidgets ?? []);
           if (liveState.queuedMessages !== undefined) setQueuedMessages(normalizeQueuedMessages(liveState.queuedMessages));
+          const pendingDialog = latestExtensionDialog(liveState.pendingUiRequests);
+          if (pendingDialog) setExtensionDialog(pendingDialog);
         } else if (!agentState.running) {
           setQueuedMessages({ steering: [], followUp: [] });
         }
@@ -1015,6 +1034,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       // (wrapper destroyed) means nothing is compacting.
       setIsCompacting(state?.isCompacting ?? false);
       setQueuedMessages(normalizeQueuedMessages(state?.queuedMessages));
+      const pendingDialog = latestExtensionDialog(state?.pendingUiRequests);
+      if (pendingDialog) setExtensionDialog(pendingDialog);
       const busy = data.running && state
         && (state.isStreaming || state.isPromptRunning || state.isCompacting);
       if (busy) {

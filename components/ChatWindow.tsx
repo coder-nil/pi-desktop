@@ -1045,8 +1045,10 @@ function ExtensionDialog({
           {request.method === "input" && (
             <input
               autoFocus
+              type={request.sensitive ? "password" : "text"}
               value={value}
               placeholder={request.placeholder}
+              autoComplete={request.sensitive ? "off" : "on"}
               onChange={(e) => setValue(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter") submitValue();

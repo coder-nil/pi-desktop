@@ -7,6 +7,7 @@ import {
   type LoadExtensionsResult,
 } from "@earendil-works/pi-coding-agent";
 import { join } from "node:path";
+import { createCredentialBrokerOperations } from "./credential-broker";
 
 const HOST_EXTENSION_NAME = "pi-desktop-project-command-environment";
 const HOST_EXTENSION_PATH = `<inline:${HOST_EXTENSION_NAME}>`;
@@ -22,6 +23,7 @@ type ProjectCommandBashOperationsOptions = {
   localOperations?: BashOperations;
   platform?: NodeJS.Platform;
   shellPath?: string;
+  requestCredential?: (prompt: string, sensitive: boolean) => Promise<string | undefined>;
 };
 
 function isHostRuntimeVariable(name: string, platform: NodeJS.Platform): boolean {
@@ -67,7 +69,12 @@ export function createProjectCommandBashOperations(
     baseEnvironment = process.env,
     localOperations = createLocalBashOperations({ shellPath: options.shellPath }),
     platform = process.platform,
+    requestCredential,
   } = options;
+
+  const operations = requestCredential
+    ? createCredentialBrokerOperations(localOperations, requestCredential, { platform })
+    : localOperations;
 
   return {
     exec(command, cwd, executionOptions) {
@@ -76,7 +83,7 @@ export function createProjectCommandBashOperations(
         agentBinDir,
         platform,
       );
-      return localOperations.exec(command, cwd, {
+      return operations.exec(command, cwd, {
         ...executionOptions,
         env: environment,
       });
@@ -100,6 +107,12 @@ export function createProjectCommandBashExtension(options: {
             commandPrefix: options.settings.getShellCommandPrefix(),
             operations: createProjectCommandBashOperations({
               shellPath: options.settings.getShellPath(),
+              requestCredential: async (prompt, sensitive) => {
+                const inputUi = context.ui as unknown as {
+                  input: (title: string, placeholder?: string, options?: { sensitive?: boolean }) => Promise<string | undefined>;
+                };
+                return inputUi.input("安全凭据", prompt, { sensitive });
+              },
             }),
           });
           return executionDefinition.execute(toolCallId, params, signal, onUpdate, context);
