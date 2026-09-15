@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { BranchPicker } from "./BranchPicker";
 
@@ -25,12 +25,13 @@ type GitSummary = {
   remote: string | null;
   credentialKind: "https" | "ssh" | "none";
   hasSavedCredential: boolean;
+  savedCredentialUsername: string | null;
   operation: "merge" | "rebase" | "cherry-pick" | "revert" | null;
   branches: string[];
   changes: { files: GitFileStatus[]; additions: number; deletions: number };
 };
 
-type Action = "stage" | "unstage" | "discard" | "discard_all" | "commit" | "fetch" | "pull" | "push" | "merge" | "continue" | "abort" | "summarize";
+type Action = "stage" | "unstage" | "discard" | "discard_all" | "commit" | "fetch" | "pull" | "push" | "merge" | "continue" | "abort" | "set_remote_url" | "summarize";
 
 const STATUS_COLOR: Record<GitFileStatus["status"], string> = {
   modified: "#d6a84b", added: "#4ade80", deleted: "#f87171", renamed: "#60a5fa", untracked: "#4ade80", conflict: "#f87171",
@@ -49,8 +50,23 @@ export function GitPanel({ cwd, sessionId, onClose, onChanged }: { cwd: string; 
   const [username, setUsername] = useState("");
   const [secret, setSecret] = useState("");
   const [rememberCredential, setRememberCredential] = useState(false);
+  const [editingRemote, setEditingRemote] = useState(false);
+  const [remoteDraft, setRemoteDraft] = useState("");
   const [busy, setBusy] = useState<Action | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Prefill the credential form from the encrypted store so users can tell at a
+  // glance whether they already saved a credential for this remote. The secret
+  // itself is never sent to the browser — only the username and the remembered
+  // checkbox state are restored.
+  const credentialPrefillKey = summary?.isGitRepository ? `${summary.remote ?? ""}|${summary.hasSavedCredential ? 1 : 0}` : null;
+  const prefilledKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!credentialPrefillKey || prefilledKeyRef.current === credentialPrefillKey) return;
+    prefilledKeyRef.current = credentialPrefillKey;
+    setRememberCredential(Boolean(summary?.hasSavedCredential));
+    if (summary?.hasSavedCredential && !username) setUsername(summary.savedCredentialUsername ?? "");
+  }, [credentialPrefillKey, summary?.hasSavedCredential, summary?.savedCredentialUsername, username]);
 
   const refresh = useCallback(async () => {
     const res = await fetch(`/api/git?${new URLSearchParams({ cwd }).toString()}`);
@@ -76,6 +92,14 @@ export function GitPanel({ cwd, sessionId, onClose, onChanged }: { cwd: string; 
       setSummary(data);
       if (action === "commit") setMessage("");
       if (action === "merge") setMergeBranch("");
+      if (action === "set_remote_url") {
+        setEditingRemote(false);
+        setRemoteDraft("");
+        setSecret("");
+        setUsername("");
+        setRememberCredential(false);
+        prefilledKeyRef.current = null;
+      }
       if (isRemoteAction && secret) setSecret("");
       onChanged();
     } catch (reason) {
@@ -118,12 +142,17 @@ export function GitPanel({ cwd, sessionId, onClose, onChanged }: { cwd: string; 
       if (event.key === "Escape" && !disabled) {
         event.preventDefault();
         event.stopPropagation();
-        onClose();
+        if (editingRemote) {
+          setEditingRemote(false);
+          setRemoteDraft("");
+        } else {
+          onClose();
+        }
       }
     };
     document.addEventListener("keydown", handleKeyDown, true);
     return () => document.removeEventListener("keydown", handleKeyDown, true);
-  }, [disabled, onClose]);
+  }, [disabled, editingRemote, onClose]);
 
   return (
     <div role="presentation" onClick={(event) => { if (!disabled && event.currentTarget === event.target) onClose(); }} style={{ position: "fixed", inset: 0, zIndex: 1100, display: "flex", justifyContent: "flex-end", background: "rgba(0,0,0,.34)" }}>
@@ -150,7 +179,8 @@ export function GitPanel({ cwd, sessionId, onClose, onChanged }: { cwd: string; 
             <div style={sectionStyle}><SectionTitle title={t("git.commit")} /><textarea value={message} onChange={(event) => setMessage(event.target.value)} placeholder={t("git.commitMessage")} disabled={disabled} rows={7} style={{ width: "100%", resize: "vertical", padding: 8, border: "1px solid var(--border)", borderRadius: 5, background: "var(--bg)", color: "var(--text)", fontFamily: "inherit", fontSize: 12, lineHeight: 1.5 }} /><div style={{ marginTop: 7, display: "flex", justifyContent: "flex-end", gap: 6 }}><ActionButton label={t("git.summarizeCommit")} action="summarize" busy={busy} disabled={staged.length === 0 || conflictCount > 0} title={t("git.summarizeCommitTitle")} onClick={() => void summarizeCommitMessage()} /><ActionButton label={t("git.commitStaged")} action="commit" busy={busy} disabled={!message.trim() || staged.length === 0 || conflictCount > 0} onClick={() => void run("commit", { message })} /></div></div>
             <div style={sectionStyle}>
               <SectionTitle title={t("git.remote")} />
-              {summary.remote && <div style={{ marginBottom: 9, color: "var(--text-muted)", fontFamily: "var(--font-mono)", fontSize: 11, overflowWrap: "anywhere" }}>{summary.remote}</div>}
+              {summary.remote && !editingRemote && <div style={{ display: "flex", alignItems: "center", gap: 6, minHeight: 30, marginBottom: 9 }}><div style={{ minWidth: 0, flex: 1, color: "var(--text-muted)", fontFamily: "var(--font-mono)", fontSize: 11, lineHeight: 1.45, overflowWrap: "anywhere" }}>{summary.remote}</div><ActionButton label={t("git.editRemote")} action="set_remote_url" busy={busy} onClick={() => { setRemoteDraft(summary.remote ?? ""); setEditingRemote(true); }} /></div>}
+              {summary.remote && editingRemote && <form onSubmit={(event) => { event.preventDefault(); if (remoteDraft.trim()) void run("set_remote_url", { remoteUrl: remoteDraft }); }} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}><input value={remoteDraft} onChange={(event) => setRemoteDraft(event.target.value)} placeholder={t("git.remoteUrl")} title={t("git.remoteUrl")} autoFocus disabled={disabled} style={{ ...credentialInputStyle, minWidth: 0, flex: 1 }} /><ActionButton label={t("git.cancelEditRemote")} action="set_remote_url" busy={busy} onClick={() => { setEditingRemote(false); setRemoteDraft(""); }} /><ActionButton label={t("git.saveRemote")} action="set_remote_url" busy={busy} disabled={!remoteDraft.trim()} onClick={() => void run("set_remote_url", { remoteUrl: remoteDraft })} /></form>}
               {(needsHttpsCredential || needsSshCredential) && <div style={{ display: "grid", gap: 7, marginBottom: 10, padding: 10, border: "1px solid var(--border)", borderRadius: 6, background: "var(--bg-panel)" }}>
                 <div style={{ color: "var(--text-muted)", fontSize: 11 }}>{t(needsHttpsCredential ? "git.httpsCredentials" : "git.sshCredentials")}{summary.hasSavedCredential ? ` · ${t("git.savedCredential")}` : ""}</div>
                 {needsHttpsCredential && <input value={username} onChange={(event) => setUsername(event.target.value)} placeholder={t("git.username")} autoComplete="username" disabled={disabled} style={credentialInputStyle} />}
@@ -173,7 +203,7 @@ const sectionStyle: CSSProperties = { marginTop: 18, paddingTop: 14, borderTop: 
 const summaryStyle: CSSProperties = { display: "grid", gridTemplateColumns: "58px minmax(0, 1fr)", rowGap: 7, alignItems: "center", padding: "10px", background: "var(--bg-panel)", border: "1px solid var(--border)", borderRadius: 6 };
 const credentialInputStyle: CSSProperties = { width: "100%", boxSizing: "border-box", minHeight: 30, padding: "5px 7px", border: "1px solid var(--border)", borderRadius: 5, background: "var(--bg)", color: "var(--text)", fontFamily: "inherit", fontSize: 12 };
 function SectionTitle({ title, action }: { title: string; action?: ReactNode }) { return <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8, color: "var(--text-muted)", fontSize: 11, fontWeight: 700, letterSpacing: ".04em", textTransform: "uppercase" }}><span>{title}</span>{action}</div>; }
-function ActionButton({ label, action, busy, disabled, danger, title, onClick }: { label: string; action: Action; busy: Action | null; disabled?: boolean; danger?: boolean; title?: string; onClick: () => void }) { const { t } = useI18n(); const pending = busy === action; const inactive = Boolean(busy) || disabled; const hoverBackground = danger ? "rgba(248,113,113,.12)" : "var(--bg-hover)"; return <button type="button" title={title} onClick={onClick} disabled={inactive} onMouseEnter={(event) => { if (!inactive) event.currentTarget.style.background = hoverBackground; }} onMouseLeave={(event) => { event.currentTarget.style.background = "transparent"; }} style={{ height: 30, padding: "0 10px", border: "none", borderRadius: 5, background: "transparent", color: danger ? "#ef4444" : "var(--text)", cursor: inactive ? "not-allowed" : "pointer", opacity: inactive ? .58 : 1, fontSize: 11, fontWeight: 600, transition: "background .12s" }}>{pending ? t("git.working") : label}</button>; }
+function ActionButton({ label, action, busy, disabled, danger, title, onClick }: { label: string; action: Action; busy: Action | null; disabled?: boolean; danger?: boolean; title?: string; onClick: () => void }) { const { t } = useI18n(); const pending = busy === action; const inactive = Boolean(busy) || disabled; const hoverBackground = danger ? "rgba(248,113,113,.12)" : "var(--bg-hover)"; return <button type="button" title={title} onClick={onClick} disabled={inactive} onMouseEnter={(event) => { if (!inactive) event.currentTarget.style.background = hoverBackground; }} onMouseLeave={(event) => { event.currentTarget.style.background = "transparent"; }} style={{ flexShrink: 0, height: 30, padding: "0 10px", border: "none", borderRadius: 5, background: "transparent", color: danger ? "#ef4444" : "var(--text)", cursor: inactive ? "not-allowed" : "pointer", opacity: inactive ? .58 : 1, fontSize: 11, fontWeight: 600, lineHeight: 1, whiteSpace: "nowrap", transition: "background .12s" }}>{pending ? t("git.working") : label}</button>; }
 function FileList({ files, empty, busy, onStage, onUnstage, onDiscard }: { files: GitFileStatus[]; empty: string; busy: Action | null; onStage?: (filePath: string) => void; onUnstage?: (filePath: string) => void; onDiscard?: (file: GitFileStatus) => void }) { const { t } = useI18n(); if (!files.length) return <div style={{ color: "var(--text-dim)", fontSize: 12 }}>{empty}</div>; return <div style={{ height: 220, border: "1px solid var(--border)", borderRadius: 6, overflowY: "auto" }}>{files.map((file) => <div key={`${file.filePath}:${file.indexStatus}:${file.worktreeStatus}`} style={{ minHeight: 35, padding: "5px 7px", display: "flex", alignItems: "center", gap: 7, borderBottom: "1px solid var(--border)" }}><span style={{ width: 14, color: STATUS_COLOR[file.status], fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 700 }}>{file.code}</span><span title={file.filePath} style={{ minWidth: 0, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: "var(--font-mono)", fontSize: 11 }}>{fileName(file.filePath)}</span>{onStage && <ActionButton label={t("git.stage")} action="stage" busy={busy} onClick={() => onStage(file.filePath)} />}{onUnstage && <ActionButton label={t("git.unstage")} action="unstage" busy={busy} onClick={() => onUnstage(file.filePath)} />}{onDiscard && file.status !== "untracked" && <ActionButton label={t("git.discard")} action="discard" busy={busy} danger onClick={() => onDiscard(file)} />}</div>)}</div>; }
 
 function DiscardAllConfirmDialog({ onCancel, onConfirm, busy }: { onCancel: () => void; onConfirm: () => void; busy: Action | null }) { const { t } = useI18n(); return (<div style={{ padding: 14, textAlign: "center" }}><p style={{ color: "var(--text)", marginBottom: 14, fontSize: 12 }}>{t("git.discardAllConfirm")}</p><div style={{ display: "flex", gap: 10, justifyContent: "center" }}><ActionButton label={t("git.discardAllConfirmCancel")} action="discard_all" busy={busy} onClick={onCancel} /><ActionButton label={t("git.discardAllConfirmAction")} action="discard_all" busy={busy} danger onClick={onConfirm} /></div></div>); }

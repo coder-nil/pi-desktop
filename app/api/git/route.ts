@@ -21,11 +21,11 @@ export async function GET(request: NextRequest) {
   }
 }
 
-const ACTIONS = new Set<GitAction>(["stage", "unstage", "discard", "discard_all", "commit", "fetch", "pull", "push", "merge", "continue", "abort", "create_branch", "rename_branch", "delete_branch", "checkout_remote_branch", "delete_remote_branch", "pull_branch", "push_branch", "merge_branch"]);
+const ACTIONS = new Set<GitAction>(["stage", "unstage", "discard", "discard_all", "commit", "fetch", "pull", "push", "merge", "continue", "abort", "create_branch", "rename_branch", "delete_branch", "checkout_remote_branch", "delete_remote_branch", "set_remote_url", "pull_branch", "push_branch", "merge_branch"]);
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json() as { cwd?: unknown; action?: unknown; paths?: unknown; message?: unknown; rebase?: unknown; branch?: unknown; newBranch?: unknown; startPoint?: unknown; targetBranch?: unknown; credential?: unknown; rememberCredential?: unknown };
+    const body = await request.json() as { cwd?: unknown; action?: unknown; paths?: unknown; message?: unknown; rebase?: unknown; branch?: unknown; newBranch?: unknown; startPoint?: unknown; targetBranch?: unknown; remoteUrl?: unknown; credential?: unknown; rememberCredential?: unknown };
     if (typeof body.action !== "string" || !ACTIONS.has(body.action as GitAction)) throw new Error("Unsupported Git action");
     const { cwd, roots } = await validateCwd(body.cwd);
     if (Array.isArray(body.paths) && body.paths.some((filePath) => typeof filePath !== "string" || !isFilePathAllowed(filePath, roots))) {

@@ -7,7 +7,7 @@ import type { AppUpdateResponse } from "@/lib/api-types";
 import { loadExplorerOpen, saveExplorerOpen } from "@/lib/file-explorer-state";
 import { dispatchSessionRowContextMenu } from "@/lib/session-row-context-menu";
 import { skillExpansionToCommand } from "@/lib/slash-display";
-import { getProjectActivity, getRecentProjects, sessionsForProject } from "@/lib/project-groups";
+import { getProjectActivity, sessionsForProject } from "@/lib/project-groups";
 import {
   clearLastSelectedProject,
   getLastSelectedProject,
@@ -498,15 +498,18 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const explorerRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileExplorerRef = useRef<FileExplorerHandle>(null);
 
-  const availableProjects = useMemo(() => {
-    const byKey = new Map(getRecentProjects(allSessions).map((project) => [project.key, project]));
-    for (const project of addedProjects) {
-      if (!byKey.has(project.projectKey)) {
-        byKey.set(project.projectKey, { key: project.projectKey, root: project.projectRoot });
-      }
-    }
-    return [...byKey.values()];
-  }, [allSessions, addedProjects]);
+  // The directory list shown in the selector is exactly the persisted records
+  // in the app database (added_projects), so every entry can be removed
+  // regardless of whether it has chat history. Sessions are still grouped under
+  // the project the user selects; deleting a record never touches local files or
+  // session files.
+  const availableProjects = useMemo<ProjectSelection[]>(
+    () => addedProjects.map((project) => ({
+      key: project.projectKey,
+      root: project.projectRoot,
+    })),
+    [addedProjects],
+  );
 
   const loadSessions = useCallback(async (showLoading = false, force = false) => {
     try {
@@ -1205,7 +1208,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     !projectFilter.trim() || project.root.toLowerCase().includes(projectFilter.trim().toLowerCase())
   ));
 
-  const handleRemoveAddedProject = useCallback(async (projectKey: string, selected: boolean, nextPath: string | null) => {
+  // Remove a directory from the list by deleting its database record only.
+  // Session files and local files stay on disk; if the removed record was the
+  // selected project, the selector falls back to a neighboring entry.
+  const handleRemoveProject = useCallback(async (projectKey: string, selected: boolean, nextPath: string | null) => {
     try {
       const response = await fetch("/api/projects", {
         method: "DELETE",
@@ -1214,13 +1220,11 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       });
       if (!response.ok) return;
       setAddedProjects((previous) => previous.filter((project) => project.projectKey !== projectKey));
-      if (selected && !allSessions.some((session) => workspaceKeyOf(session) === projectKey)) {
-        setSelectedCwd(nextPath);
-      }
+      if (selected) setSelectedCwd(nextPath);
     } catch {
       // Keep the project visible when its persistent record could not be removed.
     }
-  }, [allSessions]);
+  }, []);
 
   // Sessions of every worktree in the selected project are shown together
   const selectedProject = projectFor(selectedCwd);
@@ -1294,9 +1298,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
       {customPathOpen && (
         <DirectoryPicker
-          // Start new path selection in the user's home directory. Once a
-          // project is active, keep the picker anchored to that project's root.
-          initialPath={selectedProject?.root ?? ""}
+          // Anchor the picker to the active project's root. With no project
+          // selected, start in the current user's home directory; an empty
+          // path would make the server fall back to the Windows drive list.
+          initialPath={selectedProject?.root ?? homeDir}
           busy={customPathValidating}
           error={customPathError}
           onCancel={() => {
@@ -1556,7 +1561,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                     </button>
                     <button
                       type="button"
-                      onClick={() => void handleRemoveAddedProject(
+                      onClick={() => void handleRemoveProject(
                         project.key,
                         project.key === selectedProject?.key,
                         visibleProjects[index + 1]?.root ?? visibleProjects[index - 1]?.root ?? null,

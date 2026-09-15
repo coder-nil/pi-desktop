@@ -15,7 +15,7 @@ const MAX_STAGED_DIFF_CHARS = 60_000;
 export type GitOperationKind = "merge" | "rebase" | "cherry-pick" | "revert" | null;
 export type GitAction =
   | "stage" | "unstage" | "discard" | "discard_all" | "commit" | "fetch" | "pull" | "push" | "merge" | "continue" | "abort"
-  | "create_branch" | "rename_branch" | "delete_branch" | "checkout_remote_branch" | "delete_remote_branch"
+  | "create_branch" | "rename_branch" | "delete_branch" | "checkout_remote_branch" | "delete_remote_branch" | "set_remote_url"
   | "pull_branch" | "push_branch" | "merge_branch";
 
 export interface GitSummary {
@@ -28,6 +28,7 @@ export interface GitSummary {
   remote: string | null;
   credentialKind: ReturnType<typeof gitCredentialKind>;
   hasSavedCredential: boolean;
+  savedCredentialUsername: string | null;
   operation: GitOperationKind;
   branches: string[];
   changes: Awaited<ReturnType<typeof getGitStatus>>;
@@ -173,6 +174,13 @@ async function assertBranchName(cwd: string, branch: unknown, label = "Branch"):
   return trimmed;
 }
 
+async function assertRemoteUrl(remoteUrl: unknown): Promise<string> {
+  if (typeof remoteUrl !== "string" || !remoteUrl.trim()) throw new Error("A remote URL is required");
+  const trimmed = remoteUrl.trim();
+  if (/[\0\r\n]/.test(trimmed)) throw new Error("Invalid remote URL");
+  return trimmed;
+}
+
 async function remoteBranchRef(cwd: string, remoteBranch: unknown): Promise<{ remote: string; branch: string; ref: string }> {
   if (typeof remoteBranch !== "string") throw new Error("Remote branch is required");
   const ref = remoteBranch.trim();
@@ -215,7 +223,7 @@ async function worktreeForBranch(cwd: string, branch: string): Promise<string | 
 export async function getGitSummary(cwd: string): Promise<GitSummary> {
   const root = await repositoryRoot(cwd);
   if (!root) {
-    return { isGitRepository: false, repositoryRoot: null, branch: null, upstream: null, ahead: 0, behind: 0, remote: null, credentialKind: "none", hasSavedCredential: false, operation: null, branches: [], changes: await getGitStatus(cwd) };
+    return { isGitRepository: false, repositoryRoot: null, branch: null, upstream: null, ahead: 0, behind: 0, remote: null, credentialKind: "none", hasSavedCredential: false, savedCredentialUsername: null, operation: null, branches: [], changes: await getGitStatus(cwd) };
   }
   const [branchResult, upstreamResult, remoteResult, branchesResult, changes, operation] = await Promise.all([
     git(cwd, ["branch", "--show-current"]).catch(() => ""),
@@ -238,12 +246,16 @@ export async function getGitSummary(cwd: string): Promise<GitSummary> {
   const branches = [...new Set(branchesResult.split("\n").map((branch) => branch.trim()).filter(Boolean))]
     .sort((a, b) => a.localeCompare(b));
   const remote = remoteResult || null;
-  let hasSavedCredential = false;
-  try { hasSavedCredential = Boolean(await loadGitCredential(remote)); } catch { /* Keychain may be unavailable. */ }
-  return { isGitRepository: true, repositoryRoot: root, branch: branchResult || null, upstream, ahead, behind, remote, credentialKind: gitCredentialKind(remote), hasSavedCredential, operation, branches, changes };
+  let savedCredential: GitCredential | null = null;
+  try { savedCredential = await loadGitCredential(remote); } catch { /* Keychain may be unavailable. */ }
+  const hasSavedCredential = Boolean(savedCredential);
+  // The username is not a secret (the token is) — echoing it back lets the panel
+  // prefill the field so users can see what they previously saved.
+  const savedCredentialUsername = savedCredential?.kind === "https" ? savedCredential.username ?? null : null;
+  return { isGitRepository: true, repositoryRoot: root, branch: branchResult || null, upstream, ahead, behind, remote, credentialKind: gitCredentialKind(remote), hasSavedCredential, savedCredentialUsername, operation, branches, changes };
 }
 
-export async function runGitAction(cwd: string, action: GitAction, input: { paths?: unknown; message?: unknown; rebase?: unknown; branch?: unknown; newBranch?: unknown; startPoint?: unknown; targetBranch?: unknown; credential?: GitCredential; rememberCredential?: unknown }): Promise<GitSummary> {
+export async function runGitAction(cwd: string, action: GitAction, input: { paths?: unknown; message?: unknown; rebase?: unknown; branch?: unknown; newBranch?: unknown; startPoint?: unknown; targetBranch?: unknown; remoteUrl?: unknown; credential?: GitCredential; rememberCredential?: unknown }): Promise<GitSummary> {
   await withRepositoryLock(cwd, async (root) => {
     try {
       if (action === "stage" || action === "unstage" || action === "discard") {
@@ -266,8 +278,9 @@ export async function runGitAction(cwd: string, action: GitAction, input: { path
         const args = action === "fetch" ? ["fetch", "--prune"] : action === "pull" ? ["pull", input.rebase === true ? "--rebase" : "--no-rebase"] : ["push"];
         await gitWithCredential(cwd, args, remote, credential ?? null);
         if (credential && input.rememberCredential === true && remote) await saveGitCredential(remote, credential);
-      }
-      else if (action === "merge") {
+      } else if (action === "set_remote_url") {
+        await git(cwd, ["remote", "set-url", "origin", "--", await assertRemoteUrl(input.remoteUrl)]);
+      } else if (action === "merge") {
         if (typeof input.branch !== "string" || !input.branch.trim()) throw new Error("A branch is required");
         await git(cwd, ["merge", "--no-edit", input.branch.trim()]);
       } else if (action === "create_branch") {

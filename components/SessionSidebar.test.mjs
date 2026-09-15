@@ -90,7 +90,7 @@ test("persists successfully added projects through the server directory list", (
   assert.match(source, /fetch\("\/api\/projects", \{ cache: "no-store", signal: controller\.signal \}\)/);
   assert.match(source, /setAddedProjects\(\(previous\) => \[/);
   assert.match(source, /fetch\("\/api\/projects", \{[\s\S]*?method: "DELETE"/);
-  assert.match(source, /handleRemoveAddedProject\(\s*project\.key,/);
+  assert.match(source, /handleRemoveProject\(\s*project\.key,/);
   assert.match(source, /project\.key === selectedProject\?\.key/);
   assert.match(source, /visibleProjects\[index \+ 1\]\?\.root/);
 });
@@ -102,4 +102,11 @@ test("searches conversation content across projects with stale-request cancellat
   assert.match(source, /sessionSearchResult\.query === sessionSearch\.trim\(\)/);
   assert.match(source, /normalizedSessionSearch\s*\? allSessions\.filter/);
   assert.match(source, /searchMatches=\{sessionSearchMatchMap\}/);
+});
+
+test("falls back to the user home directory when no project is selected", () => {
+  assert.match(
+    source,
+    /<DirectoryPicker[\s\S]*?initialPath=\{selectedProject\?\.root \?\? homeDir\}/,
+  );
 });

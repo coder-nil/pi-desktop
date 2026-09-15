@@ -55,3 +55,19 @@ test("collects protocol-specific remote credentials without putting secrets in t
   assert.match(source, /git\.rememberCredential/);
   assert.doesNotMatch(source, /remote.*password/i);
 });
+
+test("edits the displayed remote URL through the Git action API", () => {
+  assert.match(source, /action="set_remote_url"/);
+  assert.match(source, /remoteUrl: remoteDraft/);
+  assert.match(source, /setEditingRemote\(true\)/);
+  assert.match(source, /git\.editRemote/);
+  assert.match(source, /git\.saveRemote/);
+});
+
+test("restores the saved username and remembered state into the credential form", () => {
+  assert.match(source, /savedCredentialUsername: string \| null/);
+  assert.match(source, /setRememberCredential\(Boolean\(summary\?\.hasSavedCredential\)\)/);
+  assert.match(source, /setUsername\(summary\.savedCredentialUsername \?\? ""\)/);
+  // The secret itself must never come back from the server.
+  assert.doesNotMatch(source, /savedCredentialSecret/i);
+});
