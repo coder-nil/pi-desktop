@@ -16,6 +16,7 @@ import {
 } from "./project-command-env";
 import { createSystemTimeExtension } from "./system-time-tool";
 import { createAskUserExtension } from "./ask-user-tool";
+import { createTaskProgressExtension } from "./task-progress-tool";
 import { cacheSessionPath, invalidateSessionListCache } from "./session-reader";
 import { getProjectTrustStatus, projectTrustReloadOptions } from "./project-trust";
 import { persistExplicitStartupPreferences } from "./startup-preferences";
@@ -1982,6 +1983,7 @@ export async function startRpcSession(
           createLanguagePromptExtension(sessionLocale),
           createSystemTimeExtension(),
           createAskUserExtension(),
+          createTaskProgressExtension(),
           createProjectCommandBashExtension({
             cwd: sessionCwd,
             settings: settingsManager,

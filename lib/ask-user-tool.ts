@@ -264,7 +264,7 @@ export function createAskUserExtension(): InlineExtension {
           "Use ask_user only when missing information would materially affect the result and cannot be discovered safely from the project.",
           "When you need multiple related answers, make one ask_user call and put every question in its questions array; the UI will present them one by one. Do not stop after the first question or ask the user to format tool arguments.",
           "Each question must have a unique id, a clear prompt, and the correct kind. Use single_select with 2-8 concrete options for choices. For confirm, text, and editor, set options to an empty array. Use confirm for yes/no decisions, text for short values, and editor for multi-line input.",
-          "ask_user answers are visible to the model and may be saved in the session; never request passwords, tokens, private keys, passphrases, OTP codes, or other secrets.",
+          "ask_user answers are visible to the model and may be saved in the session; never request passwords, tokens, private keys, passphrases, OTP codes, or other secrets. When Git or SSH needs credentials, run the normal command and let Pi Desktop show its secure credential prompt instead.",
           "Ask at most three related questions at a time and make option tradeoffs explicit in each option description.",
         ],
         parameters: ASK_USER_PARAMETERS,
