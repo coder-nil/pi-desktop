@@ -1167,7 +1167,7 @@ export function AppShell() {
           {
             id: "git",
             label: translate("common.git"),
-            onClick: () => setGitPanelOpen(true),
+            onClick: () => setGitPanelOpen((open) => !open),
             disabled: !activeCwd && !selectedSession?.cwd && !newSessionCwd,
             icon: (
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
@@ -1205,6 +1205,7 @@ export function AppShell() {
                 disabled={disabled}
                 title={title ?? label}
                 aria-label={title ?? label}
+                aria-pressed={id === "git" ? gitPanelOpen : undefined}
                 style={{
                   flex: iconOnly ? "0 0 32px" : "0 0 auto",
                   display: "flex",
@@ -1213,13 +1214,15 @@ export function AppShell() {
                   gap: 6,
                   height: 32,
                   padding: "0 10px",
-                  background: "transparent",
+                  background: id === "git" && gitPanelOpen ? "var(--bg-selected)" : "transparent",
                   border: "1px solid transparent",
                   borderRadius: 6,
-                  color: color ?? "var(--text-muted)",
+                  color: id === "git" && gitPanelOpen ? "var(--text)" : color ?? "var(--text-muted)",
                   cursor: disabled ? "default" : "pointer",
                   fontSize: 12,
                   opacity: disabled ? 0.35 : 1,
+                  position: id === "git" && gitPanelOpen ? "relative" : undefined,
+                  zIndex: id === "git" && gitPanelOpen ? 1200 : undefined,
                   transition: "background 0.12s, color 0.12s, border-color 0.12s",
                 }}
                 onMouseEnter={(e) => {
@@ -1229,8 +1232,8 @@ export function AppShell() {
                   }
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "transparent";
-                  e.currentTarget.style.color = color ?? "var(--text-muted)";
+                  e.currentTarget.style.background = id === "git" && gitPanelOpen ? "var(--bg-selected)" : "transparent";
+                  e.currentTarget.style.color = id === "git" && gitPanelOpen ? "var(--text)" : color ?? "var(--text-muted)";
                 }}
             >
               {icon}
@@ -1857,7 +1860,7 @@ export function AppShell() {
           flexShrink: 0,
           paddingTop: "env(safe-area-inset-top)",
           paddingBottom: "env(safe-area-inset-bottom)",
-          zIndex: 200,
+          zIndex: gitPanelOpen ? 1200 : 200,
         } as React.CSSProperties}
       >
         {sidebarContent}
@@ -2316,6 +2319,10 @@ export function AppShell() {
         ))}
       </div>
 
+      {gitPanelOpen && activeProjectIsGit === true && activeCwd && (
+        <GitPanel cwd={activeCwd} sessionId={selectedSession?.id ?? null} onClose={() => setGitPanelOpen(false)} onChanged={handleExplorerRefresh} onOpenFile={handleOpenFile} />
+      )}
+
       <div
         aria-hidden="true"
         className={`right-panel-overlay-backdrop${rightPanelOpen ? " is-open" : ""}`}
@@ -2473,9 +2480,6 @@ export function AppShell() {
         onClose={() => setPluginsConfigOpen(false)}
         onReloaded={() => setSessionKey((k) => k + 1)}
       />
-    )}
-    {gitPanelOpen && activeProjectIsGit === true && activeCwd && (
-      <GitPanel cwd={activeCwd} sessionId={selectedSession?.id ?? null} onClose={() => setGitPanelOpen(false)} onChanged={handleExplorerRefresh} />
     )}
     </>
   );

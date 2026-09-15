@@ -158,7 +158,8 @@ export function formatTaskProgressLines(tasks: TaskProgressItem[]): string[] {
 }
 
 function updateTaskProgressUi(ctx: ExtensionContext, tasks: TaskProgressItem[]): void {
-  if (tasks.length === 0) {
+  const finished = tasks.length > 0 && tasks.every((task) => task.status === "completed" || task.status === "skipped");
+  if (tasks.length === 0 || finished) {
     ctx.ui.setWidget(TASK_WIDGET_KEY, undefined);
     ctx.ui.setStatus(TASK_STATUS_KEY, undefined);
     return;
@@ -219,7 +220,7 @@ export function createTaskProgressExtension(): InlineExtension {
           "Before starting multi-step work, call task_progress with action=replace and a concise ordered list. Keep stable ids and include the complete list when replacing it.",
           "Immediately before working on a task, update it to in_progress. Keep at most one task in_progress at a time.",
           "Mark a task completed only after its required work and verification are finished. Mark failures as failed with the concrete reason, external dependencies as blocked, and intentionally omitted work as skipped.",
-          "Update task_progress whenever execution state changes, not only in the final answer. Before finishing, ensure no task is incorrectly left in_progress.",
+          "Update task_progress whenever execution state changes, not only in the final answer. Before finishing, ensure no task is incorrectly left in_progress. The Desktop automatically hides the task list after every task is completed or skipped.",
         ],
         parameters: TASK_PROGRESS_PARAMETERS,
         executionMode: "sequential",

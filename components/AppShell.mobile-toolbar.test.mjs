@@ -62,6 +62,14 @@ test("places trust warnings below the mobile toolbar and the file toggle in tool
   assert.doesNotMatch(source, /position: "fixed", top: "env\(safe-area-inset-top\)"/);
 });
 
+test("toggles the Git panel from the same Git button", () => {
+  assert.match(source, /onClick: \(\) => setGitPanelOpen\(\(open\) => !open\)/);
+  assert.match(source, /aria-pressed=\{id === "git" \? gitPanelOpen : undefined\}/);
+  assert.match(source, /zIndex: id === "git" && gitPanelOpen \? 1200 : undefined/);
+  assert.match(source, /zIndex: gitPanelOpen \? 1200 : 200/);
+  assert.match(source, /background: id === "git" && gitPanelOpen \? "var\(--bg-selected\)" : "transparent"/);
+});
+
 test("shows Git controls only for a resolved Git project", () => {
   assert.match(source, /onProjectGitStateChange=\{setActiveProjectIsGit\}/);
   assert.match(source, /filter\(\(\{\s*id\s*\}\) => id !== "git" \|\| activeProjectIsGit === true\)/);
