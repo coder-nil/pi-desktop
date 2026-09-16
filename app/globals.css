@@ -1498,6 +1498,41 @@ span.token.table {
   display: none;
 }
 
+.git-panel-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  justify-content: flex-end;
+  pointer-events: none;
+  background: transparent;
+}
+
+.git-panel-dialog {
+  flex-shrink: 0;
+  pointer-events: auto;
+  transition: margin-right 0.2s ease;
+}
+
+/* Dock the Git panel as a real split-layout panel immediately left of file-panel. */
+@media (min-width: 960px) {
+  .git-panel-overlay {
+    position: relative;
+    inset: auto;
+    z-index: 210;
+    width: min(460px, 38vw);
+    min-width: min(320px, 38vw);
+    height: 100%;
+    flex: 0 0 min(460px, 38vw);
+    overflow: hidden;
+    pointer-events: auto;
+  }
+  .git-panel-dialog {
+    width: 100% !important;
+    max-width: none !important;
+  }
+}
+
 /* Desktop sidebar: animate width */
 @media (min-width: 641px) {
   .sidebar-overlay-backdrop {

@@ -223,7 +223,6 @@ export const enLocale: LocalePlugin = {
     "sidebar.noMatchingProjects": "No matching projects",
     "sidebar.projectHistory": "Recently added",
     "sidebar.removeProjectHistory": "Remove {path} from recently added",
-    "sidebar.useDefaultDirectory": "Use default directory",
     "sidebar.customPath": "Custom path…",
     "directoryPicker.selectDirectory": "Select directory",
     "directoryPicker.goToParent": "Go to parent directory",

@@ -59,6 +59,18 @@ test("TextFileViewer keeps first-mount preview eligibility across Strict Effects
   assert.match(block, /defaultPreviewEligibleRef\.current[\s\S]*updateDisplayMode\("preview"\)/);
 });
 
+test("copying source or diff code excludes line-number gutters", () => {
+  const block = functionBlock("copyFileViewerSelectionWithoutGutters", "SourceCodeRenderer");
+  assert.match(block, /\.file-source-view, \.file-diff-view/);
+  assert.match(block, /range\.cloneContents\(\)/);
+  assert.match(block, /querySelectorAll\("\.file-viewer-copy-excluded"\)/);
+  assert.match(block, /clipboardData\.setData\("text\/plain", text\)/);
+  assert.match(block, /event\.preventDefault\(\)/);
+  assert.match(source, /onCopy=\{copyFileViewerSelectionWithoutGutters\}/);
+  assert.ok((source.match(/className="file-viewer-copy-excluded"/g) ?? []).length >= 3);
+  assert.match(source, /WebkitUserSelect: "none"/);
+});
+
 test("markdown table tokens stay inline despite Tailwind's table utility", () => {
   const html = renderToStaticMarkup(
     React.createElement(

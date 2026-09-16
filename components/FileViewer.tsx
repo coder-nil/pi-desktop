@@ -2,7 +2,7 @@
 
 import { RevealFileButton } from "./RevealFileButton";
 
-import { useEffect, useState, useRef, useCallback, useMemo, type CSSProperties, type MouseEvent } from "react";
+import { useEffect, useState, useRef, useCallback, useMemo, type ClipboardEvent as ReactClipboardEvent, type CSSProperties, type MouseEvent } from "react";
 import {
   Prism as SyntaxHighlighter,
   createElement as renderSyntaxNode,
@@ -82,6 +82,7 @@ const FILE_LINE_NUMBER_STYLE: CSSProperties = {
   fontVariantNumeric: "tabular-nums",
   lineHeight: "20.8px",
   userSelect: "none",
+  WebkitUserSelect: "none",
   flexShrink: 0,
   verticalAlign: "top",
 };
@@ -162,6 +163,36 @@ function getSelectedSourceLineRange(root: HTMLElement, selection: Selection | nu
   return { startLine, endLine };
 }
 
+function copyFileViewerSelectionWithoutGutters(event: ReactClipboardEvent<HTMLElement>) {
+  const selection = window.getSelection();
+  if (!selection || selection.isCollapsed || selection.rangeCount === 0) return;
+  const range = selection.getRangeAt(0);
+  if (!event.currentTarget.contains(range.commonAncestorContainer)) return;
+  const startElement = range.startContainer.nodeType === Node.ELEMENT_NODE
+    ? range.startContainer as Element
+    : range.startContainer.parentElement;
+  const endElement = range.endContainer.nodeType === Node.ELEMENT_NODE
+    ? range.endContainer as Element
+    : range.endContainer.parentElement;
+  const codeView = startElement?.closest(".file-source-view, .file-diff-view");
+  if (!codeView || !endElement || !codeView.contains(endElement)) return;
+
+  const fragment = range.cloneContents();
+  fragment.querySelectorAll(".file-viewer-copy-excluded").forEach((node) => node.remove());
+
+  const container = document.createElement("div");
+  container.style.position = "fixed";
+  container.style.left = "-100000px";
+  container.style.top = "0";
+  container.style.whiteSpace = "pre";
+  container.append(fragment);
+  document.body.append(container);
+  const text = container.innerText;
+  container.remove();
+  event.clipboardData.setData("text/plain", text);
+  event.preventDefault();
+}
+
 function SourceCodeRenderer({ rows, stylesheet, useInlineStyles, wrapLines }: SourceCodeRendererProps) {
   return rows.map((row, lineIndex) => {
     const children = row.children ?? [];
@@ -178,12 +209,12 @@ function SourceCodeRenderer({ rows, stylesheet, useInlineStyles, wrapLines }: So
         key={`source-line-${lineIndex}`}
         style={{ display: "flex", minWidth: "100%" }}
       >
-        {lineNumberNode && renderSyntaxNode({
+        {lineNumberNode && <span className="file-viewer-copy-excluded" aria-hidden="true" style={{ display: "contents", userSelect: "none", WebkitUserSelect: "none" }}>{renderSyntaxNode({
           node: lineNumberNode,
           stylesheet,
           useInlineStyles,
           key: `source-line-number-${lineIndex}`,
-        })}
+        })}</span>}
         <span
           className="file-source-line-content"
           style={{
@@ -369,16 +400,21 @@ function DiffView({ patch }: { patch: string }) {
               }}
             >
               <span
+                className="file-viewer-copy-excluded"
+                aria-hidden="true"
                 style={FILE_LINE_NUMBER_STYLE}
               >
                 {line.type === "removed" ? line.oldLineNo : line.newLineNo}
               </span>
               <span
+                className="file-viewer-copy-excluded"
+                aria-hidden="true"
                 style={{
                   minWidth: 16,
                   padding: "0 6px",
                   color: prefixColor,
                   userSelect: "none",
+                  WebkitUserSelect: "none",
                   flexShrink: 0,
                   fontWeight: 600,
                 }}
@@ -1403,6 +1439,7 @@ function TextFileViewer({
       <div
         ref={contentRef}
         className="file-viewer-content"
+        onCopy={copyFileViewerSelectionWithoutGutters}
         onScroll={(event) => {
           viewerStateRef.current.scrollTop = event.currentTarget.scrollTop;
           viewerStateRef.current.scrollLeft = event.currentTarget.scrollLeft;

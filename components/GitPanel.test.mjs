@@ -3,6 +3,14 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const source = await readFile(new URL("./GitPanel.tsx", import.meta.url), "utf8");
+const appShellSource = await readFile(new URL("./AppShell.tsx", import.meta.url), "utf8");
+const globalStyles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+
+test("matches the Git header height to the file-panel tab bar", () => {
+  assert.match(source, /<header style=\{\{ height: "calc\(36px \+ env\(safe-area-inset-top\)\)"/);
+  assert.match(source, /padding: "env\(safe-area-inset-top\) 14px 0"/);
+  assert.match(source, /flexShrink: 0/);
+});
 
 test("renders Git panel text through i18n", () => {
   assert.match(source, /import \{ useI18n \} from "@\/hooks\/useI18n"/);
@@ -19,6 +27,24 @@ test("supports staging, unstaging, and discarding all visible changes in one Git
   assert.match(source, /label=\{t\("git\.stageAll"\)\}/);
   assert.match(source, /label=\{t\("git\.unstageAll"\)\}/);
   assert.match(source, /label=\{t\("git\.discardAll"\)\}/);
+});
+
+test("opens a clicked changed file in the existing diff viewer", () => {
+  assert.match(source, /onOpenFile: \(filePath: string, fileName: string, options\?: \{ modeHint\?: "diff" \}\) => void/);
+  assert.match(source, /onOpenFile\(file\.filePath, fileName\(file\.filePath\), \{ modeHint: "diff" \}\)/);
+  assert.match(source, /onOpenDiff=\{openDiff\}/);
+  assert.match(source, /<button type="button" onClick=\{\(\) => onOpenDiff\(file\)\}/);
+  assert.doesNotMatch(source.slice(source.indexOf("const openDiff"), source.indexOf("const staged")), /onClose\(\)/);
+  assert.match(appShellSource, /onChanged=\{handleExplorerRefresh\} onOpenFile=\{handleOpenFile\}/);
+  const gitPanelMount = appShellSource.indexOf("<GitPanel cwd={activeCwd}");
+  const filePanelMount = appShellSource.indexOf('id="file-panel"');
+  assert.ok(gitPanelMount >= 0 && gitPanelMount < filePanelMount, "Git panel must be mounted immediately before file-panel");
+  assert.match(globalStyles, /Dock the Git panel as a real split-layout panel immediately left of file-panel/);
+  assert.match(globalStyles, /@media \(min-width: 960px\) \{[\s\S]*?\.git-panel-overlay \{[\s\S]*?position: relative;/);
+  assert.match(globalStyles, /flex: 0 0 min\(460px, 38vw\)/);
+  assert.match(globalStyles, /\.git-panel-dialog \{[\s\S]*?width: 100% !important;/);
+  assert.doesNotMatch(source, /dockToFilePreview|filePanelRightOffset|getElementById\("file-panel"\)/);
+  assert.doesNotMatch(globalStyles, /\.git-panel-overlay\s*\{[^}]*rgba\(0, 0, 0, 0\.34\)/);
 });
 
 test("keeps change lists scrollable at a fixed height", () => {
@@ -68,6 +94,10 @@ test("restores the saved username and remembered state into the credential form"
   assert.match(source, /savedCredentialUsername: string \| null/);
   assert.match(source, /setRememberCredential\(Boolean\(summary\?\.hasSavedCredential\)\)/);
   assert.match(source, /setUsername\(summary\.savedCredentialUsername \?\? ""\)/);
-  // The secret itself must never come back from the server.
+  assert.match(source, /const SAVED_CREDENTIAL_MASK = "••••••••"/);
+  assert.match(source, /setSecret\(SAVED_CREDENTIAL_MASK\)/);
+  assert.match(source, /secret !== SAVED_CREDENTIAL_MASK/);
+  assert.match(source, /onFocus=\{\(\) => \{ if \(secret === SAVED_CREDENTIAL_MASK\) setSecret\(""\); \}\}/);
+  // The mask is display-only and must never be submitted as the real secret.
   assert.doesNotMatch(source, /savedCredentialSecret/i);
 });

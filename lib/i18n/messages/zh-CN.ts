@@ -223,7 +223,6 @@ export const zhCNLocale: LocalePlugin = {
     "sidebar.noMatchingProjects": "没有匹配的项目",
     "sidebar.projectHistory": "最近添加",
     "sidebar.removeProjectHistory": "从最近添加中移除 {path}",
-    "sidebar.useDefaultDirectory": "使用默认目录",
     "sidebar.customPath": "自定义路径…",
     "directoryPicker.selectDirectory": "选择目录",
     "directoryPicker.goToParent": "转到上级目录",
