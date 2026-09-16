@@ -51,6 +51,10 @@ test("keeps the input-side rail in sync with minimap visibility and preview stat
   );
   assert.match(
     chatWindowSource,
+    /data-minimap-status-clearance=""[\s\S]*?marginRight: CHAT_MINIMAP_WIDTH/,
+  );
+  assert.match(
+    chatWindowSource,
     /borderLeft: minimapState\.previewOpen \? "none" : "1px solid var\(--border\)"/,
   );
 });

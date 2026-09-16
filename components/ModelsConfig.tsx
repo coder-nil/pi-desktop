@@ -181,7 +181,8 @@ type Selection =
   | { type: "provider"; name: string }
   | { type: "model"; providerName: string; index: number }
   | { type: "oauth"; providerId: string }
-  | { type: "apikey"; providerId: string };
+  | { type: "apikey"; providerId: string }
+  | { type: "builtin-model"; providerId: string; modelId: string };
 
 const API_OPTIONS = ["openai-completions", "openai-responses", "anthropic-messages", "google-generative-ai"] as const;
 
@@ -327,6 +328,7 @@ function ProviderDetail({ name, provider, onChange, onRename, onDelete, onAddMod
   const [discoveryState, setDiscoveryState] = useState<ModelDiscoveryState>({ phase: "idle" });
   const [discoveryQuery, setDiscoveryQuery] = useState("");
   const [selectedModelIds, setSelectedModelIds] = useState<string[]>([]);
+  const [modelInputOverrides, setModelInputOverrides] = useState<Record<string, ("text" | "image")[]>>({});
   const discoveryRequestIdRef = useRef(0);
   const selectShownRef = useRef<HTMLInputElement>(null);
   useEffect(() => setEditingName(name), [name]);
@@ -394,6 +396,14 @@ function ProviderDetail({ name, provider, onChange, onRename, onDelete, onAddMod
       : [...current, id]);
   };
 
+  const toggleModelInput = (id: string) => {
+    setModelInputOverrides((prev) => {
+      const current = prev[id] ?? ["text"];
+      const next = current.includes("image") ? ["text"] : ["text", "image"];
+      return { ...prev, [id]: next };
+    });
+  };
+
   const toggleShownModels = () => {
     const shownIds = new Set(selectableShownIds);
     setSelectedModelIds((current) => allShownSelected
@@ -404,10 +414,17 @@ function ProviderDetail({ name, provider, onChange, onRename, onDelete, onAddMod
   const addSelectedModels = () => {
     if (discoveryState.phase !== "success") return;
     const selected = new Set(selectedModelIds);
-    const additions = discoveryState.models.filter((model) => selected.has(model.id) && !existingModelIds.has(model.id));
+    const additions = discoveryState.models
+      .filter((model) => selected.has(model.id) && !existingModelIds.has(model.id))
+      .map((model) => {
+        const override = modelInputOverrides[model.id];
+        if (override) return { ...model, input: override };
+        return model;
+      });
     if (additions.length === 0) return;
     onAddModels(additions);
     setSelectedModelIds([]);
+    setModelInputOverrides({});
   };
 
   return (
@@ -512,6 +529,10 @@ function ProviderDetail({ name, provider, onChange, onRename, onDelete, onAddMod
               ) : shownDiscoveredModels.map((model, index) => {
                 const alreadyAdded = existingModelIds.has(model.id);
                 const checked = selectedModelIds.includes(model.id);
+                const effectiveInput = modelInputOverrides[model.id] ?? model.input ?? ["text"];
+                const capabilityLabel = effectiveInput.includes("image")
+                  ? t("models.capabilityTextImage")
+                  : t("models.capabilityText");
                 return (
                   <label
                     key={model.id}
@@ -532,6 +553,24 @@ function ProviderDetail({ name, provider, onChange, onRename, onDelete, onAddMod
                       <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--text)", fontSize: 11 }}>{model.name ?? model.id}</span>
                       {model.name && <code style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--text-dim)", fontSize: 10, fontFamily: "var(--font-mono)" }}>{model.id}</code>}
                     </span>
+                    {!alreadyAdded ? (
+                      <div style={{ display: "flex", alignItems: "center", gap: 4 }} onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={effectiveInput.includes("image")}
+                          onChange={() => toggleModelInput(model.id)}
+                          title={t("models.imageInput")}
+                          style={{ width: 11, height: 11, accentColor: "var(--accent)", flexShrink: 0 }}
+                        />
+                        <span style={{ fontSize: 9, color: "var(--text-muted)", background: "var(--bg-panel)", border: "1px solid var(--border)", borderRadius: 4, padding: "1px 6px", whiteSpace: "nowrap" }}>
+                          {capabilityLabel}
+                        </span>
+                      </div>
+                    ) : (
+                      <span style={{ fontSize: 9, color: "var(--text-muted)", background: "var(--bg-panel)", border: "1px solid var(--border)", borderRadius: 4, padding: "1px 6px", whiteSpace: "nowrap" }}>
+                        {capabilityLabel}
+                      </span>
+                    )}
                     {alreadyAdded && <span style={{ color: "var(--text-dim)", fontSize: 10 }}>{t("models.discoveryAdded")}</span>}
                   </label>
                 );
@@ -1946,6 +1985,8 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
   const [oauthProviders, setOauthProviders] = useState<OAuthProvider[]>([]);
   const [apiKeyProviders, setApiKeyProviders] = useState<ApiKeyProvider[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [allModels, setAllModels] = useState<{ provider: string; modelId: string; name: string }[]>([]);
+  const [expandedBuiltins, setExpandedBuiltins] = useState<Set<string>>(new Set());
 
   const loadOAuthProviders = useCallback(() => {
     fetch("/api/auth/providers")
@@ -1973,6 +2014,15 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
     loadOAuthProviders();
     loadApiKeyProviders();
   }, [loadOAuthProviders, loadApiKeyProviders]);
+
+  useEffect(() => {
+    fetch("/api/models")
+      .then((r) => r.json())
+      .then((d: { modelList?: { id: string; name: string; provider: string }[] }) => {
+        if (Array.isArray(d.modelList)) setAllModels(d.modelList);
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     fetch("/api/models-config")
@@ -2055,6 +2105,7 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
           ...(discoveredModel.name ? { name: discoveredModel.name } : {}),
           ...(discoveredModel.contextWindow ? { contextWindow: discoveredModel.contextWindow } : {}),
           ...(discoveredModel.maxTokens ? { maxTokens: discoveredModel.maxTokens } : {}),
+          ...(discoveredModel.input ? { input: [...discoveredModel.input] } : {}),
         });
       }
       return { ...prev, providers: { ...(prev.providers ?? {}), [providerName]: { ...provider, models } } };
@@ -2145,6 +2196,18 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
         onDelete={() => removeModel(selection.providerName, selection.index)}
       />
     );
+    if (selection.type === "builtin-model") {
+      return (
+        <BuiltinModelDetail
+          providerId={selection.providerId}
+          modelId={selection.modelId}
+          config={config}
+          setConfig={setConfig}
+          allModels={allModels}
+          onSelectProvider={() => setSelection({ type: "provider", name: selection.providerId })}
+        />
+      );
+    }
   })();
 
   return (

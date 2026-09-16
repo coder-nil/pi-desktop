@@ -558,6 +558,8 @@ export const zhCNLocale: LocalePlugin = {
     "models.capabilities": "能力",
     "models.reasoning": "推理 / 思考",
     "models.imageInput": "图片输入",
+    "models.capabilityText": "文本",
+    "models.capabilityTextImage": "文本 + 图片",
     "models.modelSpecs": "模型规格",
     "models.contextWindow": "上下文窗口（tokens）",
     "models.maxOutputTokens": "最大输出 tokens",

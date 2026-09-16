@@ -856,7 +856,12 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
 
       <div className="relative">
         {chatInputElement}
-        <ExtensionStatusBar statuses={extensionStatuses} widgets={extensionWidgets} />
+        <div
+          data-minimap-status-clearance=""
+          style={!isMobile && minimapState.visible ? { marginRight: CHAT_MINIMAP_WIDTH } : undefined}
+        >
+          <ExtensionStatusBar statuses={extensionStatuses} widgets={extensionWidgets} />
+        </div>
         {!isMobile && minimapState.visible && (
           <div
             aria-hidden="true"

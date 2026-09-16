@@ -3,6 +3,7 @@ export interface DiscoveredModel {
   name?: string;
   contextWindow?: number;
   maxTokens?: number;
+  input?: ("text" | "image")[];
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -38,11 +39,21 @@ function modelFromValue(value: unknown): DiscoveredModel | null {
   const maxTokens = positiveInteger(metadata?.max_output_tokens)
     ?? positiveInteger(value.max_output_tokens)
     ?? positiveInteger(value.maxTokens);
+  const input = (() => {
+    const raw = (Array.isArray(value.input) ? value.input : undefined)
+      ?? (isRecord(value.capabilities) && Array.isArray(value.capabilities.input) ? value.capabilities.input : undefined)
+      ?? (Array.isArray(value.supported_modalities) ? value.supported_modalities : undefined)
+      ?? (isRecord(value.metadata) && Array.isArray(value.metadata.input) ? value.metadata.input : undefined);
+    if (!Array.isArray(raw)) return undefined;
+    const normalized = raw.map((v) => typeof v === "string" ? v.trim().toLowerCase() : String(v)).filter((v) => v === "text" || v === "image");
+    return normalized.length > 0 ? normalized : undefined;
+  })();
   return {
     id,
     ...(name && name !== id ? { name } : {}),
     ...(contextWindow ? { contextWindow } : {}),
     ...(maxTokens ? { maxTokens } : {}),
+    ...(input ? { input } : {}),
   };
 }
 

@@ -558,6 +558,8 @@ export const enLocale: LocalePlugin = {
     "models.capabilities": "Capabilities",
     "models.reasoning": "Reasoning / thinking",
     "models.imageInput": "Image input",
+    "models.capabilityText": "Text",
+    "models.capabilityTextImage": "Text + image",
     "models.modelSpecs": "Model specifications",
     "models.contextWindow": "Context window (tokens)",
     "models.maxOutputTokens": "Max output tokens",
