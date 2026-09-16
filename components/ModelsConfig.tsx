@@ -1358,6 +1358,116 @@ function ModelDetail({
   );
 }
 
+// ── Built-in model detail ────────────────────────────────────────────────────
+
+function BuiltinModelDetail({
+  providerId,
+  modelId,
+  config,
+  setConfig,
+  allModels,
+  onSelectProvider,
+}: {
+  providerId: string;
+  modelId: string;
+  config: ModelsJson;
+  setConfig: (c: ModelsJson) => void;
+  allModels: { provider: string; modelId: string; name: string }[];
+  onSelectProvider: () => void;
+}) {
+  const { t } = useI18n();
+  const providerName = providerId;
+  const provider = config.providers?.[providerName];
+  const modelInfo = allModels.find((m) => m.provider === providerId && m.modelId === modelId);
+  const overrides = provider?.modelOverrides?.[modelId] as Record<string, unknown> | undefined;
+
+  const updateOverride = useCallback((key: string, value: unknown) => {
+    setConfig((prev) => {
+      const providers = { ...(prev.providers ?? {}) };
+      const current = providers[providerName] ?? {};
+      const modelOverrides = { ...(current.modelOverrides ?? {}) };
+      const currentModel = { ...(modelOverrides[modelId] ?? {}) };
+      if (value === undefined) {
+        delete currentModel[key];
+      } else {
+        currentModel[key] = value;
+      }
+      const nextModelOverrides = { ...modelOverrides };
+      if (Object.keys(currentModel).length === 0) {
+        delete nextModelOverrides[modelId];
+      } else {
+        nextModelOverrides[modelId] = currentModel;
+      }
+      const nextProvider = { ...current };
+      if (Object.keys(nextModelOverrides).length === 0) {
+        delete nextProvider.modelOverrides;
+      } else {
+        nextProvider.modelOverrides = nextModelOverrides;
+      }
+      providers[providerName] = nextProvider;
+      return { ...prev, providers };
+    });
+  }, [providerName, modelId, setConfig]);
+
+  const reasoning = overrides?.reasoning ?? false;
+  const hasImageInput = Array.isArray(overrides?.input)
+    ? (overrides.input as string[]).includes("image")
+    : false;
+  const inputArray = Array.isArray(overrides?.input) ? overrides.input as string[] : undefined;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <button onClick={onSelectProvider}
+          style={{ padding: "3px 8px", background: "none", border: "1px solid var(--border)", borderRadius: 4, color: "var(--text-muted)", cursor: "pointer", fontSize: 11 }}>
+          ← {provider?.name ?? providerId}
+        </button>
+        <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>{modelInfo?.name ?? modelId}</span>
+        <code style={{ fontSize: 10, color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>{modelId}</code>
+      </div>
+
+      <div>
+        <SectionTitle>{t("models.capabilities")}</SectionTitle>
+        <div style={{ display: "flex", gap: 20, flexWrap: "wrap", marginTop: 8 }}>
+          <Check label={t("models.reasoning")} checked={reasoning}
+            onChange={(v) => updateOverride("reasoning", v || undefined)} />
+          <Check label={t("models.imageInput")} checked={hasImageInput}
+            onChange={(v) => {
+              if (v) {
+                updateOverride("input", inputArray && inputArray.includes("text")
+                  ? inputArray
+                  : ["text", "image"]);
+              } else {
+                const next = inputArray?.filter((i) => i !== "image");
+                updateOverride("input", next && next.length > 0 ? next : undefined);
+              }
+            }} />
+        </div>
+      </div>
+
+      <section>
+        <SectionTitle>{t("models.modelSpecs")}</SectionTitle>
+        <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10 }}>
+          <Field label={t("models.contextWindow")}>
+            <NumInput value={overrides?.contextWindow !== undefined ? String(overrides.contextWindow) : ""}
+              onChange={(v) => updateOverride("contextWindow", v ? parseInt(v) : undefined)}
+              placeholder="128000" />
+          </Field>
+          <Field label={t("models.maxOutputTokens")}>
+            <NumInput value={overrides?.maxTokens !== undefined ? String(overrides.maxTokens) : ""}
+              onChange={(v) => updateOverride("maxTokens", v ? parseInt(v) : undefined)}
+              placeholder="16384" />
+          </Field>
+        </div>
+      </section>
+
+      <div style={{ fontSize: 10, color: "var(--text-dim)", padding: "8px 0" }}>
+        {t("models.providerDefaults")}
+      </div>
+    </div>
+  );
+}
+
 // ── OAuth detail ──────────────────────────────────────────────────────────────
 
 function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefresh: () => void }) {

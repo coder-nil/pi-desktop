@@ -1,3 +1,8 @@
+import { readFileSync, readdirSync } from "fs";
+import { resolve } from "path";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { parseDiscoveredModels, buildModelsListUrl } from "./model-discovery";
+
 export interface ModelCatalogCost {
   input?: number;
   output?: number;
@@ -411,4 +416,162 @@ export function searchModelCatalog(
       || a.entry.id.localeCompare(b.entry.id, undefined, { numeric: true, sensitivity: "base" }))
     .slice(0, cappedLimit)
     .map(({ entry }) => entry);
+}
+
+/** Load the full SDK built-in model catalog (no network required). */
+export async function flattenSdkBuiltInCatalog(): Promise<ModelCatalogEntry[]> {
+  try {
+    const entries: ModelCatalogEntry[] = [];
+    const dataDir = "/Volumes/Chenxiaoni·SSD/Development/WebStormProjects/pi-desktop/node_modules/@earendil-works/pi-ai/dist/providers/data/";
+
+    for (const file of readdirSync(dataDir).filter((f) => f.endsWith(".json"))) {
+      try {
+        const raw = JSON.parse(readFileSync(dataDir + file, "utf8"));
+        if (!isRecord(raw)) continue;
+        // Each file groups models by API type (e.g. openai-completions)
+        for (const modelsByApi of Object.values(raw)) {
+          if (!isRecord(modelsByApi)) continue;
+          for (const [modelId, m] of Object.entries(modelsByApi)) {
+            if (!isRecord(m)) continue;
+            const provider = typeof m.provider === "string" ? m.provider : modelId;
+            const entry: ModelCatalogEntry = {
+              key: `${provider}/${modelId}`,
+              providerId: provider,
+              providerName: provider,
+              id: modelId,
+              name: typeof m.name === "string" ? m.name : modelId,
+              cost: readCost(m.cost),
+            };
+            if (typeof m.baseUrl === "string") entry.providerBaseUrl = m.baseUrl;
+            if (typeof m.reasoning === "boolean") entry.reasoning = m.reasoning;
+            if (Array.isArray(m.input)) entry.input = m.input;
+            if (typeof m.contextWindow === "number") entry.contextWindow = m.contextWindow;
+            if (typeof m.maxTokens === "number") entry.maxTokens = m.maxTokens;
+            entries.push(entry);
+          }
+        }
+      } catch {
+        // skip malformed data file
+      }
+    }
+
+    return entries;
+  } catch {
+    return [];
+  }
+}
+
+export interface ProviderModelConfig {
+  providerId: string;
+  providerName: string;
+  api: string;
+  baseUrl: string;
+  apiKey?: string;
+}
+
+function readJsonFile(path: string): unknown {
+  try {
+    return JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+export function loadConfiguredProviders(): ProviderModelConfig[] {
+  const agentDir = getAgentDir();
+  const modelsData = readJsonFile(resolve(agentDir, "models.json"));
+  if (!isRecord(modelsData)) return [];
+
+  const providers = isRecord(modelsData.providers) ? modelsData.providers : {};
+  const authData = readJsonFile(resolve(agentDir, "auth.json"));
+  const authRecord = isRecord(authData) ? authData : {};
+
+  const configs: ProviderModelConfig[] = [];
+  for (const [providerId, raw] of Object.entries(providers)) {
+    if (!isRecord(raw)) continue;
+    const baseUrl = typeof raw.baseUrl === "string" && raw.baseUrl.trim()
+      ? raw.baseUrl.trim()
+      : undefined;
+    if (!baseUrl) continue;
+
+    const api = typeof raw.api === "string" && raw.api.trim()
+      ? raw.api.trim()
+      : "openai-completions";
+
+    const authEntry = authRecord[providerId];
+    let apiKey: string | undefined;
+    if (isRecord(authEntry) && authEntry.type === "api_key") {
+      apiKey = typeof authEntry.key === "string" ? authEntry.key : undefined;
+    }
+    if (!apiKey && typeof raw.apiKey === "string" && raw.apiKey.trim()) {
+      apiKey = raw.apiKey.trim();
+    }
+
+    configs.push({ providerId, providerName: providerId, api, baseUrl, apiKey });
+  }
+
+  return configs;
+}
+
+export async function fetchProviderModels(config: ProviderModelConfig): Promise<ModelCatalogEntry[]> {
+  const { providerId, api, baseUrl, apiKey } = config;
+  try {
+    const endpoint = buildModelsListUrl(baseUrl, api);
+    const headers = new Headers();
+    headers.set("Accept", "application/json");
+    if (apiKey) {
+      if (api === "anthropic-messages") {
+        headers.set("x-api-key", apiKey);
+        headers.set("anthropic-version", "2023-06-01");
+      } else if (api === "google-generative-ai") {
+        headers.set("x-goog-api-key", apiKey);
+      } else {
+        headers.set("Authorization", `Bearer ${apiKey}`);
+      }
+    }
+
+    const response = await fetch(endpoint.toString(), {
+      headers,
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!response.ok) return [];
+
+    const discovered = parseDiscoveredModels(await response.json());
+    return discovered.map((model) => {
+      const entry: ModelCatalogEntry = {
+        key: `${providerId}/${model.id}`,
+        providerId,
+        providerName: config.providerName,
+        id: model.id,
+        name: model.name ?? model.id,
+        cost: {
+          input: undefined,
+          output: undefined,
+          cacheRead: undefined,
+          cacheWrite: undefined,
+        },
+      };
+      if (baseUrl) entry.providerBaseUrl = baseUrl;
+      if (model.contextWindow) entry.contextWindow = model.contextWindow;
+      if (model.maxTokens) entry.maxTokens = model.maxTokens;
+      if (model.input && model.input.length > 0) entry.input = model.input;
+      return entry;
+    });
+  } catch {
+    return [];
+  }
+}
+
+export function mergeCatalogs(
+  base: ModelCatalogEntry[],
+  live: ModelCatalogEntry[],
+): ModelCatalogEntry[] {
+  const merged = new Map<string, ModelCatalogEntry>();
+  for (const entry of base) {
+    merged.set(entry.key, entry);
+  }
+  for (const entry of live) {
+    merged.set(entry.key, entry);
+  }
+  return Array.from(merged.values());
 }
