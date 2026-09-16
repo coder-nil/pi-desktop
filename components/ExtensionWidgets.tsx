@@ -1,11 +1,14 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { ChevronLeft, ChevronUp, ListTodo } from "lucide-react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import type { ExtensionWidgetItem } from "@/lib/types";
 
 export const DEFAULT_EXPANDED_WIDGET_LINES = 3;
 export const WIDGET_UPDATE_IDLE_MS = 1100;
+const TASK_PROGRESS_WIDGET_KEY = "任务进度";
+const TASK_LIST_LABEL = "任务列表";
 
 export function formatExtensionWidgetContent(lines: string[]): string {
   return lines.join("\n");
@@ -45,7 +48,13 @@ export function getNextExpandedWidgetKey(
   return currentKey === requestedKey ? null : requestedKey;
 }
 
-export function ExtensionWidgets({ widgets }: { widgets: ExtensionWidgetItem[] }) {
+export function ExtensionWidgets({
+  widgets,
+  trailingContent,
+}: {
+  widgets: ExtensionWidgetItem[];
+  trailingContent?: ReactNode;
+}) {
   const { t } = useI18n();
   const idPrefix = useId();
   const previousContentsRef = useRef<Map<string, string[]> | null>(null);
@@ -151,28 +160,45 @@ export function ExtensionWidgets({ widgets }: { widgets: ExtensionWidgetItem[] }
               ? "chat.extensionWidgetBelow"
               : "chat.extensionWidgetAbove",
           );
+          const isTaskList = widget.key === TASK_PROGRESS_WIDGET_KEY;
+          const displayKey = isTaskList ? TASK_LIST_LABEL : widget.key;
           const triggerId = `${idPrefix}-trigger-${index}`;
           const panelId = `${idPrefix}-panel-${index}`;
           const content = (
             <>
               <span className="extension-widget-update-pulse" aria-hidden="true" />
-              <span className="extension-widget-placement" aria-hidden="true">
-                <svg
-                  className="extension-widget-placement-icon"
-                  viewBox="0 0 8 6"
-                  width="8"
-                  height="6"
-                  data-direction={widget.placement === "belowEditor" ? "down" : "up"}
-                  focusable="false"
+              {isTaskList ? (
+                <ListTodo className="extension-widget-task-icon" size={14} strokeWidth={1.8} aria-hidden="true" />
+              ) : (
+                <span className="extension-widget-placement" aria-hidden="true">
+                  <svg
+                    className="extension-widget-placement-icon"
+                    viewBox="0 0 8 6"
+                    width="8"
+                    height="6"
+                    data-direction={widget.placement === "belowEditor" ? "down" : "up"}
+                    focusable="false"
+                  >
+                    <path
+                      d={widget.placement === "belowEditor"
+                        ? "M0 0h8L4 6z"
+                        : "M4 0l4 6H0z"}
+                    />
+                  </svg>
+                </span>
+              )}
+              <span className="extension-widget-key">{displayKey}</span>
+              {isTaskList && expandable && (
+                <span
+                  className="extension-widget-disclosure"
+                  data-direction={expanded ? "up" : "left"}
+                  aria-hidden="true"
                 >
-                  <path
-                    d={widget.placement === "belowEditor"
-                      ? "M0 0h8L4 6z"
-                      : "M4 0l4 6H0z"}
-                  />
-                </svg>
-              </span>
-              <span className="extension-widget-key">{widget.key}</span>
+                  {expanded
+                    ? <ChevronUp size={13} strokeWidth={2} />
+                    : <ChevronLeft size={13} strokeWidth={2} />}
+                </span>
+              )}
             </>
           );
 
@@ -184,8 +210,8 @@ export function ExtensionWidgets({ widgets }: { widgets: ExtensionWidgetItem[] }
               className={`extension-widget-trigger${expanded ? " is-expanded" : ""}${updating ? " is-updating" : ""}`}
               aria-controls={panelId}
               aria-expanded={expanded}
-              aria-label={`${placementLabel}: ${widget.key}, ${lineCountLabel}`}
-              title={`${widget.key} - ${placementLabel} - ${expanded ? t("i18n.collapse") : t("i18n.expand")}`}
+              aria-label={`${placementLabel}: ${displayKey}, ${lineCountLabel}`}
+              title={`${displayKey} - ${expanded ? t("i18n.collapse") : t("i18n.expand")}`}
               onClick={() => toggleWidget(widget)}
             >
               {content}
@@ -194,13 +220,14 @@ export function ExtensionWidgets({ widgets }: { widgets: ExtensionWidgetItem[] }
             <div
               key={widget.key}
               className={`extension-widget-trigger${updating ? " is-updating" : ""}`}
-              aria-label={`${placementLabel}: ${widget.key}, ${lineCountLabel}`}
-              title={`${widget.key} - ${placementLabel}`}
+              aria-label={`${placementLabel}: ${displayKey}, ${lineCountLabel}`}
+              title={`${displayKey} - ${placementLabel}`}
             >
               {content}
             </div>
           );
         })}
+        {trailingContent}
       </div>
     </>
   );

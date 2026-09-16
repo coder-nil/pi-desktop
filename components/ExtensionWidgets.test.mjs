@@ -126,6 +126,32 @@ test("compares widget lines without delimiter collisions", () => {
   assert.deepEqual(getUpdatedExtensionWidgetKeys(previous, next), ["status"]);
 });
 
+test("renders the task widget as a task list with an upward expanded indicator", () => {
+  const html = renderWidgets({
+    widgets: [{ key: "任务进度", lines: ["已完成 1/2", "● 实现控件"], placement: "aboveEditor" }],
+  });
+
+  assert.match(html, /class="extension-widget-trigger is-expanded"/);
+  assert.match(html, /extension-widget-task-icon/);
+  assert.match(html, />任务列表</);
+  assert.match(html, /class="extension-widget-disclosure" data-direction="up"/);
+  assert.match(html, /lucide-chevron-up/);
+  assert.doesNotMatch(html, /lucide-chevron-left/);
+  assert.doesNotMatch(html, /extension-widget-placement-icon/);
+});
+
+test("uses a left indicator when the task list is collapsed", () => {
+  const lines = Array.from({ length: DEFAULT_EXPANDED_WIDGET_LINES + 1 }, (_, index) => `任务 ${index + 1}`);
+  const html = renderWidgets({
+    widgets: [{ key: "任务进度", lines, placement: "aboveEditor" }],
+  });
+
+  assert.match(html, /aria-expanded="false"/);
+  assert.match(html, /class="extension-widget-disclosure" data-direction="left"/);
+  assert.match(html, /lucide-chevron-left/);
+  assert.doesNotMatch(html, /lucide-chevron-up/);
+});
+
 test("uses a compact key-only trigger with a placement icon", () => {
   const html = renderWidgets({
     widgets: [{ key: "long-extension-widget-key", lines: ["ready"], placement: "belowEditor" }],

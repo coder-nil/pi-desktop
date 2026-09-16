@@ -361,8 +361,8 @@ body {
 }
 
 .extension-status-shelf.has-widgets.has-status .extension-widget-triggers {
-  flex: 0 1 70%;
-  max-width: 70%;
+  flex: 0 1 auto;
+  max-width: 75%;
   border-right: 1px solid var(--border);
 }
 
@@ -450,6 +450,28 @@ button.extension-widget-trigger:focus-visible {
   fill: currentColor;
 }
 
+.extension-widget-task-icon,
+.extension-widget-disclosure {
+  position: relative;
+  z-index: 1;
+  flex: none;
+  color: var(--text-dim);
+}
+
+.extension-widget-task-icon {
+  width: 14px;
+  height: 14px;
+}
+
+.extension-widget-disclosure {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 13px;
+  height: 13px;
+  margin-left: auto;
+}
+
 .extension-widget-key {
   position: relative;
   z-index: 1;
@@ -484,17 +506,44 @@ button.extension-widget-trigger:focus-visible {
   white-space: pre-wrap;
 }
 
-.extension-status-line {
+.extension-task-status-fallback {
   display: flex;
-  flex: 1 1 0;
+  flex: 0 1 auto;
+  align-items: center;
+  min-width: 0;
+  max-width: 45%;
+  height: 35px;
+}
+
+.extension-task-status-line {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex: 0 1 auto;
   align-items: center;
   min-width: 0;
   height: 35px;
-  padding: 0 12px;
+  padding: 0 10px;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.extension-status-line {
+  display: flex;
+  flex: 0 1 auto;
+  align-items: center;
+  min-width: 0;
+  max-width: 55%;
+  height: 35px;
+  margin-left: auto;
+  justify-content: flex-end;
+  padding: 0 12px 0 10px;
 }
 
 .extension-status-text {
   display: flex;
+  flex: 1;
   align-items: center;
   min-width: 0;
   overflow: hidden;
