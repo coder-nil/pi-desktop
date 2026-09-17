@@ -399,7 +399,7 @@ function ProviderDetail({ name, provider, onChange, onRename, onDelete, onAddMod
   const toggleModelInput = (id: string) => {
     setModelInputOverrides((prev) => {
       const current = prev[id] ?? ["text"];
-      const next = current.includes("image") ? ["text"] : ["text", "image"];
+      const next: ("text" | "image")[] = current.includes("image") ? ["text"] : ["text", "image"];
       return { ...prev, [id]: next };
     });
   };
@@ -1371,7 +1371,7 @@ function BuiltinModelDetail({
   providerId: string;
   modelId: string;
   config: ModelsJson;
-  setConfig: (c: ModelsJson) => void;
+  setConfig: React.Dispatch<React.SetStateAction<ModelsJson>>;
   allModels: { provider: string; modelId: string; name: string }[];
   onSelectProvider: () => void;
 }) {
@@ -1386,7 +1386,9 @@ function BuiltinModelDetail({
       const providers = { ...(prev.providers ?? {}) };
       const current = providers[providerName] ?? {};
       const modelOverrides = { ...(current.modelOverrides ?? {}) };
-      const currentModel = { ...(modelOverrides[modelId] ?? {}) };
+      const currentModel: Record<string, unknown> = {
+        ...((modelOverrides[modelId] as Record<string, unknown> | undefined) ?? {}),
+      };
       if (value === undefined) {
         delete currentModel[key];
       } else {
@@ -1409,7 +1411,7 @@ function BuiltinModelDetail({
     });
   }, [providerName, modelId, setConfig]);
 
-  const reasoning = overrides?.reasoning ?? false;
+  const reasoning = overrides?.reasoning === true;
   const hasImageInput = Array.isArray(overrides?.input)
     ? (overrides.input as string[]).includes("image")
     : false;
@@ -1420,7 +1422,7 @@ function BuiltinModelDetail({
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
         <button onClick={onSelectProvider}
           style={{ padding: "3px 8px", background: "none", border: "1px solid var(--border)", borderRadius: 4, color: "var(--text-muted)", cursor: "pointer", fontSize: 11 }}>
-          ← {provider?.name ?? providerId}
+          ← {providerId}
         </button>
         <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>{modelInfo?.name ?? modelId}</span>
         <code style={{ fontSize: 10, color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>{modelId}</code>
@@ -2129,7 +2131,9 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
     fetch("/api/models")
       .then((r) => r.json())
       .then((d: { modelList?: { id: string; name: string; provider: string }[] }) => {
-        if (Array.isArray(d.modelList)) setAllModels(d.modelList);
+        if (Array.isArray(d.modelList)) {
+          setAllModels(d.modelList.map(({ id, name, provider }) => ({ modelId: id, name, provider })));
+        }
       })
       .catch(() => {});
   }, []);
@@ -2293,6 +2297,18 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
         />
       );
     }
+    if (selection.type === "builtin-model") {
+      return (
+        <BuiltinModelDetail
+          providerId={selection.providerId}
+          modelId={selection.modelId}
+          config={config}
+          setConfig={setConfig}
+          allModels={allModels}
+          onSelectProvider={() => setSelection({ type: "provider", name: selection.providerId })}
+        />
+      );
+    }
     const provider = config.providers?.[selection.providerName];
     const model = provider?.models?.[selection.index];
     if (!model) return null;
@@ -2306,18 +2322,6 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
         onDelete={() => removeModel(selection.providerName, selection.index)}
       />
     );
-    if (selection.type === "builtin-model") {
-      return (
-        <BuiltinModelDetail
-          providerId={selection.providerId}
-          modelId={selection.modelId}
-          config={config}
-          setConfig={setConfig}
-          allModels={allModels}
-          onSelectProvider={() => setSelection({ type: "provider", name: selection.providerId })}
-        />
-      );
-    }
   })();
 
   return (
