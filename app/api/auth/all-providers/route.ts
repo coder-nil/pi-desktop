@@ -1,4 +1,4 @@
-import { createDesktopModelRuntime } from "@/lib/desktop-providers";
+import { createDesktopModelRuntime, refreshDesktopProviderCatalogs } from "@/lib/desktop-providers";
 import { buildApiKeyProviderList } from "@/lib/provider-listing";
 import { collectProviderListingInputs } from "@/lib/provider-listing-runtime";
 
@@ -8,6 +8,7 @@ export const dynamic = "force-dynamic";
 // see lib/provider-listing.ts for why membership is capability-based (#309).
 export async function GET() {
   const modelRuntime = await createDesktopModelRuntime();
+  await refreshDesktopProviderCatalogs(modelRuntime, AbortSignal.timeout(20_000)).catch(() => {});
   const providers = buildApiKeyProviderList(await collectProviderListingInputs(modelRuntime));
   return Response.json({ providers });
 }

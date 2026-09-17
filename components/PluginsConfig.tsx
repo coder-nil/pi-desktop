@@ -856,12 +856,14 @@ function PackageDetail({
 export function PluginsConfig({
   cwd,
   sessionId,
+  embedded = false,
   onClose,
   onReloaded,
 }: {
   cwd: string;
   sessionId: string | null;
-  onClose: () => void;
+  embedded?: boolean;
+  onClose?: () => void;
   onReloaded?: () => void;
 }) {
   const isMobile = useIsMobile();
@@ -996,30 +998,32 @@ export function PluginsConfig({
   return (
     <div
       style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: 1000,
-        background: "rgba(0,0,0,0.35)",
+        position: embedded ? "relative" : "fixed",
+        inset: embedded ? undefined : 0,
+        zIndex: embedded ? undefined : 1000,
+        width: embedded ? "100%" : undefined,
+        height: embedded ? "100%" : undefined,
+        background: embedded ? "transparent" : "rgba(0,0,0,0.35)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
       }}
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (!embedded && e.target === e.currentTarget) onClose?.();
       }}
     >
       <div
         style={{
-          width: isMobile ? "calc(100vw - 16px)" : 860,
-          maxWidth: "calc(100vw - 16px)",
-          height: isMobile ? "calc(100dvh - 16px)" : "76vh",
-          maxHeight: "calc(100dvh - 16px)",
+          width: embedded ? "100%" : isMobile ? "calc(100vw - 16px)" : 860,
+          maxWidth: embedded ? "none" : "calc(100vw - 16px)",
+          height: embedded ? "100%" : isMobile ? "calc(100dvh - 16px)" : "76vh",
+          maxHeight: embedded ? "none" : "calc(100dvh - 16px)",
           background: "var(--bg)",
-          border: "1px solid var(--border)",
-          borderRadius: 8,
+          border: embedded ? "none" : "1px solid var(--border)",
+          borderRadius: embedded ? 0 : 8,
           display: "flex",
           flexDirection: "column",
-          boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
+          boxShadow: embedded ? "none" : "0 8px 32px rgba(0,0,0,0.18)",
           overflow: "hidden",
         }}
       >
@@ -1050,7 +1054,7 @@ export function PluginsConfig({
               {shortenPath(cwd)}
             </code>
           </div>
-          <button
+          {!embedded && <button
             onClick={onClose}
             style={{
               background: "none",
@@ -1063,7 +1067,7 @@ export function PluginsConfig({
             }}
           >
             ×
-          </button>
+          </button>}
         </div>
 
         {!projectResourcesLoaded && (
@@ -1328,9 +1332,9 @@ export function PluginsConfig({
           <button onClick={() => void loadPlugins()} disabled={loading || busyKey !== null} style={buttonStyle(loading || busyKey !== null)}>
              {t("i18n.refresh")}
           </button>
-          <button onClick={onClose} style={buttonStyle(false)}>
+          {!embedded && <button onClick={onClose} style={buttonStyle(false)}>
              {t("i18n.close")}
-          </button>
+          </button>}
         </div>
       </div>
     </div>

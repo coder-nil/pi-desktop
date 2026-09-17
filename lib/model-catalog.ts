@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from "fs";
+import { readFileSync } from "fs";
 import { resolve } from "path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { parseDiscoveredModels, buildModelsListUrl } from "./model-discovery";
@@ -293,43 +293,91 @@ function consensusPrice(entries: readonly ModelCatalogEntry[]): ModelCatalogPric
   };
 }
 
+/**
+ * 识别 models.json 扁平格式中的单个模型记录（区别于 api.json 的 provider 记录）。
+ * 扁平格式的值直接是模型对象（含 modalities/limit/cost 等），没有 .models 子对象。
+ */
+function looksLikeModelRecord(value: Record<string, unknown>): boolean {
+  if (isRecord(value.models)) return false;
+  return isRecord(value.cost)
+    || isRecord(value.limit)
+    || isRecord(value.modalities)
+    || typeof value.id === "string";
+}
+
+/**
+ * 展开模型目录。兼容两种格式：
+ * 1. models.dev/api.json —— 按 provider 分组：{ [providerId]: { name, models: { [id]: {...} } } }
+ * 2. models.dev/models.json —— 扁平结构：{ [providerId/modelId]: { id, name, ... } }
+ */
 export function flattenModelsDevCatalog(value: unknown): ModelCatalogEntry[] {
   if (!isRecord(value)) return [];
 
   const entries: ModelCatalogEntry[] = [];
-  for (const [providerId, rawProvider] of Object.entries(value)) {
-    if (!isRecord(rawProvider) || !isRecord(rawProvider.models)) continue;
+  for (const [topKey, rawProvider] of Object.entries(value)) {
+    if (!isRecord(rawProvider)) continue;
+
+    // 格式 2：models.json 扁平结构，键为 "providerId/modelId"
+    if (looksLikeModelRecord(rawProvider)) {
+      const entry = modelEntryFromRecord(rawProvider, topKey);
+      if (entry) entries.push(entry);
+      continue;
+    }
+
+    // 格式 1：api.json 按 provider 分组
+    if (!isRecord(rawProvider.models)) continue;
+    const providerId = cleanString(rawProvider.id) ?? topKey;
     const providerName = cleanString(rawProvider.name) ?? providerId;
     const providerBaseUrl = cleanString(rawProvider.api);
 
     for (const [fallbackId, rawModel] of Object.entries(rawProvider.models)) {
       if (!isRecord(rawModel)) continue;
-      const id = cleanString(rawModel.id) ?? fallbackId;
-      if (!id) continue;
-      const name = cleanString(rawModel.name) ?? id;
-      const entry: ModelCatalogEntry = {
-        key: `${providerId}/${id}`,
+      const entry = modelEntryFromRecord(rawModel, `${providerId}/${cleanString(rawModel.id) ?? fallbackId}`, {
         providerId,
         providerName,
-        id,
-        name,
-        cost: readCost(rawModel.cost),
-      };
-      if (providerBaseUrl) entry.providerBaseUrl = providerBaseUrl;
-      if (typeof rawModel.reasoning === "boolean") entry.reasoning = rawModel.reasoning;
-      const input = readInputModalities(rawModel.modalities);
-      if (input) entry.input = input;
-      if (isRecord(rawModel.limit)) {
-        const contextWindow = optionalPositiveNumber(rawModel.limit.context);
-        const maxTokens = optionalPositiveNumber(rawModel.limit.output);
-        if (contextWindow !== undefined) entry.contextWindow = contextWindow;
-        if (maxTokens !== undefined) entry.maxTokens = maxTokens;
-      }
-      entries.push(entry);
+        providerBaseUrl,
+      });
+      if (entry) entries.push(entry);
     }
   }
 
   return entries;
+}
+
+function modelEntryFromRecord(
+  rawModel: Record<string, unknown>,
+  key: string,
+  scope?: { providerId: string; providerName: string; providerBaseUrl?: string },
+): ModelCatalogEntry | undefined {
+  // 扁平格式：键为 "provider/model"，无 scope；分组格式：scope 来自外层 provider
+  const slashIndex = scope ? -1 : key.lastIndexOf("/");
+  const providerId = scope?.providerId ?? (slashIndex > 0 ? key.slice(0, slashIndex) : "unknown");
+  const providerName = scope?.providerName ?? providerId;
+  const fallbackId = scope ? key.slice(key.lastIndexOf("/") + 1) : key.slice(slashIndex + 1);
+
+  const id = cleanString(rawModel.id) ?? fallbackId;
+  if (!id) return undefined;
+  const name = cleanString(rawModel.name) ?? id;
+  const entry: ModelCatalogEntry = {
+    key,
+    providerId,
+    providerName,
+    id,
+    name,
+    cost: readCost(rawModel.cost),
+  };
+  const providerBaseUrl = scope?.providerBaseUrl;
+  if (providerBaseUrl) entry.providerBaseUrl = providerBaseUrl;
+  if (typeof rawModel.reasoning === "boolean") entry.reasoning = rawModel.reasoning;
+  const input = readInputModalities(rawModel.modalities);
+  if (input) entry.input = input;
+  if (isRecord(rawModel.limit)) {
+    const contextWindow = optionalPositiveNumber(rawModel.limit.context);
+    const maxTokens = optionalPositiveNumber(rawModel.limit.output);
+    if (contextWindow !== undefined) entry.contextWindow = contextWindow;
+    if (maxTokens !== undefined) entry.maxTokens = maxTokens;
+  }
+  return entry;
 }
 
 export function recommendModelCatalogPreset(
@@ -416,49 +464,6 @@ export function searchModelCatalog(
       || a.entry.id.localeCompare(b.entry.id, undefined, { numeric: true, sensitivity: "base" }))
     .slice(0, cappedLimit)
     .map(({ entry }) => entry);
-}
-
-/** Load the full SDK built-in model catalog (no network required). */
-export async function flattenSdkBuiltInCatalog(): Promise<ModelCatalogEntry[]> {
-  try {
-    const entries: ModelCatalogEntry[] = [];
-    const dataDir = "/Volumes/Chenxiaoni·SSD/Development/WebStormProjects/pi-desktop/node_modules/@earendil-works/pi-ai/dist/providers/data/";
-
-    for (const file of readdirSync(dataDir).filter((f) => f.endsWith(".json"))) {
-      try {
-        const raw = JSON.parse(readFileSync(dataDir + file, "utf8"));
-        if (!isRecord(raw)) continue;
-        // Each file groups models by API type (e.g. openai-completions)
-        for (const modelsByApi of Object.values(raw)) {
-          if (!isRecord(modelsByApi)) continue;
-          for (const [modelId, m] of Object.entries(modelsByApi)) {
-            if (!isRecord(m)) continue;
-            const provider = typeof m.provider === "string" ? m.provider : modelId;
-            const entry: ModelCatalogEntry = {
-              key: `${provider}/${modelId}`,
-              providerId: provider,
-              providerName: provider,
-              id: modelId,
-              name: typeof m.name === "string" ? m.name : modelId,
-              cost: readCost(m.cost),
-            };
-            if (typeof m.baseUrl === "string") entry.providerBaseUrl = m.baseUrl;
-            if (typeof m.reasoning === "boolean") entry.reasoning = m.reasoning;
-            if (Array.isArray(m.input)) entry.input = m.input;
-            if (typeof m.contextWindow === "number") entry.contextWindow = m.contextWindow;
-            if (typeof m.maxTokens === "number") entry.maxTokens = m.maxTokens;
-            entries.push(entry);
-          }
-        }
-      } catch {
-        // skip malformed data file
-      }
-    }
-
-    return entries;
-  } catch {
-    return [];
-  }
 }
 
 export interface ProviderModelConfig {

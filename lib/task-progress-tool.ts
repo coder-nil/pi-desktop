@@ -36,6 +36,8 @@ const STATUS_SCHEMA = StringEnum([
   "skipped",
 ] as const);
 
+const ACTION_SCHEMA = StringEnum(["replace", "update", "clear"] as const);
+
 const TASK_SCHEMA = Type.Object({
   id: Type.String({ minLength: 1, maxLength: 100, description: "Stable task identifier" }),
   title: Type.String({ minLength: 1, maxLength: 500, description: "Short user-facing task title" }),
@@ -43,24 +45,20 @@ const TASK_SCHEMA = Type.Object({
   detail: Type.Optional(Type.String({ maxLength: MAX_TEXT_LENGTH, description: "Optional current activity, result, failure, or blocking reason" })),
 });
 
-const TASK_PROGRESS_PARAMETERS = Type.Union([
-  Type.Object({
-    action: Type.Literal("replace"),
-    tasks: Type.Array(TASK_SCHEMA, {
-      minItems: 1,
-      maxItems: MAX_TASKS,
-      description: "The complete ordered task list. Existing tasks are replaced atomically.",
-    }),
-  }),
-  Type.Object({
-    action: Type.Literal("update"),
-    id: Type.String({ minLength: 1, maxLength: 100, description: "Existing task identifier" }),
-    title: Type.Optional(Type.String({ minLength: 1, maxLength: 500 })),
-    status: Type.Optional(STATUS_SCHEMA),
-    detail: Type.Optional(Type.String({ maxLength: MAX_TEXT_LENGTH })),
-  }),
-  Type.Object({ action: Type.Literal("clear") }),
-]);
+// Some OpenAI-compatible providers reject a top-level anyOf tool schema.
+// Keep the root an object and enforce action-specific requirements at runtime.
+const TASK_PROGRESS_PARAMETERS = Type.Object({
+  action: ACTION_SCHEMA,
+  tasks: Type.Optional(Type.Array(TASK_SCHEMA, {
+    minItems: 1,
+    maxItems: MAX_TASKS,
+    description: "Required for replace: the complete ordered task list. Existing tasks are replaced atomically.",
+  })),
+  id: Type.Optional(Type.String({ minLength: 1, maxLength: 100, description: "Required for update: existing task identifier" })),
+  title: Type.Optional(Type.String({ minLength: 1, maxLength: 500 })),
+  status: Type.Optional(STATUS_SCHEMA),
+  detail: Type.Optional(Type.String({ maxLength: MAX_TEXT_LENGTH })),
+});
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);

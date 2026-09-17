@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { matchesPrimaryShortcut } from "@/lib/keyboard-shortcuts";
 
 // ---------------------------------------------------------------------------
 // Module-level registry — ChatWindow registers the abort handler here so that
@@ -68,7 +69,7 @@ export function useGlobalKeyboardShortcuts(
       }
 
       // ---- Ctrl/Cmd+N: new session ----
-      if (e.key.toLowerCase() === "n" && (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey) {
+      if (matchesPrimaryShortcut(e, "newSession")) {
         if (!activeCwd || !onNewSession) return;
         e.preventDefault();
         onNewSession(activeCwd);
@@ -76,7 +77,7 @@ export function useGlobalKeyboardShortcuts(
       }
 
       // ---- Ctrl/Cmd+B: show sidebar ----
-      if ((e.code === "KeyB" || e.key.toLowerCase() === "b") && (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey) {
+      if (matchesPrimaryShortcut(e, "showSidebar")) {
         if (!onShowSidebar) return;
         e.preventDefault();
         onShowSidebar();
@@ -84,7 +85,7 @@ export function useGlobalKeyboardShortcuts(
       }
 
       // ---- Ctrl/Cmd+`: toggle console ----
-      if ((e.code === "Backquote" || e.key === "`") && (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey) {
+      if (matchesPrimaryShortcut(e, "toggleConsole")) {
         if (!onToggleConsole) return;
         e.preventDefault();
         onToggleConsole();
@@ -92,7 +93,7 @@ export function useGlobalKeyboardShortcuts(
       }
 
       // ---- Ctrl/Cmd+O: open directory picker ----
-      if ((e.code === "KeyO" || e.key.toLowerCase() === "o") && (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey) {
+      if (matchesPrimaryShortcut(e, "openDirectory")) {
         if (!onOpenDirectory) return;
         e.preventDefault();
         onOpenDirectory();

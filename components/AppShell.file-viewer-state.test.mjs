@@ -38,7 +38,7 @@ test("shows the main file toggle only while the file panel is closed", () => {
 });
 
 test("eagerly loads file and configuration components", () => {
-  for (const component of ["FileViewer", "ModelsConfig", "SkillsConfig", "PluginsConfig"]) {
+  for (const component of ["FileViewer", "SettingsPanel"]) {
     assert.match(source, new RegExp(`import \\{ ${component} \\} from \\"\\./${component}\\";`));
     assert.doesNotMatch(source, new RegExp(`const ${component} = dynamic\\(`));
   }
