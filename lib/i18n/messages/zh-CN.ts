@@ -15,6 +15,8 @@ export const zhCNLocale: LocalePlugin = {
     "settings.title": "设置",
     "settings.close": "关闭设置",
     "settings.back": "返回设置",
+    "settings.general": "常规",
+    "settings.generalDescription": "主题、语言、提示音和横幅",
     "settings.modelsDescription": "管理提供商、凭据和默认模型",
     "settings.skillsDescription": "管理此项目加载的技能",
     "settings.pluginsDescription": "发现并管理 Pi 插件",

@@ -9,7 +9,7 @@ const jiti = createJiti(import.meta.url, {
   jsx: { runtime: "automatic" },
   tsconfigPaths: true,
 });
-const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, buildComposerMessage, buildSkillMenuGroups, canRestoreUserMessage, filterModelOptions, getQueueShortcutMode, getSlashCommandTagKind, getUpwardMenuMaxHeight, getUserMessageText, getUserMessageDraftImages, parseSelectedAtMention, parseSelectedAtMentions } = await jiti.import("./ChatInput.tsx");
+const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, buildComposerMessage, buildSkillMenuGroups, canRestoreUserMessage, filterModelOptions, getQueueShortcutMode, getSlashCommandTagKind, getUpwardMenuMaxHeight, getUserMessageText, getUserMessageDraftImages, parseSelectedAtMention, parseSelectedAtMentions, stripMacOSArrowFunctionKeys } = await jiti.import("./ChatInput.tsx");
 const { clearDraft, getDraft, mergeRestoredSubmissionDraft, mergeRestoredSubmissionText, rekeyDraft, setDraft } = await jiti.import("../lib/draft-store.ts");
 const { I18nProvider } = await jiti.import("../hooks/useI18n.tsx");
 const source = await readFile(new URL("./ChatInput.tsx", import.meta.url), "utf8");
@@ -227,6 +227,31 @@ test("maps queue shortcuts by physical key while requiring Alt only", () => {
   assert.equal(getQueueShortcutMode(event({ code: "KeyQ", key: "œ" })), "followup");
   assert.equal(getQueueShortcutMode(event({ code: "KeyF", key: "f", ctrlKey: true })), null);
   assert.equal(getQueueShortcutMode(event({ code: "KeyQ", key: "q", altKey: false })), null);
+});
+
+test("strips macOS arrow function-key characters submitted as text", () => {
+  assert.equal(stripMacOSArrowFunctionKeys(`a\uF700\uF701\uF702\uF703b`), "ab");
+  assert.equal(stripMacOSArrowFunctionKeys("中文 abc \uF704"), "中文 abc \uF704");
+});
+
+test("prevents WKWebView from handling arrow keys past text boundaries", () => {
+  assert.match(source, /e\.key === "ArrowLeft" \|\|[\s\S]*?e\.code === "ArrowLeft" \|\|[\s\S]*?e\.key === "\\uF702" \|\|[\s\S]*?nativeEvent\.keyCode === 37/);
+  assert.match(source, /e\.key === "ArrowRight" \|\|[\s\S]*?e\.code === "ArrowRight" \|\|[\s\S]*?e\.key === "\\uF703" \|\|[\s\S]*?nativeEvent\.keyCode === 39/);
+  assert.match(source, /const atStart = selectionIsCollapsed && ta\.selectionStart === 0/);
+  assert.match(source, /const atEnd = selectionIsCollapsed && ta\.selectionEnd === ta\.value\.length/);
+  assert.match(source, /if \(\(isLeftArrow && atStart\) \|\| \(isRightArrow && atEnd\)\) \{\s*e\.preventDefault\(\)/);
+});
+
+test("sanitizes the live textarea when InputMethodKit skips onChange", () => {
+  assert.match(source, /const handleInput = useCallback\(\(e: React\.FormEvent<HTMLTextAreaElement>\)/);
+  assert.match(source, /ta\.value = nextValue;[\s\S]*?valueRef\.current = nextValue;[\s\S]*?setValue\(nextValue\)/);
+});
+
+test("vertically centers the textarea content in its single-line composer", () => {
+  assert.match(source, /maskImage: "url\('\/icons\/pi-input-mark\.png'\)"[\s\S]*?marginTop: 2/);
+  assert.match(source, /<textarea[\s\S]*?alignSelf: "center"/);
+  assert.match(source, /<textarea[\s\S]*?margin: 0,[\s\S]*?padding: 0/);
+  assert.match(source, /<textarea[\s\S]*?lineHeight: "24px"[\s\S]*?minHeight: 24/);
 });
 
 test("arrow keys select a queue mode, pause auto-send, and Enter confirms it", () => {

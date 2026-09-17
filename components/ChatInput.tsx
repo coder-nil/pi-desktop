@@ -88,7 +88,12 @@ const COMPOSITION_END_ENTER_GRACE_MS = 100;
 const MODEL_FILTER_THRESHOLD = 8;
 const MODEL_OPTION_COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
 const ANCHORED_MENU_GAP = 8;
+const MACOS_ARROW_FUNCTION_KEY_PATTERN = /[\uF700-\uF703]/g;
 type QueueSendMode = "steer" | "followup";
+
+export function stripMacOSArrowFunctionKeys(value: string): string {
+  return value.replace(MACOS_ARROW_FUNCTION_KEY_PATTERN, "");
+}
 
 export function getQueueShortcutMode(event: {
   altKey: boolean;
@@ -1276,6 +1281,16 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
       const nativeEvent = e.nativeEvent;
       const sendShortcut = e.key === "Enter" && !e.shiftKey && (!isMobile || e.ctrlKey || e.metaKey);
+      const isLeftArrow =
+        e.key === "ArrowLeft" ||
+        e.code === "ArrowLeft" ||
+        e.key === "\uF702" ||
+        nativeEvent.keyCode === 37;
+      const isRightArrow =
+        e.key === "ArrowRight" ||
+        e.code === "ArrowRight" ||
+        e.key === "\uF703" ||
+        nativeEvent.keyCode === 39;
       const recentlyComposed = Date.now() - lastCompositionEndAtRef.current < COMPOSITION_END_ENTER_GRACE_MS;
       const isComposing =
         isComposingRef.current ||
@@ -1340,12 +1355,12 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           setSlashActiveIndex(getNextSlashIndex("up"));
           return;
         }
-        if (e.key === "ArrowRight") {
+        if (isRightArrow) {
           e.preventDefault();
           setSlashActiveIndex(getNextSlashIndex("right"));
           return;
         }
-        if (e.key === "ArrowLeft") {
+        if (isLeftArrow) {
           e.preventDefault();
           setSlashActiveIndex(getNextSlashIndex("left"));
           return;
@@ -1403,6 +1418,28 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         return;
       }
 
+      // At a text boundary WKWebView can expose a macOS arrow function key as
+      // printable text instead of leaving the caret in place. Prevent only
+      // that no-op boundary action; native movement inside the text remains
+      // responsible for selections, emoji, and composed graphemes.
+      if (
+        (isLeftArrow || isRightArrow) &&
+        !isComposing &&
+        !e.altKey &&
+        !e.ctrlKey &&
+        !e.metaKey &&
+        !e.shiftKey
+      ) {
+        const ta = e.currentTarget;
+        const selectionIsCollapsed = ta.selectionStart === ta.selectionEnd;
+        const atStart = selectionIsCollapsed && ta.selectionStart === 0;
+        const atEnd = selectionIsCollapsed && ta.selectionEnd === ta.value.length;
+        if ((isLeftArrow && atStart) || (isRightArrow && atEnd)) {
+          e.preventDefault();
+          return;
+        }
+      }
+
       const queueShortcutMode = getQueueShortcutMode(e);
       if (
         queueShortcutMode &&
@@ -1429,11 +1466,37 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     [isMobile, isStreaming, canQueueStreamingMessage, onSteer, onFollowUp, onAbort, requestQueuedSend, slashMenuOpen, slashQuery, displayedSlashCommands, slashActiveIndex, applySlashCommand, sendQueued, handleSend, getNextSlashIndex, atMenuOpen, atQuery, atMatches, atActiveIndex, applyAtCompletion, historyMenuOpen, inputHistory, historyActiveIndex, applyHistoryInput, value, selectedAtMentions, selectedSlashCommand, removeSelectedAtMention, removeSelectedSlashCommand]
   );
 
-  const handleInput = useCallback(() => {
-    const ta = textareaRef.current;
-    if (!ta) return;
+  const handleInput = useCallback((e: React.FormEvent<HTMLTextAreaElement>) => {
+    const ta = e.currentTarget;
+    const rawValue = ta.value;
+    const nextValue = stripMacOSArrowFunctionKeys(rawValue);
+
+    // React's synthetic onChange can be skipped by macOS InputMethodKit in a
+    // WKWebView. Sanitize the live DOM value from the native input event too.
+    if (nextValue !== rawValue) {
+      const nextSelectionStart = stripMacOSArrowFunctionKeys(
+        rawValue.slice(0, ta.selectionStart),
+      ).length;
+      const nextSelectionEnd = stripMacOSArrowFunctionKeys(
+        rawValue.slice(0, ta.selectionEnd),
+      ).length;
+      const selectionDirection = ta.selectionDirection;
+      ta.value = nextValue;
+      valueRef.current = nextValue;
+      setValue(nextValue);
+      ta.setSelectionRange(nextSelectionStart, nextSelectionEnd, selectionDirection);
+      updateAtQuery(nextValue, nextSelectionStart);
+    }
+
     ta.style.height = "auto";
     ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+  }, [updateAtQuery]);
+
+  const handleBeforeInput = useCallback((e: React.FormEvent<HTMLTextAreaElement>) => {
+    const insertedText = (e.nativeEvent as InputEvent).data;
+    if (insertedText && stripMacOSArrowFunctionKeys(insertedText) !== insertedText) {
+      e.preventDefault();
+    }
   }, []);
 
   const handlePaste = useCallback((e: React.ClipboardEvent) => {
@@ -2240,7 +2303,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               flexShrink: 0,
               width: 28,
               height: 24,
-              marginTop: 1,
+              marginTop: 2,
               pointerEvents: "none",
               userSelect: "none",
               WebkitUserSelect: "none",
@@ -2340,10 +2403,38 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             ref={textareaRef}
             value={value}
             onChange={(e) => {
-              valueRef.current = e.target.value;
-              setValue(e.target.value);
+              const rawValue = e.target.value;
+              const nextValue = stripMacOSArrowFunctionKeys(rawValue);
+              const rawSelectionStart = e.target.selectionStart;
+              const rawSelectionEnd = e.target.selectionEnd;
+              const selectionDirection = e.target.selectionDirection;
+              const nextSelectionStart = rawSelectionStart === null
+                ? null
+                : stripMacOSArrowFunctionKeys(rawValue.slice(0, rawSelectionStart)).length;
+              const nextSelectionEnd = rawSelectionEnd === null
+                ? null
+                : stripMacOSArrowFunctionKeys(rawValue.slice(0, rawSelectionEnd)).length;
+
+              valueRef.current = nextValue;
+              setValue(nextValue);
               setHistoryMenuOpen(false);
-              updateAtQuery(e.target.value, e.target.selectionStart);
+              updateAtQuery(nextValue, nextSelectionStart);
+
+              // WKWebView can occasionally submit macOS arrow function-key
+              // characters as text. Keep the controlled fallback from moving
+              // the caret when it removes those private-use characters.
+              if (
+                nextValue !== rawValue &&
+                nextSelectionStart !== null &&
+                nextSelectionEnd !== null
+              ) {
+                requestAnimationFrame(() => {
+                  const ta = textareaRef.current;
+                  if (ta?.value === nextValue) {
+                    ta.setSelectionRange(nextSelectionStart, nextSelectionEnd, selectionDirection);
+                  }
+                });
+              }
             }}
             onSelect={(e) => {
               const el = e.currentTarget;
@@ -2359,6 +2450,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               const el = e.currentTarget;
               updateAtQuery(el.value, el.selectionStart);
             }}
+            onBeforeInput={handleBeforeInput}
             onInput={handleInput}
             onPaste={handlePaste}
             placeholder={
@@ -2372,16 +2464,21 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             rows={1}
             style={{
               flex: 1,
+              alignSelf: "center",
+              display: "block",
               minWidth: 0,
               width: "100%",
+              margin: 0,
+              padding: 0,
               background: "none",
               border: "none",
               outline: "none",
               resize: "none",
               color: "var(--text)",
               fontSize: 14,
-              lineHeight: 1.6,
+              lineHeight: "24px",
               fontFamily: "inherit",
+              boxSizing: "border-box",
               minHeight: 24,
               maxHeight: 200,
               overflow: "auto",

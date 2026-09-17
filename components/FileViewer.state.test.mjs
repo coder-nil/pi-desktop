@@ -71,6 +71,12 @@ test("copying source or diff code excludes line-number gutters", () => {
   assert.match(source, /WebkitUserSelect: "none"/);
 });
 
+test("source and diff line-number gutters stay fixed during horizontal scrolling", () => {
+  assert.match(source, /const FILE_LINE_NUMBER_STYLE: CSSProperties = \{[\s\S]*position: "sticky",[\s\S]*left: 0,[\s\S]*zIndex: 1,[\s\S]*background: "var\(--bg-panel\)"/);
+  assert.match(source, /lineNumberStyle=\{\{[\s\S]*\.\.\.FILE_LINE_NUMBER_STYLE/);
+  assert.match(source, /style=\{FILE_LINE_NUMBER_STYLE\}/);
+});
+
 test("markdown table tokens stay inline despite Tailwind's table utility", () => {
   const html = renderToStaticMarkup(
     React.createElement(

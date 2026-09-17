@@ -15,6 +15,8 @@ export const enLocale: LocalePlugin = {
     "settings.title": "Settings",
     "settings.close": "Close settings",
     "settings.back": "Back to settings",
+    "settings.general": "General",
+    "settings.generalDescription": "Theme, language, sounds, and banners",
     "settings.modelsDescription": "Providers, credentials, and model defaults",
     "settings.skillsDescription": "Manage loaded skills for this project",
     "settings.pluginsDescription": "Discover and manage Pi extensions",

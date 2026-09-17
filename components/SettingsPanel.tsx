@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import McpIcon from "@lobehub/icons/es/MCP/components/Mono";
+import { Settings2 } from "lucide-react";
 import { useI18n } from "@/hooks/useI18n";
 import { MCP_CATALOG, type McpCatalogEntry } from "@/lib/mcp-catalog";
 
@@ -25,7 +26,7 @@ type SettingsPanelProps = {
   supportedLocales: { id: string; label: string }[];
 };
 
-type SettingsView = "menu" | "mcp" | "mcp-editor";
+type SettingsView = "menu" | "general" | "mcp" | "mcp-editor";
 type McpScope = "project" | "global";
 
 type ThemeOption = "light" | "dark" | "auto";
@@ -35,7 +36,10 @@ type LanguageOption = {
   label: string;
 };
 
-function SettingsIcon({ name }: { name: "models" | "skills" | "plugins" | "mcp" }) {
+function SettingsIcon({ name }: { name: "general" | "models" | "skills" | "plugins" | "mcp" }) {
+  if (name === "general") {
+    return <Settings2 size={17} strokeWidth={1.8} aria-hidden="true" />;
+  }
   if (name === "models") {
     return (
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -217,7 +221,6 @@ export function SettingsPanel({ cwd, hasProject, projectTrusted, onClose, onOpen
     }
   };
 
-  const themeOptions: ThemeOption[] = ["light", "dark", "auto"];
   const languageOptions: LanguageOption[] = (supportedLocales ?? []).map((plugin) => ({
     id: plugin.id,
     label: plugin.label,
@@ -335,7 +338,7 @@ export function SettingsPanel({ cwd, hasProject, projectTrusted, onClose, onOpen
               </button>
             )}
             <span id="settings-panel-title" style={{ fontSize: 15, fontWeight: 700, color: "var(--text)" }}>
-              {view === "mcp-editor" ? t("settings.mcpEdit") : view === "mcp" ? t("settings.mcp") : t("settings.title")}
+              {view === "mcp-editor" ? t("settings.mcpEdit") : view === "mcp" ? t("settings.mcp") : view === "general" ? t("settings.general") : t("settings.title")}
             </span>
           </div>
           <button type="button" onClick={onClose} title={t("settings.close")} aria-label={t("settings.close")} style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, padding: 0, border: "none", borderRadius: 6, background: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 20, lineHeight: 1 }}>
@@ -345,37 +348,8 @@ export function SettingsPanel({ cwd, hasProject, projectTrusted, onClose, onOpen
 
         {view === "menu" ? (
           <div style={{ padding: 8 }}>
-            {renderThemeRow()}
-            {renderLanguageRow()}
-            <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 10px", borderBottom: "1px solid var(--border)", marginBottom: 4 }}>
-              <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, flexShrink: 0, borderRadius: 7, background: "var(--bg-hover)", color: "var(--text-muted)" }}>
-                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" /><path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
-                </svg>
-              </span>
-              <span style={{ minWidth: 0, flex: 1 }}>
-                <span style={{ display: "block", fontSize: 13, fontWeight: 600 }}>{t("settings.completionSound")}</span>
-                <span style={{ display: "block", marginTop: 2, color: "var(--text-muted)", fontSize: 11, lineHeight: 1.45 }}>{t("settings.completionSoundDescription")}</span>
-              </span>
-              <button type="button" role="switch" aria-checked={soundEnabled} onClick={onSoundToggle} title={soundEnabled ? t("chat.disableSound") : t("chat.enableSound")} aria-label={soundEnabled ? t("chat.disableSound") : t("chat.enableSound")} style={{ width: 38, height: 22, padding: 2, border: "none", borderRadius: 11, background: soundEnabled ? "var(--accent)" : "var(--border)", cursor: "pointer", flexShrink: 0 }}>
-                <span style={{ display: "block", width: 18, height: 18, borderRadius: "50%", background: "white", transform: soundEnabled ? "translateX(16px)" : "translateX(0)", transition: "transform 0.15s" }} />
-              </button>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 10px", borderBottom: "1px solid var(--border)", marginBottom: 4 }}>
-              <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, flexShrink: 0, borderRadius: 7, background: "var(--bg-hover)", color: "var(--text-muted)" }}>
-                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M4 6h16v12H4z" /><path d="M8 10h8" /><path d="M8 14h5" />
-                </svg>
-              </span>
-              <span style={{ minWidth: 0, flex: 1 }}>
-                <span style={{ display: "block", fontSize: 13, fontWeight: 600 }}>{t("settings.showBanner")}</span>
-                <span style={{ display: "block", marginTop: 2, color: "var(--text-muted)", fontSize: 11, lineHeight: 1.45 }}>{t("settings.showBannerDescription")}</span>
-              </span>
-              <button type="button" role="switch" aria-checked={bannerEnabled} onClick={onBannerToggle} title={t("settings.showBanner")} aria-label={t("settings.showBanner")} style={{ width: 38, height: 22, padding: 2, border: "none", borderRadius: 11, background: bannerEnabled ? "var(--accent)" : "var(--border)", cursor: "pointer", flexShrink: 0 }}>
-                <span style={{ display: "block", width: 18, height: 18, borderRadius: "50%", background: "white", transform: bannerEnabled ? "translateX(16px)" : "translateX(0)", transition: "transform 0.15s" }} />
-              </button>
-            </div>
             {([
+              ["general", t("settings.general"), t("settings.generalDescription"), () => setView("general"), false],
               ["models", t("common.models"), t("settings.modelsDescription"), onOpenModels, false],
               ["skills", t("common.skills"), t("settings.skillsDescription"), onOpenSkills, !hasProject],
               ["plugins", t("common.plugins"), t("settings.pluginsDescription"), onOpenPlugins, !hasProject],
@@ -384,7 +358,7 @@ export function SettingsPanel({ cwd, hasProject, projectTrusted, onClose, onOpen
                 key={id}
                 type="button"
                 disabled={disabled}
-                onClick={() => openExistingConfig(onOpen)}
+                onClick={() => id === "general" ? onOpen() : openExistingConfig(onOpen)}
                 style={{
                   display: "flex", width: "100%", alignItems: "center", gap: 12, padding: "11px 10px", border: "none", borderRadius: 7,
                   background: "none", color: disabled ? "var(--text-dim)" : "var(--text)", textAlign: "left", cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.62 : 1,
@@ -416,6 +390,39 @@ export function SettingsPanel({ cwd, hasProject, projectTrusted, onClose, onOpen
               </span>
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ color: "var(--text-dim)", flexShrink: 0 }}><path d="m9 18 6-6-6-6" /></svg>
             </button>
+          </div>
+        ) : view === "general" ? (
+          <div style={{ padding: 8 }}>
+            {renderThemeRow()}
+            {renderLanguageRow()}
+            <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 10px", borderBottom: "1px solid var(--border)", marginBottom: 4 }}>
+              <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, flexShrink: 0, borderRadius: 7, background: "var(--bg-hover)", color: "var(--text-muted)" }}>
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" /><path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+                </svg>
+              </span>
+              <span style={{ minWidth: 0, flex: 1 }}>
+                <span style={{ display: "block", fontSize: 13, fontWeight: 600 }}>{t("settings.completionSound")}</span>
+                <span style={{ display: "block", marginTop: 2, color: "var(--text-muted)", fontSize: 11, lineHeight: 1.45 }}>{t("settings.completionSoundDescription")}</span>
+              </span>
+              <button type="button" role="switch" aria-checked={soundEnabled} onClick={onSoundToggle} title={soundEnabled ? t("chat.disableSound") : t("chat.enableSound")} aria-label={soundEnabled ? t("chat.disableSound") : t("chat.enableSound")} style={{ width: 38, height: 22, padding: 2, border: "none", borderRadius: 11, background: soundEnabled ? "var(--accent)" : "var(--border)", cursor: "pointer", flexShrink: 0 }}>
+                <span style={{ display: "block", width: 18, height: 18, borderRadius: "50%", background: "white", transform: soundEnabled ? "translateX(16px)" : "translateX(0)", transition: "transform 0.15s" }} />
+              </button>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 10px", borderBottom: "1px solid var(--border)", marginBottom: 4 }}>
+              <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, flexShrink: 0, borderRadius: 7, background: "var(--bg-hover)", color: "var(--text-muted)" }}>
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M4 6h16v12H4z" /><path d="M8 10h8" /><path d="M8 14h5" />
+                </svg>
+              </span>
+              <span style={{ minWidth: 0, flex: 1 }}>
+                <span style={{ display: "block", fontSize: 13, fontWeight: 600 }}>{t("settings.showBanner")}</span>
+                <span style={{ display: "block", marginTop: 2, color: "var(--text-muted)", fontSize: 11, lineHeight: 1.45 }}>{t("settings.showBannerDescription")}</span>
+              </span>
+              <button type="button" role="switch" aria-checked={bannerEnabled} onClick={onBannerToggle} title={t("settings.showBanner")} aria-label={t("settings.showBanner")} style={{ width: 38, height: 22, padding: 2, border: "none", borderRadius: 11, background: bannerEnabled ? "var(--accent)" : "var(--border)", cursor: "pointer", flexShrink: 0 }}>
+                <span style={{ display: "block", width: 18, height: 18, borderRadius: "50%", background: "white", transform: bannerEnabled ? "translateX(16px)" : "translateX(0)", transition: "transform 0.15s" }} />
+              </button>
+            </div>
           </div>
         ) : view === "mcp" ? (
           <div style={{ padding: "14px 16px 16px", maxHeight: "min(600px, calc(100dvh - 120px))", overflowY: "auto" }}>

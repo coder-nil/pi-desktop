@@ -69,6 +69,9 @@ const FILE_CODE_STYLE: CSSProperties = {
 };
 
 const FILE_LINE_NUMBER_STYLE: CSSProperties = {
+  position: "sticky",
+  left: 0,
+  zIndex: 1,
   width: 48,
   minWidth: 48,
   padding: "0 10px",
