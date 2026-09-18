@@ -21,7 +21,7 @@ const jiti = createJiti(import.meta.url, {
   jsx: { runtime: "automatic" },
   tsconfigPaths: true,
 });
-const { AssistantOutline } = await jiti.import("./ChatMinimap.tsx");
+const { AssistantOutline, layoutNodes } = await jiti.import("./ChatMinimap.tsx");
 const minimapSource = await readFile(new URL("./ChatMinimap.tsx", import.meta.url), "utf8");
 const chatWindowSource = await readFile(new URL("./ChatWindow.tsx", import.meta.url), "utf8");
 
@@ -65,7 +65,55 @@ test("keeps the input-side rail in sync with minimap visibility and preview stat
 
 test("keeps minimap node hit areas interactive above the input rail", () => {
   assert.match(
+    chatWindowSource,
+    /className="relative flex min-w-0 flex-1 overflow-hidden"/,
+  );
+  assert.match(
     minimapSource,
     /data-minimap-node-index=\{node\.index\}[\s\S]*?pointerEvents: "auto"[\s\S]*?zIndex: 2/,
   );
+});
+
+function buildNodes(count) {
+  return Array.from({ length: count }, (_, index) => ({
+    index,
+    topRatio: 0,
+    targetTurn: { userMessage: { role: "user", content: "" }, assistantPreviews: [], scrollTop: 0 },
+  }));
+}
+
+test("shrinks minimap nodes to fit as turns pile up", () => {
+  const height = 600;
+
+  const sparse = layoutNodes(buildNodes(6), height);
+  assert.equal(sparse.fillsHeight, false);
+  assert.equal(sparse.gap, 50);
+  assert.equal(sparse.nodeSize, 8);
+  assert.equal(sparse.nodeBorder, 1.5);
+
+  // 铺满高度但还没压到默认方块放不下时，视觉规格保持不变
+  const filled = layoutNodes(buildNodes(13), height);
+  assert.equal(filled.fillsHeight, true);
+  assert.equal(filled.nodeSize, 8);
+  assert.equal(filled.nodeBorder, 1.5);
+
+  let previousSize = Infinity;
+  for (const count of [20, 40, 60, 120, 300]) {
+    const layout = layoutNodes(buildNodes(count), height);
+    const extent = layout.nodeSize + layout.nodeBorder * 2;
+    assert.ok(
+      extent <= Math.max(layout.gap, 2) + 1e-9,
+      `${count} turns overlap: node ${extent}px vs gap ${layout.gap}px`,
+    );
+    assert.ok(layout.nodeSize >= 2 && layout.nodeSize <= 8);
+    assert.ok(
+      layout.nodeSize <= previousSize,
+      `${count} turns must not grow the node back to ${layout.nodeSize}`,
+    );
+    previousSize = layout.nodeSize;
+  }
+
+  const extreme = layoutNodes(buildNodes(2000), height);
+  assert.equal(extreme.nodeSize, 2);
+  assert.equal(extreme.nodeBorder, 0);
 });

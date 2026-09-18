@@ -23,6 +23,13 @@ interface Props {
 const MINIMAP_WIDTH = 36;
 const MAX_NODE_GAP = 50;
 const MINIMAP_PADDING = 12;
+/** 稀疏时的节点方块规格（含边框实占 11px）。 */
+const MAX_NODE_SIZE = 8;
+const MAX_NODE_BORDER = 1.5;
+/** 间距压到极限时节点退化成 2px 的小点，保证几百轮也不糊成一条带。 */
+const MIN_NODE_SIZE = 2;
+/** 相邻方块之间至少保留的空白。 */
+const NODE_CLEARANCE = 1;
 const PREVIEW_HIDE_DELAY = 250;
 const NAVIGATION_ACTIVE_LOCK_MS = 1600;
 
@@ -198,11 +205,26 @@ interface NodeLayout {
   nodes: NodeInfo[];
   gap: number;
   fillsHeight: boolean;
+  /** 方块边长（不含边框）。 */
+  nodeSize: number;
+  nodeBorder: number;
 }
 
-function layoutNodes(allNodes: NodeInfo[], minimapHeight: number): NodeLayout {
+/**
+ * 间距一旦被压缩到放不下默认方块，就让方块同步缩小（并保持至少 NODE_CLEARANCE 的空隙），
+ * 这样在有限的 minimap 高度里能塞下更多轮次，而不是让几十个 8px 方块叠成一片。
+ */
+function nodeVisualFor(gap: number): { nodeSize: number; nodeBorder: number } {
+  const maxExtent = MAX_NODE_SIZE + MAX_NODE_BORDER * 2;
+  const fittedExtent = Math.round(Math.max(0, gap - NODE_CLEARANCE) * 2) / 2;
+  const extent = Math.max(MIN_NODE_SIZE, Math.min(maxExtent, fittedExtent));
+  const nodeBorder = extent >= 9 ? MAX_NODE_BORDER : extent >= 6 ? 1 : 0;
+  return { nodeSize: extent - nodeBorder * 2, nodeBorder };
+}
+
+export function layoutNodes(allNodes: NodeInfo[], minimapHeight: number): NodeLayout {
   if (allNodes.length === 0) {
-    return { nodes: [], gap: MAX_NODE_GAP, fillsHeight: false };
+    return { nodes: [], gap: MAX_NODE_GAP, fillsHeight: false, ...nodeVisualFor(MAX_NODE_GAP) };
   }
 
   const height = Math.max(1, minimapHeight);
@@ -212,6 +234,7 @@ function layoutNodes(allNodes: NodeInfo[], minimapHeight: number): NodeLayout {
       nodes: [{ ...allNodes[0], topRatio: MINIMAP_PADDING / height }],
       gap: MAX_NODE_GAP,
       fillsHeight: false,
+      ...nodeVisualFor(MAX_NODE_GAP),
     };
   }
 
@@ -224,6 +247,7 @@ function layoutNodes(allNodes: NodeInfo[], minimapHeight: number): NodeLayout {
     })),
     gap,
     fillsHeight: naturalGap <= MAX_NODE_GAP,
+    ...nodeVisualFor(gap),
   };
 }
 
@@ -248,6 +272,7 @@ export function ChatMinimap({
     nodes: [],
     gap: MAX_NODE_GAP,
     fillsHeight: false,
+    ...nodeVisualFor(MAX_NODE_GAP),
   });
   const previewBoxRef = useRef<HTMLDivElement>(null);
   const previewItemRefs = useRef(new Map<number, HTMLDivElement>());
@@ -271,7 +296,7 @@ export function ChatMinimap({
     () => layoutNodes(allNodes, minimapHeight),
     [allNodes, minimapHeight],
   );
-  const { nodes: positionedNodes, gap: nodeGap } = nodeLayout;
+  const { nodes: positionedNodes, gap: nodeGap, nodeSize, nodeBorder } = nodeLayout;
   nodeLayoutRef.current = nodeLayout;
 
   const lockActiveNode = useCallback((index: number) => {
@@ -650,6 +675,8 @@ export function ChatMinimap({
       {positionedNodes.map((node) => {
         const isNearest = minimapHovered && nearestNode?.index === node.index;
         const isActive = activeIndex === node.index;
+        const fill = isActive ? "rgba(128,128,128,0.42)" : "rgba(128,128,128,0.16)";
+        const stroke = isActive ? "rgba(128,128,128,0.95)" : "rgba(128,128,128,0.58)";
 
         return (
           <div
@@ -672,12 +699,16 @@ export function ChatMinimap({
           >
             <div
               style={{
-                width: 8,
-                height: 8,
-                borderRadius: 2,
-                background: isActive ? "rgba(128,128,128,0.42)" : "rgba(128,128,128,0.16)",
-                border: `1.5px solid ${isActive ? "rgba(128,128,128,0.95)" : "rgba(128,128,128,0.58)"}`,
-                boxShadow: isActive ? "0 0 0 2px var(--bg-panel)" : "none",
+                width: nodeSize,
+                height: nodeSize,
+                borderRadius: Math.min(2, nodeSize / 2),
+                // 间距太密时描边会吃掉整个方块，于是直接用描边色填充
+                background: nodeBorder > 0 ? fill : stroke,
+                border: nodeBorder > 0 ? `${nodeBorder}px solid ${stroke}` : "none",
+                // 激活光环只有在不会碰到相邻方块时才画
+                boxShadow: isActive && nodeSize + nodeBorder * 2 + 4 <= nodeGap
+                  ? "0 0 0 2px var(--bg-panel)"
+                  : "none",
                 transition: "transform 0.1s, background 0.1s",
                 transform: isNearest ? "scale(1.25)" : "scale(1)",
               }}

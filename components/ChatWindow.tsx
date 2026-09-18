@@ -622,7 +622,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
       ) : (
       <>
       <div
-        className="flex min-w-0 flex-1 overflow-hidden"
+        className="relative flex min-w-0 flex-1 overflow-hidden"
         style={!isMobile ? { paddingRight: CHAT_MINIMAP_WIDTH } : undefined}
       >
         <div ref={scrollContainerRef} className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto pt-4 [scrollbar-width:none]">
