@@ -521,6 +521,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
       consoleActive={consoleActive}
       draftKey={session?.id ?? newSessionDraftKey ?? undefined}
       cwd={session?.cwd ?? newSessionCwd}
+      sessionId={session?.id ?? sessionIdRef.current ?? undefined}
     />
   );
 
@@ -876,7 +877,20 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
               borderLeft: minimapState.previewOpen ? "none" : "1px solid var(--border)",
               pointerEvents: "none",
             }}
-          />
+          >
+            <div
+              data-minimap-input-rail-line=""
+              style={{
+                position: "absolute",
+                top: 0,
+                bottom: 0,
+                left: "50%",
+                width: 1,
+                background: "var(--border)",
+                transform: "translateX(-50%)",
+              }}
+            />
+          </div>
         )}
       </div>
       </>

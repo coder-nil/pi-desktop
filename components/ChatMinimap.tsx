@@ -666,7 +666,7 @@ export function ChatMinimap({
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              pointerEvents: "none",
+              pointerEvents: "auto",
               zIndex: 2,
             }}
           >

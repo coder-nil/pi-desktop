@@ -428,7 +428,7 @@ function PluginCatalogPanel({
           style={{
             width: "100%",
             height: 36,
-            padding: "0 11px 0 34px",
+            padding: "0 11px 0 31px",
             border: "1px solid var(--border)",
             borderRadius: 6,
             background: "var(--bg-panel)",
@@ -437,7 +437,9 @@ function PluginCatalogPanel({
             outline: "none",
           }}
         />
-        <span aria-hidden="true" style={{ position: "absolute", left: 11, top: 8, color: "var(--text-dim)", fontSize: 16 }}>⌕</span>
+        <span aria-hidden="true" style={{ position: "absolute", left: 10, top: 0, bottom: 0, display: "flex", alignItems: "center", color: "var(--text-dim)", pointerEvents: "none" }}>
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><circle cx="7" cy="7" r="4.5" /><line x1="10.6" y1="10.6" x2="14" y2="14" /></svg>
+        </span>
       </div>
 
       {actionMessage && <div role="status" style={{ fontSize: 12, color: "#16a34a" }}>{actionMessage}</div>}

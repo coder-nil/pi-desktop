@@ -1,7 +1,8 @@
 import { createDesktopModelRuntime, refreshDesktopProviderCatalogs } from "@/lib/desktop-providers";
 import { NextResponse } from "next/server";
+import { maskApiKey } from "@/lib/api-key-mask";
 import { invalidateModelsCache } from "@/lib/models-cache";
-import { removeStoredCredentialIfType, storeProviderCredential } from "@/lib/provider-credential-store";
+import { readStoredApiKey, removeStoredCredentialIfType, storeProviderCredential } from "@/lib/provider-credential-store";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +15,16 @@ export async function GET(_req: Request, { params }: Params) {
   const status = modelRuntime.getProviderAuthStatus(provider);
   const displayName = modelRuntime.getProvider(provider)?.name ?? provider;
   const models = modelRuntime.getModels(provider).length;
-  return NextResponse.json({ provider, displayName, configured: status.configured, source: status.source, models });
+  // 掩码让设置页能确认 Key 已存入，而明文永远不离开服务端。
+  const maskedKey = maskApiKey(readStoredApiKey(provider));
+  return NextResponse.json({
+    provider,
+    displayName,
+    configured: status.configured,
+    source: status.source,
+    models,
+    maskedKey,
+  });
 }
 
 // POST /api/auth/api-key/[provider]  body: { apiKey: string }

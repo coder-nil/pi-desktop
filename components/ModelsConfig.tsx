@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useI18n } from "@/hooks/useI18n";
 import { SelectPicker } from "./SelectPicker";
+import { EnabledModelsPicker } from "./EnabledModelsPicker";
 import type { ModelCatalogPreset, ModelCatalogRecommendation } from "@/lib/model-catalog";
 import type { DiscoveredModel } from "@/lib/model-discovery";
 import {
@@ -220,6 +221,10 @@ function SecretTextInput({
   placeholder,
   mono,
   onKeyDown,
+  onFocus,
+  onBlur,
+  inputRef,
+  revealed = false,
   autoComplete = "off",
   spellCheck = false,
   style,
@@ -229,6 +234,11 @@ function SecretTextInput({
   placeholder?: string;
   mono?: boolean;
   onKeyDown?: React.KeyboardEventHandler<HTMLInputElement>;
+  onFocus?: React.FocusEventHandler<HTMLInputElement>;
+  onBlur?: React.FocusEventHandler<HTMLInputElement>;
+  inputRef?: React.RefObject<HTMLInputElement | null>;
+  /** 值本身已经是脱敏内容（例如掩码），直接明文显示且隐藏眼睛按钮。 */
+  revealed?: boolean;
   autoComplete?: string;
   spellCheck?: boolean;
   style?: React.CSSProperties;
@@ -243,51 +253,56 @@ function SecretTextInput({
   return (
     <div style={{ position: "relative", width: "100%", ...style }}>
       <input
-        type={visible ? "text" : "password"}
+        ref={inputRef}
+        type={visible || revealed ? "text" : "password"}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={onKeyDown}
+        onFocus={onFocus}
+        onBlur={onBlur}
         placeholder={placeholder}
-        style={{ ...inputStyle, paddingRight: 34, fontFamily: mono ? "var(--font-mono)" : "inherit" }}
+        style={{ ...inputStyle, paddingRight: revealed ? 11 : 34, fontFamily: mono ? "var(--font-mono)" : "inherit" }}
         autoComplete={autoComplete}
         spellCheck={spellCheck}
       />
-      <button
-        type="button"
-        onClick={() => setVisible((v) => !v)}
-         aria-label={visible ? t("i18n.hideDetails") : t("i18n.showDetails")}
-         title={visible ? t("i18n.hideDetails") : t("i18n.showDetails")}
-        style={{
-          position: "absolute",
-          right: 5,
-          top: "50%",
-          transform: "translateY(-50%)",
-          width: 24,
-          height: 24,
-          padding: 0,
-          border: "none",
-          background: "transparent",
-          color: "var(--text-dim)",
-          cursor: "pointer",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        {visible ? (
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M17.94 17.94A10.94 10.94 0 0 1 12 20C7 20 2.73 16.89 1 12a18.45 18.45 0 0 1 5.06-6.94" />
-            <path d="M9.9 4.24A10.94 10.94 0 0 1 12 4c5 0 9.27 3.11 11 8a18.5 18.5 0 0 1-2.16 3.19" />
-            <path d="M14.12 14.12A3 3 0 0 1 9.88 9.88" />
-            <path d="M1 1l22 22" />
-          </svg>
-        ) : (
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8S1 12 1 12Z" />
-            <circle cx="12" cy="12" r="3" />
-          </svg>
-        )}
-      </button>
+      {!revealed && (
+        <button
+          type="button"
+          onClick={() => setVisible((v) => !v)}
+           aria-label={visible ? t("i18n.hideDetails") : t("i18n.showDetails")}
+           title={visible ? t("i18n.hideDetails") : t("i18n.showDetails")}
+          style={{
+            position: "absolute",
+            right: 5,
+            top: "50%",
+            transform: "translateY(-50%)",
+            width: 24,
+            height: 24,
+            padding: 0,
+            border: "none",
+            background: "transparent",
+            color: "var(--text-dim)",
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          {visible ? (
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M17.94 17.94A10.94 10.94 0 0 1 12 20C7 20 2.73 16.89 1 12a18.45 18.45 0 0 1 5.06-6.94" />
+              <path d="M9.9 4.24A10.94 10.94 0 0 1 12 4c5 0 9.27 3.11 11 8a18.5 18.5 0 0 1-2.16 3.19" />
+              <path d="M14.12 14.12A3 3 0 0 1 9.88 9.88" />
+              <path d="M1 1l22 22" />
+            </svg>
+          ) : (
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8S1 12 1 12Z" />
+              <circle cx="12" cy="12" r="3" />
+            </svg>
+          )}
+        </button>
+      )}
     </div>
   );
 }
@@ -318,10 +333,11 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 
 // ── Provider detail ───────────────────────────────────────────────────────────
 
-function ProviderDetail({ name, provider, onChange, onRename, onDelete, onAddModels }: {
+function ProviderDetail({ name, provider, onChange, onRename, onDelete, onAddModels, onModelsChanged, savedTick }: {
   name: string; provider: ProviderEntry;
   onChange: (p: ProviderEntry) => void; onRename: (n: string) => void; onDelete: () => void;
   onAddModels: (models: DiscoveredModel[]) => void;
+  onModelsChanged?: () => void; savedTick?: number;
 }) {
   const { t } = useI18n();
   const [editingName, setEditingName] = useState(name);
@@ -595,6 +611,10 @@ function ProviderDetail({ name, provider, onChange, onRename, onDelete, onAddMod
             </div>
           </>
         )}
+      </div>
+
+      <div style={{ borderTop: "1px solid var(--border)", paddingTop: 14 }}>
+        <EnabledModelsPicker providerId={name} reloadKey={savedTick} onChanged={onModelsChanged} />
       </div>
     </div>
   );
@@ -1472,7 +1492,7 @@ function BuiltinModelDetail({
 
 // ── OAuth detail ──────────────────────────────────────────────────────────────
 
-function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefresh: () => void }) {
+function OAuthDetail({ provider, onRefresh, onModelsChanged }: { provider: OAuthProvider; onRefresh: () => void; onModelsChanged?: () => void }) {
   const [loginState, setLoginState] = useState<OAuthLoginState>({ phase: "idle" });
   const { t } = useI18n();
   const [inputValue, setInputValue] = useState("");
@@ -1726,29 +1746,55 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
           </>
         )}
       </div>
+
+      <div style={{ borderTop: "1px solid var(--border)", paddingTop: 14 }}>
+        <EnabledModelsPicker providerId={provider.id} onChanged={onModelsChanged} />
+      </div>
     </div>
   );
 }
 
 // ── API Key detail ────────────────────────────────────────────────────────────
 
-function ApiKeyDetail({ provider, onRefresh }: { provider: ApiKeyProvider; onRefresh: () => void }) {
+function ApiKeyDetail({ provider, onRefresh, onModelsChanged }: { provider: ApiKeyProvider; onRefresh: () => void; onModelsChanged?: () => void }) {
   const [apiKey, setApiKey] = useState("");
   const [saving, setSaving] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedOk, setSavedOk] = useState(false);
+  /** 已保存 Key 的掩码，仅用于确认“已经存进去了”（明文不离开服务端）。 */
+  const [maskedKey, setMaskedKey] = useState<string | null>(null);
+  /** 用户是否已经动过输入框；未动时输入框展示掩码。 */
+  const [dirty, setDirty] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
   const { t } = useI18n();
+
+  const loadMaskedKey = useCallback(() => {
+    fetch(`/api/auth/api-key/${encodeURIComponent(provider.id)}`)
+      .then((r) => r.json())
+      .then((d: { maskedKey?: string | null }) => setMaskedKey(d.maskedKey ?? null))
+      .catch(() => {});
+  }, [provider.id]);
 
   // Reset state when provider changes
   useEffect(() => {
     setApiKey("");
     setError(null);
     setSavedOk(false);
-  }, [provider.id]);
+    setMaskedKey(null);
+    setDirty(false);
+    loadMaskedKey();
+  }, [provider.id, provider.configured, loadMaskedKey]);
+
+  // 输入框默认展示掩码（与真实 Key 等长）；用户开始输入后不再覆盖它。
+  useEffect(() => {
+    if (!dirty) setApiKey(maskedKey ?? "");
+  }, [dirty, maskedKey]);
 
   const handleSave = useCallback(async () => {
-    if (!apiKey.trim()) return;
+    const trimmed = apiKey.trim();
+    // 掩码不是真实 Key：没有新内容就不提交。
+    if (!trimmed || trimmed === maskedKey) return;
     setSaving(true);
     setError(null);
     setSavedOk(false);
@@ -1756,7 +1802,7 @@ function ApiKeyDetail({ provider, onRefresh }: { provider: ApiKeyProvider; onRef
       const res = await fetch(`/api/auth/api-key/${encodeURIComponent(provider.id)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ apiKey: apiKey.trim() }),
+        body: JSON.stringify({ apiKey: trimmed }),
       });
       const d = await res.json() as { success?: boolean; error?: string };
       if (!res.ok || d.error) {
@@ -1764,6 +1810,8 @@ function ApiKeyDetail({ provider, onRefresh }: { provider: ApiKeyProvider; onRef
       } else {
         setApiKey("");
         setSavedOk(true);
+        setDirty(false);
+        loadMaskedKey();
         setTimeout(() => setSavedOk(false), 2000);
         onRefresh();
       }
@@ -1772,7 +1820,7 @@ function ApiKeyDetail({ provider, onRefresh }: { provider: ApiKeyProvider; onRef
     } finally {
       setSaving(false);
     }
-  }, [apiKey, provider.id, onRefresh]);
+  }, [apiKey, maskedKey, provider.id, onRefresh, loadMaskedKey]);
 
   const handleRemove = useCallback(async () => {
     setRemoving(true);
@@ -1789,6 +1837,9 @@ function ApiKeyDetail({ provider, onRefresh }: { provider: ApiKeyProvider; onRef
     }
   }, [provider.id, onRefresh]);
 
+  /** 只有真的输入了新的 Key 才允许保存（掩码本身不算，避免把掩码当 Key 提交）。 */
+  const canSave = Boolean(apiKey.trim()) && apiKey.trim() !== maskedKey && !saving && !savedOk;
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -1801,19 +1852,45 @@ function ApiKeyDetail({ provider, onRefresh }: { provider: ApiKeyProvider; onRef
         </div>
       </div>
 
-      <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>
-        {provider.configured
-          ? `API key is stored. Enter a new key below to replace it, or disconnect to remove it.`
-          : `Enter your ${provider.displayName} API key to enable ${provider.modelCount} model${provider.modelCount !== 1 ? "s" : ""}.`}
-      </p>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
+        <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>
+          {provider.configured
+            ? t("i18n.apiKeyStoredHint")
+            : t("i18n.apiKeyMissingHint", { provider: provider.displayName, count: provider.modelCount })}
+        </p>
+        {provider.configured && (
+          <button
+            onClick={handleRemove}
+            disabled={removing}
+            style={{
+              flexShrink: 0, padding: "3px 10px",
+              background: "none", border: "1px solid rgba(239,68,68,0.3)",
+              borderRadius: 5, color: "#ef4444",
+              cursor: removing ? "not-allowed" : "pointer", fontSize: 11,
+            }}
+          >
+             {removing ? t("i18n.removing") : t("i18n.disconnect")}
+          </button>
+        )}
+      </div>
 
       <Field label="API Key">
         <div style={{ display: "flex", gap: 6 }}>
           <SecretTextInput
+            inputRef={inputRef}
+            revealed={provider.configured && apiKey === maskedKey && Boolean(maskedKey)}
             value={apiKey}
-            onChange={setApiKey}
-            onKeyDown={(e) => { if (e.key === "Enter" && apiKey.trim()) handleSave(); }}
-            placeholder={provider.configured ? "Enter new key to replace…" : "sk-…"}
+            onChange={(value) => { setDirty(true); setApiKey(value); }}
+            onFocus={() => {
+              // 点进去就是更换：未编辑时全选掩码，输入即替换，不会留下一个空框。
+              if (!dirty && maskedKey) inputRef.current?.select();
+            }}
+            onBlur={() => {
+              // 什么都没填就离开时恢复掩码展示。
+              if (dirty && !apiKey.trim()) setDirty(false);
+            }}
+            onKeyDown={(e) => { if (e.key === "Enter" && canSave) handleSave(); }}
+            placeholder={provider.configured ? t("i18n.apiKeyNewPlaceholder") : "sk-…"}
             style={{ flex: 1 }}
             autoComplete="off"
             spellCheck={false}
@@ -1821,13 +1898,13 @@ function ApiKeyDetail({ provider, onRefresh }: { provider: ApiKeyProvider; onRef
           />
           <button
             onClick={handleSave}
-            disabled={saving || !apiKey.trim() || savedOk}
+            disabled={!canSave}
             style={{
               padding: "6px 12px",
-              background: savedOk ? "#16a34a" : apiKey.trim() ? "var(--accent)" : "var(--bg-panel)",
+              background: savedOk ? "#16a34a" : canSave ? "var(--accent)" : "var(--bg-panel)",
               border: "none", borderRadius: 5,
-              color: (apiKey.trim() || savedOk) ? "#fff" : "var(--text-dim)",
-              cursor: (saving || !apiKey.trim() || savedOk) ? "not-allowed" : "pointer",
+              color: (canSave || savedOk) ? "#fff" : "var(--text-dim)",
+              cursor: canSave ? "pointer" : "not-allowed",
               fontSize: 12, fontWeight: 600, flexShrink: 0,
               display: "flex", alignItems: "center", gap: 5,
             }}
@@ -1844,20 +1921,9 @@ function ApiKeyDetail({ provider, onRefresh }: { provider: ApiKeyProvider; onRef
 
       {error && <p style={{ margin: 0, fontSize: 12, color: "#f87171" }}>{error}</p>}
 
-      {provider.configured && (
-        <button
-          onClick={handleRemove}
-          disabled={removing}
-          style={{
-            alignSelf: "flex-start", padding: "5px 12px",
-            background: "none", border: "1px solid rgba(239,68,68,0.3)",
-            borderRadius: 5, color: "#ef4444",
-            cursor: removing ? "not-allowed" : "pointer", fontSize: 12,
-          }}
-        >
-           {removing ? t("i18n.removing") : t("i18n.disconnect")}
-        </button>
-      )}
+      <div style={{ borderTop: "1px solid var(--border)", paddingTop: 14 }}>
+        <EnabledModelsPicker providerId={provider.id} onChanged={onModelsChanged} />
+      </div>
     </div>
   );
 }
@@ -2115,6 +2181,8 @@ export function ModelsConfig({ embedded = false, onClose, onSaved }: ModelsConfi
   const [pickerOpen, setPickerOpen] = useState(false);
   const [allModels, setAllModels] = useState<{ provider: string; modelId: string; name: string }[]>([]);
   const [expandedBuiltins, setExpandedBuiltins] = useState<Set<string>>(new Set());
+  /** models.json 每次保存自增，用于让服务商详情的模型勾选区块重新拉取列表。 */
+  const [savedTick, setSavedTick] = useState(0);
 
   const loadOAuthProviders = useCallback(() => {
     fetch("/api/auth/providers")
@@ -2275,6 +2343,8 @@ export function ModelsConfig({ embedded = false, onClose, onSaved }: ModelsConfi
       if (!res.ok || d.error) setSaveError(d.error ?? `HTTP ${res.status}`);
       else {
         setSavedOk(true);
+        // models.json 保存后服务商才有模型可选，让勾选区块重新拉取列表。
+        setSavedTick((tick) => tick + 1);
         onSaved?.();
         setTimeout(() => setSavedOk(false), 2000);
       }
@@ -2295,12 +2365,12 @@ export function ModelsConfig({ embedded = false, onClose, onSaved }: ModelsConfi
     if (selection.type === "oauth") {
       const p = oauthProviders.find((p) => p.id === selection.providerId);
       if (!p) return null;
-      return <OAuthDetail key={p.id} provider={p} onRefresh={refreshAuthProviders} />;
+      return <OAuthDetail key={p.id} provider={p} onRefresh={refreshAuthProviders} onModelsChanged={onSaved} />;
     }
     if (selection.type === "apikey") {
       const p = apiKeyProviders.find((p) => p.id === selection.providerId);
       if (!p) return null;
-      return <ApiKeyDetail key={p.id} provider={p} onRefresh={refreshAuthProviders} />;
+      return <ApiKeyDetail key={p.id} provider={p} onRefresh={refreshAuthProviders} onModelsChanged={onSaved} />;
     }
     if (selection.type === "provider") {
       const provider = config.providers?.[selection.name];
@@ -2314,6 +2384,8 @@ export function ModelsConfig({ embedded = false, onClose, onSaved }: ModelsConfi
           onRename={(n) => renameProvider(selection.name, n)}
           onDelete={() => deleteProvider(selection.name)}
           onAddModels={(models) => addDiscoveredModels(selection.name, models)}
+          onModelsChanged={onSaved}
+          savedTick={savedTick}
         />
       );
     }

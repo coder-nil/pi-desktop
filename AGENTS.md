@@ -60,6 +60,9 @@ app/api/
   models/route.ts                 GET { models, modelList, defaultModel }
   models-config/route.ts          GET/PUT — read/write ~/.pi/agent/models.json
   models-config/catalog/route.ts  GET models.dev pricing presets
+  models-config/enabled/route.ts  GET provider models + picker state | PUT writes enabledModels
+  mobile/pair/route.ts            GET LAN address + remote-view URL for the phone QR code
+  mobile/access/route.ts          GET/PUT phone-access switch + password (writes desktop-access.json)
   models-config/discover/route.ts POST fetch a configured provider's upstream model list
   models-config/test/route.ts     POST test a configured model/provider
   plugins/route.ts                GET/POST package plugin management
@@ -94,6 +97,10 @@ components/
   ChatMinimap.tsx     scroll minimap alongside the message list
   MarkdownBody.tsx    markdown renderer
   ModelsConfig.tsx    modal for editing models.json (opened from sidebar bottom)
+  EnabledModelsPicker.tsx  per-provider checklist for the chat model picker (writes enabledModels)
+  MobilePairDialog.tsx  QR dialog that pairs a phone with the current session (opened from ChatInput)
+  MobileAccessSettings.tsx  Settings → Phone access: switch, password, address and QR code
+  MobileRemoteView.tsx  one-screen phone remote view (step 1 ships demo data)
   PluginsConfig.tsx   modal for installed package plugins
   SkillsConfig.tsx    modal for loaded/search/installable skills
   FileExplorer.tsx    file tree inside sidebar
@@ -147,6 +154,8 @@ The last preset explicitly selected by the user is stored in browser `localStora
 ### `enabledModels` scoping
 The `enabledModels` setting uses pi's `--models` syntax: minimatch globs against `provider/modelId` or a bare `modelId`, fuzzy matching for non-glob patterns, and an optional `:thinkingLevel` suffix. Never compare those patterns as literal strings — `lib/model-scope.ts` delegates to the SDK's `resolveModelScopeWithDiagnostics()` so pi-desktop and the TUI agree on the visible model list, and falls back to all available models when patterns resolve to nothing. `startRpcSession()` resolves that scope before creating an AgentSession and passes the selected initial model, thinking pin, and SDK-native `scopedModels` atomically; `GET /api/models` reuses the helper only for selector data, `thinkingLevelPins`, and `modelScopeWarnings` display.
 
+Settings → Models exposes the same mechanism per provider: `EnabledModelsPicker` lists a provider's available models and checks the ones that should appear in the chat model picker. `PUT /api/models-config/enabled` merges the new selection into the current visible set (other providers keep their visibility), then `lib/enabled-models.ts` compiles it back into patterns — `provider/*` for a fully selected provider, explicit `provider/modelId[:level]` otherwise, `undefined` when everything is selected, and pinned thinking levels are preserved rather than dropped. An empty pattern list is rejected: pi would resolve it to *every* model, the opposite of "hide everything". Saves go through `SettingsManager.setEnabledModels()` + `flush()` (the same settings.json the CLI reads), invalidate `lib/models-cache.ts`, and call `onSaved` so the open composer reloads its model list.
+
 ### SSE reconnect on page refresh mid-stream
 On `ChatWindow` mount, `GET /api/agent/[id]` is called. If `state.isStreaming === true`, SSE is reconnected automatically. `thinkingLevel` and `isCompacting` are also synced from this response.
 
@@ -183,8 +192,34 @@ Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `au
 - Provider listing is capability-driven, never id-driven: `lib/provider-listing.ts` decides membership from `auth.apiKey.login` / `auth.oauth` plus the stored credential type, so dual-auth providers (anthropic and github-copilot today — which providers declare both changes between SDK releases, so never assume it from an id) appear exactly once and never fall through both lists (#309). `lib/provider-listing-runtime.ts` adapts `ModelRuntime` to those pure helpers.
 - auth.json holds **one** credential per provider and `ModelRuntime.logout()` deletes whichever it is. The delete routes therefore use `removeStoredCredentialIfType()` to compare and delete under the same file lock used by pi's auth storage. `ModelsConfig` also refreshes *both* provider lists after any auth change — refreshing one leaves a dual-auth provider rendered twice.
 - OAuth/device-code/manual-code flows are streamed by `GET /api/auth/login/[provider]`; manual code responses POST back with a short-lived token stored in `globalThis.__piLoginCallbacks`.
-- API-key routes store and remove keys through `AuthStorage`. Status endpoints must never return the raw key.
+- API-key routes store and remove keys through `AuthStorage`. Status endpoints must never return the raw key: `GET /api/auth/api-key/[provider]` reads the stored key server-side and returns only `api-key-mask.ts`'s masked hint (same length as the key, last four characters exposed, short keys fully hidden). The settings page pre-fills that mask into the single editable input (`revealed`, selected on focus) and must never post the mask back as a key.
 - The model test route is `app/api/models-config/test/route.ts`; `app/api/models/test/` is not a real route.
+
+### models.dev catalog cache is disk-backed and never awaited on UI paths
+- `lib/models-dev-discovery.ts` resolves the catalog as memory → `pi.sqlite` → network. `models_dev_catalog` (see `lib/models-dev-catalog-store.ts`) holds the flattened entries plus `fetched_at`; a disk hit returns immediately, and an expired entry is still served while a deduplicated background refresh (5 minute backoff after a failure) replaces it. Nothing on a request path ever waits for the multi-MB `models.dev/api.json`.
+- `/api/auth/all-providers`, `/api/models`, and `startRpcSession()` call `refreshDesktopProviderCatalogs()` as fire-and-forget and render from `models-store.json` plus the catalog cache. The DeepSeek provider's `refreshModels` stays cache-first and passes `offline` on cache-only refreshes, which is what keeps the settings model list from going empty while the network catches up.
+
+### Coding (apisets) discovers models from its upstream API only
+`providers/apisets` has no static model table: `apiSetsModels()` parses the upstream `/v1/models` response (`{ data: [...] }`) and must stamp `provider`/`api`/`baseUrl` onto every entry, because the parsed list is what gets persisted. `refreshModels()` restores that persisted list on cache-only refreshes, skips the upstream call while `checkedAt` is inside a 30 minute window (unless `force`), and publishes `persist: { etag: "apisets-models-api-v2" }` after a network refresh — bump that etag whenever the persisted shape changes. `createDesktopModelRuntime()` awaits a cache-only refresh for both Coding and DeepSeek, because every API request builds a fresh runtime: without persisted models the provider renders with an empty list and the chat model picker silently loses it.
+
+### Phone remote view (`/m`) is a separate, deliberately thin route
+- `app/m/page.tsx` renders `MobileRemoteView` inside its own `I18nProvider` (the root layout has none) and must stay free of the desktop renderers — `components/MobileRemoteView.test.mjs` asserts that `MarkdownBody`, `ChatMinimap`, `FileExplorer`, `TerminalPanel` and `MermaidBlock` are never imported there. The transcript is plain text with tool calls collapsed to one `▸ name` line, and the input keeps `fontSize: 16` so iOS does not zoom on focus.
+- Step 2 is wired: `GET /api/mobile/state` returns one snapshot — session picked as *running → most recently modified* (scoped by the QR's `cwd`), messages already projected to plain text server-side by `lib/mobile-state.ts` (tool calls collapsed to `▸ name hint`, tool results and thinking dropped, long text truncated). The page then streams progress over `/api/agent/[id]/events` and only ever writes through the existing `POST /api/agent/[id]` (`prompt` / `abort`) and `POST /api/agent/new`. No new write endpoints exist for the phone.
+- The page reads `session` / `cwd` from the URL, disconnects SSE when hidden and re-snapshots on `visibilitychange`, and renders the streaming tail from `lib/streaming-message.ts`'s reducer so it looks identical to the desktop.
+- Not implemented yet: the desktop window does not adopt a run that the phone started while the desktop sits on the same session (its SSE is closed during the idle grace window). Doing so means touching `useAgentSession`'s adoption path.
+
+### LAN access is a desktop-shell reverse proxy, not a wider bind
+- The Next server always listens on loopback. `src-tauri/src/lan_proxy.rs` runs a small proxy on `0.0.0.0` at a **random free port** (port 0, skipping the upstream's own port) that authenticates HTTP Basic with username `pi`, then rewrites `Host`/`Origin`/`Referer` to the loopback upstream and forces `Connection: close`, forwarding byte-for-byte — so SSE and compressed responses work, and the loopback window stays password-free.
+- Two traps in that byte-level forwarding, both now covered by tests:
+  - The rewritten head must end with exactly **one** `\r\n\r\n`. `split("\r\n")` yields an extra empty tail, so the terminator loop must `break` on the first empty line; an extra CRLF makes the upstream wait for another request and answer nothing at all (`tests::terminates_the_head_exactly_once_and_forces_close`).
+  - Upgrade requests (Next dev's HMR WebSocket) must keep `Connection: Upgrade` and be treated as a tunnel: force `Connection: close` and the handshake fails, and the client socket must drop its read timeout or an idle tunnel gets cut (`tests::keeps_the_upgrade_handshake_alive_for_websockets`).
+  - **Never `shutdown(Shutdown::Write)` the upstream socket.** Sending FIN makes the Next dev server drop the connection without any response, which surfaces as `ERR_EMPTY_RESPONSE` in the browser while the proxy log still reports a successful forward. A GET is complete once its head is written, and a `Content-Length` POST once its body is written, so no half-close is needed; only chunked bodies stream on (`integration_tests::never_half_closes_the_upstream` asserts the upstream sees no FIN before responding).
+- PWA metadata is served without credentials: browsers fetch `manifest.webmanifest` (and sometimes icons) with credentials omitted, so those paths bypass auth (`is_public_asset_request`). Everything else — the page, assets, APIs — still requires the password.
+- `~/.pi/agent/desktop-access.log` is the proxy's own log (`peer`, `request`, `auth OK/FAILED`, upstream target, forwarded head with `Authorization` redacted, response byte count). It is the first place to look when the phone page is blank; the counters in `desktop-access.runtime.json` only tell you whether requests arrived.
+- Config lives in `~/.pi/agent/desktop-access.json` (`enabled` + `password`); `lib/desktop-access.ts` is the Node-side reader/writer and `GET|PUT /api/mobile/access` is the settings page's only entry point. The manager thread re-reads the file every 400ms and the acceptor reads the current password per connection, so **changing the password never restarts anything** (this is the whole reason for the proxy instead of `--hostname 0.0.0.0`).
+- The listening port is written to `~/.pi/agent/desktop-access.runtime.json` by the shell (together with `authSuccesses` / `authFailures` / `forwarded` / `lastPeer` counters, which are how you tell whether a phone request ever reached the proxy) and read back by `GET /api/mobile/pair`; the QR code must point at that port, not at the port the browser is using. Ports are random because the desktop shell's own server also picks one, so two fixed ranges would eventually collide. `lib/mobile-pair.ts` falls back to the CLI behaviour (`--hostname` + `PI_WEB_PASSWORD`) when the desktop config is off, which is what `npm run dev:lan` still uses.
+- Tests: `cargo test --lib lan_proxy` covers the pure helpers plus two real integration tests (401 without credentials and nothing forwarded upstream; a password change taking effect without a restart).
+- Pairing: the button next to the attachment control in `ChatInput` (hidden on mobile) opens `MobilePairDialog`, which asks `GET /api/mobile/pair`. `lib/mobile-pair.ts` resolves the address from `PI_WEB_HOSTNAME` — wildcard binds probe `os.networkInterfaces()` with private ranges first, CGNAT (Tailscale) next. A loopback-only server returns `url: null` so the dialog shows the `dev:lan` command instead of a QR code that cannot possibly work, and the payload never includes the password.
 
 ### Completion sound
 - `hooks/useAudio.ts` stores the toggle in `localStorage` as `pi-sound-enabled` and reuses one `AudioContext`.

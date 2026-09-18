@@ -1993,7 +1993,9 @@ export async function startRpcSession(
       },
       ...(trustReloadOptions ? { resourceLoaderReloadOptions: trustReloadOptions } : {}),
     });
-    await refreshDesktopProviderCatalogs(services.modelRuntime).catch(() => {});
+    // 本地缓存（models-store.json / pi.sqlite 目录缓存）已能给出已配置服务商的
+    // 模型；远端刷新不阻塞会话创建，否则发第一条消息要等 models.dev 数秒。
+    void refreshDesktopProviderCatalogs(services.modelRuntime).catch(() => {});
     const scope = await resolveVisibleModels(
       services.modelRuntime,
       services.settingsManager.getEnabledModels(),

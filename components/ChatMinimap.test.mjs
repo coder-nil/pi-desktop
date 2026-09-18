@@ -57,4 +57,15 @@ test("keeps the input-side rail in sync with minimap visibility and preview stat
     chatWindowSource,
     /borderLeft: minimapState\.previewOpen \? "none" : "1px solid var\(--border\)"/,
   );
+  assert.match(
+    chatWindowSource,
+    /data-minimap-input-rail-line=""[\s\S]*?left: "50%"[\s\S]*?background: "var\(--border\)"/,
+  );
+});
+
+test("keeps minimap node hit areas interactive above the input rail", () => {
+  assert.match(
+    minimapSource,
+    /data-minimap-node-index=\{node\.index\}[\s\S]*?pointerEvents: "auto"[\s\S]*?zIndex: 2/,
+  );
 });

@@ -26,7 +26,7 @@ function normalizeConfiguredHostname(value: string | undefined): string | null {
   return isIP(trimmed) ? normalizeHostname(trimmed) : hostnameFromAuthority(trimmed);
 }
 
-function isLoopbackHostname(hostname: string): boolean {
+export function isLoopbackHostname(hostname: string): boolean {
   if (hostname === "localhost" || hostname.endsWith(".localhost")) return true;
   if (isIP(hostname) === 4) return hostname.startsWith("127.");
   if (isIP(hostname) !== 6) return false;

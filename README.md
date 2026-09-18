@@ -80,6 +80,18 @@ PI_WEB_PASSWORD='a-long-random-password' pi-desktop --hostname 0.0.0.0
 
 Basic Auth does not encrypt the password in transit. Do not expose Pi Desktop over plain HTTP to the internet; use HTTPS through a trusted reverse proxy or a trusted VPN. If a reverse proxy sends an external hostname, add that exact name to `PI_WEB_ALLOWED_HOSTS`. The password is still required, and this allow-list does not change the address Pi Desktop binds to.
 
+### Phone access
+
+The desktop app can expose a remote view for your phone without binding the server itself to the network:
+
+1. Open **Settings → Phone access**, set an access password (at least 8 characters) and switch phone access on.
+2. The desktop shell starts a small LAN proxy in front of the loopback server. Your phone signs in with username `pi` and that password; nothing else on the network reaches the agent.
+3. In the chat composer, the QR button next to the attachment control shows a code that opens `/m` for the session you are looking at.
+
+The proxy reads its configuration (`~/.pi/agent/desktop-access.json`) on every request, so changing the password takes effect immediately — no restart, no interrupted runs. Windows/macOS firewall prompts apply on first use. This is still plain HTTP on your LAN: use it on a network you trust.
+
+When the server is started from the command line instead, keep using `--hostname 0.0.0.0` with `PI_WEB_PASSWORD` as shown above; the settings switch only applies inside the desktop app.
+
 ### HTTP Proxy
 
 Server-side model and API requests honor the standard `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY` environment variables.

@@ -2827,10 +2827,12 @@ function SessionItem({
       onMouseLeave={() => { setHovered(false); }}
       style={{
         height: ITEM_HEIGHT,
+        marginInline: 6,
         display: "flex",
         alignItems: "center",
         paddingLeft: depth > 0 ? depth * 12 + 14 : 14,
         paddingRight: 8,
+        borderRadius: 6,
         cursor: confirmDelete || renaming ? "default" : "pointer",
         background: confirmDelete
           ? "rgba(239,68,68,0.06)"
