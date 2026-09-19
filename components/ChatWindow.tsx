@@ -952,11 +952,14 @@ function ExtensionDialog({
   onRespond: (request: ExtensionDialogRequest, response: { value: string } | { confirmed: boolean } | { cancelled: true }) => void;
 }) {
   const { t } = useI18n();
-  const [value, setValue] = useState(request.method === "editor" ? request.prefill ?? "" : "");
+  const initialValue = request.method === "editor" ? request.prefill ?? "" : "";
+  const [value, setValue] = useState(initialValue);
 
+  // 按 id 重置，而不是按请求对象：状态对账每 15s 会带来一个新对象，
+  // 按对象重置会把用户正在输入的内容抹掉。
   useEffect(() => {
-    setValue(request.method === "editor" ? request.prefill ?? "" : "");
-  }, [request]);
+    setValue(initialValue);
+  }, [request.id, initialValue]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {

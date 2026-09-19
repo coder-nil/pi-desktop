@@ -638,6 +638,7 @@ export const zhCNLocale: LocalePlugin = {
     "mobile.loading": "正在读取会话…",
     "mobile.loadEarlier": "载入更早的消息（还有 {count} 条）",
     "mobile.historyCapped": "更早的消息请在桌面端查看。",
+    "mobile.promptCustomHint": "扩展打开了自定义界面，请在桌面端处理；或点取消，先把这一轮放行。",
     "mobile.you": "你",
     "mobile.assistant": "AI",
     "models.capabilities": "能力",

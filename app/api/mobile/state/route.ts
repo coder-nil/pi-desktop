@@ -62,6 +62,7 @@ export async function GET(req: Request) {
         status: "idle",
         updatedAt: null,
         queue: { steering: 0, followUp: 0 },
+        pendingUiRequest: null,
         messages: [],
         earlierCount: 0,
       });
@@ -85,7 +86,12 @@ export async function GET(req: Request) {
     }
 
     const info = picked ?? sessions.find((session) => session.id === sessionId) ?? null;
-    const queue = await readQueue(sessionId);
+    const liveState = await readLiveState(sessionId);
+    const queue = {
+      steering: liveState?.queuedMessages?.steering?.length ?? 0,
+      followUp: liveState?.queuedMessages?.followUp?.length ?? 0,
+    };
+    const pendingUiRequest = pickPendingUiRequest(liveState);
 
     return NextResponse.json({
       sessionId,
@@ -94,6 +100,7 @@ export async function GET(req: Request) {
       status: running.has(sessionId) ? "running" : "idle",
       updatedAt: info?.modified ?? null,
       queue,
+      pendingUiRequest,
       messages,
       earlierCount,
       ...(thinkingLevel ? { thinkingLevel } : {}),
@@ -121,19 +128,41 @@ function pickSession(
   return [...pool].sort((left, right) => right.modified.localeCompare(left.modified))[0] ?? null;
 }
 
-/** 排队中的消息只对活着的内存会话有意义；读取失败时安静地当作空。 */
-async function readQueue(sessionId: string): Promise<{ steering: number; followUp: number }> {
+interface LiveAgentState {
+  queuedMessages?: { steering?: unknown[]; followUp?: unknown[] };
+  pendingUiRequests?: unknown[];
+}
+
+/** 读一次活会话的内存状态；没有活会话（或读取失败）时安静地当作空。 */
+async function readLiveState(sessionId: string): Promise<LiveAgentState | null> {
   const wrapper = getRpcSession(sessionId);
-  if (!wrapper?.isAlive()) return { steering: 0, followUp: 0 };
+  if (!wrapper?.isAlive()) return null;
   try {
-    const state = await wrapper.send({ type: "get_state" }) as {
-      queuedMessages?: { steering?: unknown[]; followUp?: unknown[] };
-    } | null;
-    return {
-      steering: state?.queuedMessages?.steering?.length ?? 0,
-      followUp: state?.queuedMessages?.followUp?.length ?? 0,
-    };
+    return await wrapper.send({ type: "get_state" }) as LiveAgentState | null;
   } catch {
-    return { steering: 0, followUp: 0 };
+    return null;
   }
+}
+
+/** 阻塞式扩展 UI 请求（select / confirm / input / editor / custom）。 */
+const BLOCKING_UI_METHODS = new Set(["select", "confirm", "input", "editor", "custom"]);
+
+/**
+ * 手机上要弹的待确认请求。
+ *
+ * `ask_user` 就是通过这条路径问问题的（扩展 UI 请求）：不问完，这一轮就一直挂着。
+ * 这里把第一个阻塞请求带到快照里，手机端才能把它画出来并回答；同时存在多个时
+ * 也只处理第一个，与桌面端一次只弹一个的行为一致。
+ */
+export function pickPendingUiRequest(state: LiveAgentState | null): Record<string, unknown> | null {
+  const requests = state?.pendingUiRequests;
+  if (!Array.isArray(requests)) return null;
+  for (const request of requests) {
+    if (typeof request !== "object" || request === null) continue;
+    const record = request as Record<string, unknown>;
+    if (typeof record.id !== "string" || typeof record.method !== "string") continue;
+    if (!BLOCKING_UI_METHODS.has(record.method)) continue;
+    return record;
+  }
+  return null;
 }

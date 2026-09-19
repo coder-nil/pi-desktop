@@ -638,6 +638,7 @@ export const enLocale: LocalePlugin = {
     "mobile.loading": "Loading…",
     "mobile.loadEarlier": "Load earlier messages ({count} more)",
     "mobile.historyCapped": "Older messages are only on the desktop.",
+    "mobile.promptCustomHint": "The extension opened a custom interface. Answer it on the desktop, or cancel to unblock this run.",
     "mobile.you": "You",
     "mobile.assistant": "AI",
     "models.capabilities": "Capabilities",

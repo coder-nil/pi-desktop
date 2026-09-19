@@ -11,6 +11,7 @@ import { buildMobileTimeline, MOBILE_RADIUS, reconcilePendingUserMessages } from
 import { MobileMarkdown } from "./MobileMarkdown";
 import { MobileProcessDetails } from "./MobileProcessDetails";
 import { MobileThinking, MobileToolList } from "./MobileProcessParts";
+import { MobilePromptCard, type MobileUiRequest } from "./MobilePromptCard";
 
 /**
  * 手机遥控页：同一份会话数据的精简视图。
@@ -59,6 +60,8 @@ interface MobileStateSnapshot {
   messages: MobileMessage[];
   /** 窗口之外还有多少条更早的消息；翻完或服务端老版本没这个字段时当作 0。 */
   earlierCount?: number;
+  /** 正在等用户回答的扩展请求（`ask_user` 就是这条路径）；没有时为 null。 */
+  pendingUiRequest?: MobileUiRequest | null;
 }
 
 function formatElapsed(seconds: number): string {
@@ -77,7 +80,7 @@ function readParams(): { session: string | null; cwd: string | null } {
   return { session: params.get("session"), cwd: params.get("cwd") };
 }
 
-export type MobileEventAction = "start" | "snapshot" | "delta" | "settle" | "sync" | "ignore";
+export type MobileEventAction = "start" | "snapshot" | "prompt" | "delta" | "settle" | "sync" | "ignore";
 
 /** SSE 上我们关心的字段。 */
 interface MobileStreamPayload {
@@ -87,10 +90,30 @@ interface MobileStreamPayload {
   message?: unknown;
   /** `connected` 携带的当前状态。 */
   isStreaming?: unknown;
+  /** `extension_ui_resolved` 携带的请求 id。 */
+  id?: unknown;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** 阻塞式扩展 UI 方法（与 `app/api/mobile/state/route.ts` 的 BLOCKING_UI_METHODS 一致）。 */
+const BLOCKING_UI_METHODS = new Set(["select", "confirm", "input", "editor", "custom"]);
+
+/**
+ * 从 `extension_ui_request` 事件里取出要弹的请求。
+ *
+ * 事件本身就是完整请求体，所以手机端可以直接拿它渲染，不必等下一次快照（省一个往返，
+ * 而且快照取失败时卡片仍然在）。`notify` / `setStatus` / `setWidget` / `setTitle` 这些
+ * 不是问题，不进卡片。
+ */
+export function blockingUiRequestFromEvent(payload: MobileStreamPayload): MobileUiRequest | null {
+  const request = payload as unknown as MobileUiRequest;
+  if (typeof request.id !== "string" || !request.id) return null;
+  if (typeof request.method !== "string" || !BLOCKING_UI_METHODS.has(request.method)) return null;
+  if (typeof request.title !== "string") return null;
+  return request;
 }
 
 /**
@@ -115,6 +138,12 @@ export function classifyAgentEvent(payload: MobileStreamPayload): MobileEventAct
       // 用户提问那条不需要（本地气泡/快照自己管），只有助手消息才是流式气泡的起点。
       return isRecord(payload.message) && payload.message.role === "assistant" ? "snapshot" : "ignore";
     case "queue_update":
+      return "sync";
+    case "extension_ui_request":
+      // 扩展（含 `ask_user`）在等回答：事件里就带着请求体，直接弹卡片。
+      return blockingUiRequestFromEvent(payload) ? "prompt" : "ignore";
+    case "extension_ui_resolved":
+      // 另一边已经答了（或超时/中止），本端把卡片收掉。
       return "sync";
     case "message_update":
       return payload.assistantMessageEvent ? "delta" : "ignore";
@@ -174,6 +203,10 @@ export function MobileRemoteView() {
   // 快照窗口：默认最新 30 条，点「载入更早」一批批往回长（上限与服务端一致）。
   const [limit, setLimit] = useState(MOBILE_DEFAULT_LIMIT);
   const [loadingEarlier, setLoadingEarlier] = useState(false);
+  // 正在提交的扩展回答：防止连点两次把同一个请求答两遍。
+  const [answeringPrompt, setAnsweringPrompt] = useState(false);
+  // 事件里直接带来的待回答请求：收到就能弹，不用等快照那一跳。
+  const [eventPrompt, setEventPrompt] = useState<MobileUiRequest | null>(null);
   // 刚发出去、快照里还没有的用户消息：先本地显示，避免“说完了等一轮才看到自己那句话”。
   const [pending, setPending] = useState<MobileMessage[]>([]);
   const [streaming, dispatch] = useReducer(streamReducer, INITIAL_STREAMING_STATE);
@@ -215,6 +248,8 @@ export function MobileRemoteView() {
       }
       setError(null);
       setLoadingEarlier(false);
+      // 快照是权威状态：它对账事件带来的卡片（没等到的补上、已被别处答过的收掉）。
+      setEventPrompt(data.pendingUiRequest ?? null);
       // 新建任务模式下服务端仍会挑出「最近更新的会话」，这里必须忽略它，
       // 否则刚点完「新建任务」就被拉回原来那个会话。这份快照也不参与本地气泡接管。
       if (!target.session && freshTaskRef.current) {
@@ -322,6 +357,10 @@ export function MobileRemoteView() {
             // 手机端就变成「要么没内容，要么这轮结束后一下子全出来」。
             dispatch({ type: "snapshot", message: payload.message as never });
             return;
+          case "prompt":
+            // 扩展在等回答：事件自带请求体，先弹出来；随后的快照会对账校正。
+            setEventPrompt(blockingUiRequestFromEvent(payload));
+            return;
           case "delta":
             dispatch({ type: "delta", event: payload.assistantMessageEvent as never });
             if (syncOnFirstDeltaRef.current) {
@@ -339,6 +378,12 @@ export function MobileRemoteView() {
             return;
           case "sync":
             // 运行中从另一边又发了一条（排队/插话）：正文只存在于快照里。
+            // `extension_ui_resolved` 也走这里：先把已作废的卡片立刻收掉（事件带 id），
+            // 再补一次快照兜底，不依赖取数快慢。
+            if (payload.type === "extension_ui_resolved") {
+              const resolvedId = typeof payload.id === "string" ? payload.id : null;
+              setEventPrompt((current) => (resolvedId && current?.id === resolvedId ? null : current));
+            }
             void refreshRef.current();
             return;
           default:
@@ -449,6 +494,28 @@ export function MobileRemoteView() {
     if (element) element.style.height = "auto";
   }, [input]);
 
+  // 回答扩展请求（`ask_user` 等）：同一个会话，同一个答案；桌面端会收到
+  // `extension_ui_resolved` 把自己的弹窗收掉，这里则由下一次快照把卡片移除。
+  const answerPrompt = useCallback(async (request: MobileUiRequest, response: { value: string } | { confirmed: boolean } | { cancelled: true }) => {
+    const sid = target?.session ?? null;
+    if (!sid || answeringPrompt) return;
+    setAnsweringPrompt(true);
+    try {
+      const result = await fetch(`/api/agent/${encodeURIComponent(sid)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "extension_ui_response", id: request.id, ...response }),
+      });
+      const data = await result.json() as { error?: string };
+      if (!result.ok || data.error) throw new Error(data.error ?? `HTTP ${result.status}`);
+      await refreshRef.current();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setAnsweringPrompt(false);
+    }
+  }, [answeringPrompt, target?.session]);
+
   // 往回翻一批：窗口拉大后由 refresh 重新取快照，滚动位置由上面的锚点接管。
   const loadEarlier = useCallback(() => {
     setLoadingEarlier(true);
@@ -536,6 +603,7 @@ export function MobileRemoteView() {
   const canSend = Boolean(input.trim()) && !busy;
   const earlierCount = snapshot?.earlierCount ?? 0;
   const cappedByLimit = limit >= MOBILE_MAX_LIMIT;
+  const pendingUiRequest = eventPrompt ?? snapshot?.pendingUiRequest ?? null;
 
   const paramsReady = target !== null;
   const composing = paramsReady && !sessionId;
@@ -759,6 +827,10 @@ export function MobileRemoteView() {
         >
           {error}
         </div>
+      )}
+
+      {pendingUiRequest && (
+        <MobilePromptCard request={pendingUiRequest} onRespond={answerPrompt} busy={answeringPrompt} />
       )}
 
       <div style={{ flexShrink: 0, padding: "10px 14px 12px", borderTop: "1px solid var(--border)" }}>

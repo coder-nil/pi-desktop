@@ -1175,6 +1175,8 @@ export class AgentSessionWrapper {
   private resolveExtensionUiResponse(response: ExtensionUiResponse): void {
     const pending = this.pendingUiResponses.get(response.id);
     if (!pending) return;
+    // “已作答”的广播在 requestExtensionUi 的 cleanup 里统一发出（那里也是超时/
+    // 中止的出口），所以这里只负责唤醒等着的那个 Promise。
     pending.resolve(response);
   }
 
@@ -1534,11 +1536,25 @@ export class AgentSessionWrapper {
 
     return new Promise((resolve) => {
       let timeoutId: ReturnType<typeof setTimeout> | undefined;
+      let announced = false;
+      /**
+       * 请求不再存在的那一刻（被回答 / 超时 / 被中止 / 被取消）都从这里走，
+       * 所以“这条请求作废了”的广播也放在这里：这是唯一的出口。
+       *
+       * 不放在 `resolveExtensionUiResponse` 里是因为超时与中止不经过它，
+       * 那种情况下另一边只能等 15s 状态对账才能把弹窗收掉。
+       */
+      const announceResolved = () => {
+        if (announced) return;
+        announced = true;
+        this.emit({ type: "extension_ui_resolved", id } as AgentEvent);
+      };
       const cleanup = () => {
         if (timeoutId) clearTimeout(timeoutId);
         signal?.removeEventListener("abort", onAbort);
         this.pendingUiRequests.delete(id);
         this.pendingUiResponses.delete(id);
+        announceResolved();
       };
       const settle = (value: T) => {
         cleanup();

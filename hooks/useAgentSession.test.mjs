@@ -340,9 +340,12 @@ test("restores pending extension dialogs from authoritative agent state", () => 
 
   assert.match(source, /function latestExtensionDialog\(requests: ExtensionUiRequest\[\] \| undefined\)/);
   assert.match(loadSource, /const pendingDialog = latestExtensionDialog\(liveState\.pendingUiRequests\)/);
-  assert.match(loadSource, /if \(pendingDialog\) setExtensionDialog\(pendingDialog\)/);
   assert.match(reconcileSource, /const pendingDialog = latestExtensionDialog\(state\?\.pendingUiRequests\)/);
-  assert.match(reconcileSource, /if \(pendingDialog\) setExtensionDialog\(pendingDialog\)/);
+  // 从权威状态恢复，同时也能收：手机端答过的弹窗不能一直留在桌面上。
+  // 按 id 比较，避免每次对账都用新对象重置正在输入的弹窗。
+  for (const section of [loadSource, reconcileSource]) {
+    assert.match(section, /setExtensionDialog\(\(current\) => \(current\?\.id === pendingDialog\?\.id \? current : pendingDialog \?\? null\)\)/);
+  }
 });
 
 test("routes blocking extension requests through deduplicated browser attention notifications", () => {

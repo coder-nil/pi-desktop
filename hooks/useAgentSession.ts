@@ -551,7 +551,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           if (liveState.extensionWidgets !== undefined) setExtensionWidgets(liveState.extensionWidgets ?? []);
           if (liveState.queuedMessages !== undefined) setQueuedMessages(normalizeQueuedMessages(liveState.queuedMessages));
           const pendingDialog = latestExtensionDialog(liveState.pendingUiRequests);
-          if (pendingDialog) setExtensionDialog(pendingDialog);
+          // 对账时也要能“收”：否则手机端答过的弹窗会一直留在桌面上。
+          // 按 id 比较，避免每次对账都用新对象把正在输入的弹窗重置一遍。
+          setExtensionDialog((current) => (current?.id === pendingDialog?.id ? current : pendingDialog ?? null));
         } else if (!agentState.running) {
           setQueuedMessages({ steering: [], followUp: [] });
         }
@@ -1035,7 +1037,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setIsCompacting(state?.isCompacting ?? false);
       setQueuedMessages(normalizeQueuedMessages(state?.queuedMessages));
       const pendingDialog = latestExtensionDialog(state?.pendingUiRequests);
-      if (pendingDialog) setExtensionDialog(pendingDialog);
+      // 同上：状态里没有待确认请求了就把弹窗收掉（可能是手机端答的）。
+      setExtensionDialog((current) => (current?.id === pendingDialog?.id ? current : pendingDialog ?? null));
       const busy = data.running && state
         && (state.isStreaming || state.isPromptRunning || state.isCompacting);
       if (busy) {
@@ -1330,6 +1333,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         break;
       case "extension_ui_request":
         handleExtensionUiRequest(event as ExtensionUiRequest);
+        break;
+      case "extension_ui_resolved":
+        // 这个请求已经被另一边（手机端 / 另一个窗口）答了：把自己那个已经作废的
+        // 弹窗收掉，否则两边会各留一个，用户还会对着旧问题再答一次。
+        setExtensionDialog((current) => (current?.id === event.id ? null : current));
         break;
     }
   }, [addNotice, cancelEventStreamGrace, handleExtensionUiRequest, loadSession, notifyAgentEnd, notifyPromptStage, scheduleEventStreamClose, scrollToBottom, settleUiStage]);

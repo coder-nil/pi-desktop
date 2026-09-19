@@ -6,7 +6,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { createJiti } from "jiti";
 
 const jiti = createJiti(import.meta.url, { jsx: { runtime: "automatic" }, tsconfigPaths: true });
-const { MobileRemoteView, classifyAgentEvent } = await jiti.import("./MobileRemoteView.tsx");
+const { MobileRemoteView, classifyAgentEvent, blockingUiRequestFromEvent } = await jiti.import("./MobileRemoteView.tsx");
 const { INITIAL_STREAMING_STATE, streamReducer } = await jiti.import("../lib/streaming-message.ts");
 const { projectAssistantBlocks } = await jiti.import("../lib/mobile-state.ts");
 const { I18nProvider } = await jiti.import("../hooks/useI18n.tsx");
@@ -17,6 +17,8 @@ const stateRouteSource = await readFile(
   new URL("../app/api/mobile/state/route.ts", import.meta.url),
   "utf8",
 );
+const sessionSource = await readFile(new URL("../hooks/useAgentSession.ts", import.meta.url), "utf8");
+const chatWindowSource = await readFile(new URL("./ChatWindow.tsx", import.meta.url), "utf8");
 
 function render() {
   return renderToStaticMarkup(
@@ -94,7 +96,7 @@ test("follows the desktop instead of waiting for a snapshot that never comes", (
   assert.match(viewSource, /syncOnFirstDeltaRef\.current = true;/);
   assert.match(viewSource, /if \(syncOnFirstDeltaRef\.current\) \{\s*\n\s*syncOnFirstDeltaRef\.current = false;\s*\n\s*void refreshRef\.current\(\);/);
   // 运行中从另一边又发了一条（排队 / 插话），正文只在快照里。
-  assert.match(viewSource, /case "sync":[\s\S]{0,200}?void refreshRef\.current\(\);/);
+  assert.match(viewSource, /case "sync":[\s\S]{0,520}?void refreshRef\.current\(\);/);
   // 断线期间的事件不会重放：重连成功、网络回来、运行中静默超时各补一次快照。
   assert.match(viewSource, /source\.onopen = \(\) => \{[\s\S]*?firstOpen[\s\S]*?void refreshRef\.current\(\);/);
   assert.match(viewSource, /window\.addEventListener\("online", onOnline\)/);
@@ -113,6 +115,40 @@ test("lets the composer shrink back after a multi-line message is sent", () => {
   assert.match(viewSource, /const COMPOSER_MAX_HEIGHT = 88;/);
   assert.match(viewSource, /Math\.min\(element\.scrollHeight, COMPOSER_MAX_HEIGHT\)/);
   assert.match(viewSource, /maxHeight: COMPOSER_MAX_HEIGHT/);
+});
+
+test("asks the user on the phone when an extension (ask_user) is waiting", () => {
+  // 扩展 UI 请求（`ask_user` 就是它）在手机上必须能看见、能回答，否则整轮卡死。
+  const request = { type: "extension_ui_request", id: "q1", method: "select", title: "要合并吗？", options: ["是", "否"] };
+  assert.equal(classifyAgentEvent(request), "prompt");
+  // 非阻塞的扩展闲聊不进卡片。
+  assert.equal(classifyAgentEvent({ type: "extension_ui_request", id: "n1", method: "notify", message: "开始" }), "ignore");
+  assert.equal(classifyAgentEvent({ type: "extension_ui_request", method: "select", title: "缺 id" }), "ignore");
+  // 广播说“已经作废了”：立刻收起，再补一次快照兜底。
+  assert.equal(classifyAgentEvent({ type: "extension_ui_resolved", id: "q1" }), "sync");
+
+  assert.match(viewSource, /import \{ MobilePromptCard, type MobileUiRequest \} from "\.\/MobilePromptCard"/);
+  assert.match(viewSource, /pendingUiRequest\?: MobileUiRequest \| null/);
+  // 回答走同一个会话命令，和桌面端共用一份答案。
+  assert.match(viewSource, /body: JSON\.stringify\(\{ type: "extension_ui_response", id: request\.id, \.\.\.response \}\)/);
+  // 事件里直接带请求体，不用等快照那一跳；快照仍是对账来源。
+  assert.match(viewSource, /setEventPrompt\(blockingUiRequestFromEvent\(payload\)\)/);
+  assert.match(viewSource, /setEventPrompt\(data\.pendingUiRequest \?\? null\)/);
+  assert.match(viewSource, /const pendingUiRequest = eventPrompt \?\? snapshot\?\.pendingUiRequest \?\? null/);
+  assert.match(viewSource, /current\?\.id === resolvedId \? null : current/);
+  // 快照接口也要把待确认请求带回来（从 get_state.pendingUiRequests 里挑第一个阻塞请求）。
+  assert.match(stateRouteSource, /pendingUiRequests/);
+  assert.match(stateRouteSource, /const BLOCKING_UI_METHODS = new Set\(\["select", "confirm", "input", "editor", "custom"\]\)/);
+  assert.match(stateRouteSource, /pendingUiRequest,/);
+});
+
+test("keeps the desktop dialog in step when the phone answers", () => {
+  // 桌面端收到「已经有人答了」就要把自己的弹窗收掉；对账时也要能收。
+  assert.match(sessionSource, /case "extension_ui_resolved":/);
+  assert.match(sessionSource, /current\?\.id === event\.id \? null : current/);
+  assert.match(sessionSource, /current\?\.id === pendingDialog\?\.id \? current : pendingDialog \?\? null/);
+  // 弹窗输入框不能在每次状态对账（15s）时被重置。
+  assert.match(chatWindowSource, /\}, \[request\.id, initialValue\]\);/);
 });
 
 test("never lets a server-picked session override the scanned one", () => {
@@ -158,6 +194,18 @@ test("maps every stream event to one action", () => {
   assert.equal(classifyAgentEvent({ type: "agent_settled" }), "settle");
   assert.equal(classifyAgentEvent({ type: "tool_execution_update" }), "ignore");
   assert.equal(classifyAgentEvent({}), "ignore");
+});
+
+test("reads the blocking request straight out of the event", () => {
+  const request = { type: "extension_ui_request", id: "q1", method: "select", title: "要合并吗？", options: ["是", "否"] };
+
+  // 事件本身就是完整请求体：直接拿来渲染，不等快照。
+  assert.deepEqual(blockingUiRequestFromEvent(request), request);
+  assert.equal(blockingUiRequestFromEvent({ type: "extension_ui_request", id: "n1", method: "notify", message: "开始" }), null);
+  assert.equal(blockingUiRequestFromEvent({ type: "extension_ui_request", id: "s1", method: "setStatus" }), null);
+  assert.equal(blockingUiRequestFromEvent({ type: "extension_ui_request", id: "", method: "select", title: "x" }), null);
+  assert.equal(blockingUiRequestFromEvent({ type: "extension_ui_request", id: "q2", method: "select" }), null);
+  assert.equal(blockingUiRequestFromEvent({ type: "agent_start" }), null);
 });
 
 test("seeds the streaming bubble, without which every delta is dropped", () => {
