@@ -8,6 +8,7 @@ import {
   normalizeDisplayMath,
 } from "@/lib/markdown";
 import { splitFinalAssistantBlocks } from "@/lib/message-display";
+import { CHAT_TOP_BAR_HEIGHT } from "@/lib/panel-layout";
 import type { AgentMessage, AssistantMessage, TextContent, UserMessage } from "@/lib/types";
 import styles from "./ChatMinimap.module.css";
 
@@ -20,9 +21,13 @@ interface Props {
   onStateChange?: (state: { visible: boolean; previewOpen: boolean }) => void;
 }
 
-const MINIMAP_WIDTH = 36;
 const MAX_NODE_GAP = 50;
 const MINIMAP_PADDING = 12;
+/**
+ * 右栏顶部给「显示文件面板」开关留出的高度。节点层从它下方开始，
+ * 否则第一个方格会压在图标上。
+ */
+const MINIMAP_TOP_INSET = CHAT_TOP_BAR_HEIGHT;
 /** 稀疏时的节点方块规格（含边框实占 11px）。 */
 const MAX_NODE_SIZE = 8;
 const MAX_NODE_BORDER = 1.5;
@@ -222,16 +227,17 @@ function nodeVisualFor(gap: number): { nodeSize: number; nodeBorder: number } {
   return { nodeSize: extent - nodeBorder * 2, nodeBorder };
 }
 
-export function layoutNodes(allNodes: NodeInfo[], minimapHeight: number): NodeLayout {
+export function layoutNodes(allNodes: NodeInfo[], minimapHeight: number, topInset = 0): NodeLayout {
   if (allNodes.length === 0) {
     return { nodes: [], gap: MAX_NODE_GAP, fillsHeight: false, ...nodeVisualFor(MAX_NODE_GAP) };
   }
 
   const height = Math.max(1, minimapHeight);
-  const usableHeight = Math.max(0, height - MINIMAP_PADDING * 2);
+  const firstTop = Math.min(topInset + MINIMAP_PADDING, Math.max(0, height - MINIMAP_PADDING));
+  const usableHeight = Math.max(0, height - firstTop - MINIMAP_PADDING);
   if (allNodes.length === 1) {
     return {
-      nodes: [{ ...allNodes[0], topRatio: MINIMAP_PADDING / height }],
+      nodes: [{ ...allNodes[0], topRatio: firstTop / height }],
       gap: MAX_NODE_GAP,
       fillsHeight: false,
       ...nodeVisualFor(MAX_NODE_GAP),
@@ -243,7 +249,7 @@ export function layoutNodes(allNodes: NodeInfo[], minimapHeight: number): NodeLa
   return {
     nodes: allNodes.map((node, index) => ({
       ...node,
-      topRatio: (MINIMAP_PADDING + index * gap) / height,
+      topRatio: (firstTop + index * gap) / height,
     })),
     gap,
     fillsHeight: naturalGap <= MAX_NODE_GAP,
@@ -293,7 +299,7 @@ export function ChatMinimap({
   allMessagesRef.current = allMessages;
 
   const nodeLayout = useMemo(
-    () => layoutNodes(allNodes, minimapHeight),
+    () => layoutNodes(allNodes, minimapHeight, MINIMAP_TOP_INSET),
     [allNodes, minimapHeight],
   );
   const { nodes: positionedNodes, gap: nodeGap, nodeSize, nodeBorder } = nodeLayout;
@@ -384,6 +390,8 @@ export function ChatMinimap({
       }
 
       const nextNodes = createTurnNodes(turns);
+      // 节点层与预览浮层都铺满整条右栏（含顶栏与输入区那两段），而不是只占
+      // 与消息区对齐的一段：容器高度就是量高度。
       setMinimapHeight(minimapEl.clientHeight);
       allNodesRef.current = nextNodes;
       setAllNodes(nextNodes);
@@ -443,6 +451,9 @@ export function ChatMinimap({
     const ro = new ResizeObserver(syncLayout);
     ro.observe(el);
     if (el.firstElementChild) ro.observe(el.firstElementChild);
+    // 节点铺满整条右栏，所以右栏自身的高度变化也要重新布局。
+    const minimapEl = containerRef.current;
+    if (minimapEl) ro.observe(minimapEl);
     syncLayout();
     return () => {
       ro.disconnect();
@@ -451,7 +462,7 @@ export function ChatMinimap({
         measureThrottleRef.current = null;
       }
     };
-  }, [measureNodes, scrollContainer, updateScroll]);
+  }, [measureNodes, scrollContainer, updateScroll, visible]);
 
   useEffect(() => {
     const timeout = setTimeout(() => {
@@ -629,11 +640,8 @@ export function ChatMinimap({
 
   if (!visible) return null;
 
-  const lastNodeTop = positionedNodes.length > 0
-    ? positionedNodes[positionedNodes.length - 1].topRatio * minimapHeight
-    : MINIMAP_PADDING;
-  const railHeight = Math.max(1, lastNodeTop - MINIMAP_PADDING);
-
+  // 背景、左边框和贯穿整列的竖线由 ChatWindow 的整条右栏（data-chat-minimap-rail）提供；
+  // 这里只负责节点层，避免整条被切成两段。
   return (
     <div
       ref={containerRef}
@@ -646,32 +654,18 @@ export function ChatMinimap({
         setMouseYRatio((event.clientY - rect.top) / rect.height);
       }}
       style={{
-        width: MINIMAP_WIDTH,
-        flexShrink: 0,
         position: "absolute",
-        top: 0,
+        // 撑满整条右栏：left/right 跟随列宽动画，top/bottom 贯穿到底。
+        left: 0,
         right: 0,
+        top: 0,
         bottom: 0,
         cursor: "pointer",
         userSelect: "none",
-        borderLeft: "1px solid var(--border)",
-        background: "var(--bg-panel)",
+        background: "transparent",
         overflow: "visible",
       }}
     >
-      <div
-        style={{
-          position: "absolute",
-          left: "50%",
-          top: MINIMAP_PADDING,
-          height: railHeight,
-          width: 1,
-          background: "var(--border)",
-          transform: "translateX(-50%)",
-          zIndex: 0,
-        }}
-      />
-
       {positionedNodes.map((node) => {
         const isNearest = minimapHovered && nearestNode?.index === node.index;
         const isActive = activeIndex === node.index;

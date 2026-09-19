@@ -1561,6 +1561,15 @@ span.token.table {
   .sidebar-container.sidebar-resizing > * {
     transition: none !important;
   }
+
+  /* Chat minimap rail: collapses by width so the chat column reflows smoothly. */
+  .chat-minimap-column {
+    width: 0;
+    transition: width 0.2s ease;
+  }
+  .chat-minimap-column.is-open {
+    width: var(--chat-minimap-width, 36px);
+  }
 }
 
 /* Wide desktop file panel: participate in the split layout. */

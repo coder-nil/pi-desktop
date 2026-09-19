@@ -37,6 +37,15 @@ test("shows the main file toggle only while the file panel is closed", () => {
   assert.match(source, /onClick=\{\(\) => setRightPanelOpen\(false\)\}[\s\S]*?aria-label=\{translate\("files\.hidePanel"\)\}/);
 });
 
+test("keeps the desktop file toggle inside the open minimap column", () => {
+  assert.match(source, /if \(!mobile && minimapState\.visible\) return null;/);
+  assert.match(source, /const renderMinimapFileToggle = \(\) => \(/);
+  assert.match(source, /const renderMinimapFileToggle[\s\S]{0,600}?aria-controls="file-panel"[\s\S]{0,600}?data-minimap-file-toggle=""/);
+  assert.match(source, /\{minimapState\.visible && renderMinimapFileToggle\(\)\}/);
+  // 竖线从开关下方开始画，免得从图标中间穿过
+  assert.match(source, /backgroundPosition: `0 \$\{TOP_BAR_ICON_BUTTON_SIZE\}px`/);
+});
+
 test("eagerly loads file and configuration components", () => {
   for (const component of ["FileViewer", "SettingsPanel"]) {
     assert.match(source, new RegExp(`import \\{ ${component} \\} from \\"\\./${component}\\";`));

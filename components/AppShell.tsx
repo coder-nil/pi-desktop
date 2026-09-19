@@ -39,6 +39,8 @@ import {
   getDefaultRightPanelWidth,
   getRightPanelMaxWidth,
   getSidebarMaxWidth,
+  CHAT_MINIMAP_WIDTH,
+  CHAT_TOP_BAR_HEIGHT,
   RIGHT_PANEL_FALLBACK_WIDTH,
   RIGHT_PANEL_MAX_WIDTH,
   RIGHT_PANEL_MIN_WIDTH,
@@ -61,10 +63,16 @@ type AutoNameStatus =
   | { kind: "naming"; sessionId: string }
   | { kind: "success"; sessionId: string }
   | { kind: "error"; sessionId: string; message: string };
-const TOP_BAR_ICON_BUTTON_SIZE = 36;
+const TOP_BAR_ICON_BUTTON_SIZE = CHAT_TOP_BAR_HEIGHT;
 const NOTIFICATION_ICON = "/icons/icon-192.png";
 const NOTIFICATION_PROMPT_MAX_LENGTH = 100;
 const RIGHT_PANEL_TRANSITION_MS = 200;
+/**
+ * The rail line is painted as the column's own background so it stays behind
+ * every positioned descendant (the portaled node layer draws on top of it).
+ */
+const MINIMAP_RAIL_LINE =
+  "linear-gradient(to right, transparent calc(50% - 0.5px), var(--border) calc(50% - 0.5px), var(--border) calc(50% + 0.5px), transparent calc(50% + 0.5px))";
 
 function preserveChatScrollDuringPanelTransition(container: HTMLDivElement): () => void {
   const content = container.querySelector<HTMLElement>("[data-chat-message-content]");
@@ -156,6 +164,21 @@ export function AppShell() {
   const [projectTrustError, setProjectTrustError] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
+  /**
+   * Chat minimap rail. It is a real column at the same level as the sidebar, so
+   * it always stays mounted (the chat column gives up 36px by layout, not by
+   * inner padding) and only its width animates. ChatWindow portals the node
+   * layer into `minimapHost`; `minimapState` drives the rail's own chrome.
+   */
+  const [minimapHost, setMinimapHost] = useState<HTMLDivElement | null>(null);
+  const [minimapState, setMinimapState] = useState({ visible: false, previewOpen: false });
+  const handleMinimapStateChange = useCallback((next: { visible: boolean; previewOpen: boolean }) => {
+    setMinimapState((current) => (
+      current.visible === next.visible && current.previewOpen === next.previewOpen
+        ? current
+        : next
+    ));
+  }, []);
   const chatScrollContainerRef = useRef<HTMLDivElement | null>(null);
   const cancelChatScrollPreservationRef = useRef<(() => void) | null>(null);
   const [terminalCwds, setTerminalCwds] = useState<string[]>([]);
@@ -1585,6 +1608,9 @@ export function AppShell() {
 
   const renderMainFileToggle = (mobile: boolean) => {
     if (rightPanelOpen) return null;
+    // 桌面端：minimap 列打开时这个开关就住在那一列里（见 renderMinimapFileToggle），
+    // 顶栏不再重复一个，避免它贴着 minimap 列的左边框看起来像列里的东西。
+    if (!mobile && minimapState.visible) return null;
     const covered = mobile && mobileToolbarMoreOpen;
     return (
       <button
@@ -1618,6 +1644,41 @@ export function AppShell() {
       </button>
     );
   };
+
+  /**
+   * 文件面板开关在 minimap 列里的常驻位置：列的顶部，和顶栏同一行，
+   * 与 minimap 节点同列。列收起（没有可跳转的节点）时它回到 chat 顶栏。
+   */
+  const renderMinimapFileToggle = () => (
+    <button
+      type="button"
+      onClick={handleRightPanelToggle}
+      aria-controls="file-panel"
+      aria-expanded={rightPanelOpen}
+      title={rightPanelOpen ? translate("files.hidePanel") : translate("files.showPanel")}
+      aria-label={rightPanelOpen ? translate("files.hidePanel") : translate("files.showPanel")}
+      data-minimap-file-toggle=""
+      style={{
+        position: "relative",
+        zIndex: 3,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        width: "100%", height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0, flexShrink: 0,
+        // 列收起时（宽度动画到 0）连带图标一起裁掉，避免它溢出到 chat 内容上。
+        overflow: "hidden",
+        background: rightPanelOpen ? "var(--bg-selected)" : "none",
+        border: "none",
+        boxShadow: "inset 0 -1px 0 var(--border)",
+        color: rightPanelOpen ? "var(--text)" : "var(--text-muted)",
+        cursor: "pointer", transition: "color 0.12s, background 0.12s",
+      }}
+      onMouseEnter={(event) => { event.currentTarget.style.color = "var(--text)"; }}
+      onMouseLeave={(event) => { event.currentTarget.style.color = rightPanelOpen ? "var(--text)" : "var(--text-muted)"; }}
+    >
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <rect x="3" y="3" width="18" height="18" rx="2" /><line x1="15" y1="3" x2="15" y2="21" />
+      </svg>
+    </button>
+  );
 
   return (
     <>
@@ -2109,6 +2170,8 @@ export function AppShell() {
               onSessionStatsPanelOpen={openSessionStatsPanel}
               onContextUsageChange={handleContextUsageChange}
               onScrollContainerChange={handleChatScrollContainerChange}
+              minimapHost={minimapHost}
+              onMinimapStateChange={handleMinimapStateChange}
               onOpenFile={handleOpenLinkedFile}
               onOpenConsole={handleOpenConsole}
               consoleActive={consoleOpen && terminalCwds.includes(selectedSession?.cwd ?? effectiveNewSessionCwd ?? "")}
@@ -2158,6 +2221,39 @@ export function AppShell() {
           />
         ))}
       </div>
+
+      {/* Chat minimap rail: a real column at the same level as the sidebar.
+          It spans the full window height (including the top bar row) and only
+          animates its width, so the chat column gives up the space by layout
+          instead of reserving it with inner padding. ChatWindow portals the
+          interactive node layer into `minimapHost`, which is why the host stays
+          mounted even while the rail is collapsed. */}
+      {!isMobile && (
+        <div
+          className={`chat-minimap-column${minimapState.visible ? " is-open" : ""}`}
+          style={{
+            "--chat-minimap-width": `${CHAT_MINIMAP_WIDTH}px`,
+            position: "relative",
+            flexShrink: 0,
+            backgroundColor: "var(--bg-panel)",
+            // 竖线只画在开关下方，别从按钮中间穿过去。
+            backgroundImage: MINIMAP_RAIL_LINE,
+            backgroundRepeat: "no-repeat",
+            backgroundPosition: `0 ${TOP_BAR_ICON_BUTTON_SIZE}px`,
+            backgroundSize: `100% calc(100% - ${TOP_BAR_ICON_BUTTON_SIZE}px)`,
+            borderLeft: minimapState.visible && !minimapState.previewOpen
+              ? "1px solid var(--border)"
+              : "1px solid transparent",
+          } as React.CSSProperties}
+        >
+          {minimapState.visible && renderMinimapFileToggle()}
+          <div
+            ref={setMinimapHost}
+            data-chat-minimap-host=""
+            style={{ position: "absolute", inset: 0, overflow: "visible" }}
+          />
+        </div>
+      )}
 
       {gitPanelOpen && activeProjectIsGit === true && activeCwd && (
         <GitPanel cwd={activeCwd} sessionId={selectedSession?.id ?? null} onClose={() => setGitPanelOpen(false)} onChanged={handleExplorerRefresh} onOpenFile={handleOpenFile} />
