@@ -8,20 +8,30 @@ import {
 import type { SessionInfo } from "@/lib/types";
 import type { MobileMessage } from "@/lib/mobile-state";
 import { getRpcSession, getRunningRpcSessionIds } from "@/lib/rpc-manager";
-import { toMobileMessages } from "@/lib/mobile-state";
+import {
+  buildMobileWindow,
+  MOBILE_DEFAULT_LIMIT,
+  MOBILE_DETAIL_WINDOW,
+  MOBILE_MAX_LIMIT,
+} from "@/lib/mobile-state";
 import { isApiRequestAllowed } from "@/lib/request-security";
 
 export const dynamic = "force-dynamic";
 
-const DEFAULT_LIMIT = 30;
-const MAX_LIMIT = 100;
+const DEFAULT_LIMIT = MOBILE_DEFAULT_LIMIT;
+const MAX_LIMIT = MOBILE_MAX_LIMIT;
 
 /**
  * GET /api/mobile/state — 手机遥控页的一次性快照。
  *
  * 没有指定 `session` 时按「正在运行的会话 → 最近更新的会话」挑选，`cwd`
  * 用于把范围限定在二维码携带的项目里。消息在这里就压成纯文本，手机端
- * 不做 markdown / 高亮，也不拉取超出需要的条目。
+ * 不做 markdown / 高亮。
+ *
+ * `limit` 是「最新的多少条」，默认 30，上限 300；返回的 `earlierCount` 告诉手机
+ * 还有多少条更早的消息，翻历史就是把这个值一批批调大。窗口里最后
+ * `MOBILE_DETAIL_WINDOW` 条带思考与工具细节，更早的降成摘要（否则 300 条带细节
+ * 的快照接近 500KB，手机每次切回前台重拉一次很不划算）。
  */
 export async function GET(req: Request) {
   if (!isApiRequestAllowed(req)) {
@@ -53,17 +63,23 @@ export async function GET(req: Request) {
         updatedAt: null,
         queue: { steering: 0, followUp: 0 },
         messages: [],
+        earlierCount: 0,
       });
     }
 
     const filePath = await resolveSessionPath(sessionId);
     let messages: MobileMessage[] = [];
+    let earlierCount = 0;
     let thinkingLevel: string | undefined;
     let model: { provider: string; modelId: string } | null = null;
     if (filePath) {
       const entries = getSessionEntries(filePath);
       const context = buildSessionContext(entries);
-      messages = toMobileMessages(context.messages, context.entryIds, limit);
+      const window = buildMobileWindow(context.messages, context.entryIds, limit, {
+        detailWindow: MOBILE_DETAIL_WINDOW,
+      });
+      messages = window.messages;
+      earlierCount = window.earlierCount;
       thinkingLevel = context.thinkingLevel;
       model = context.model;
     }
@@ -79,6 +95,7 @@ export async function GET(req: Request) {
       updatedAt: info?.modified ?? null,
       queue,
       messages,
+      earlierCount,
       ...(thinkingLevel ? { thinkingLevel } : {}),
       ...(model ? { model } : {}),
     });
