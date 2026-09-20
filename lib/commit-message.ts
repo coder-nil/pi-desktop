@@ -7,6 +7,7 @@ import { buildSessionTitleAgentOptions } from "./session-title";
 const COMMIT_MESSAGE_TIMEOUT_MS = 90_000;
 const MAX_COMMIT_MESSAGE_LENGTH = 1_200;
 export type CommitMessageLanguage = "en" | "zh-CN";
+export type CommitMessageUpdate = (message: string) => void;
 
 const COMMIT_MESSAGE_REQUIREMENTS = `Write a Git commit message using only the staged code diff below.
 
@@ -58,6 +59,18 @@ export function buildCommitMessagePrompt(
 }
 
 export function parseGeneratedCommitMessage(raw: string): string {
+  const message = previewGeneratedCommitMessage(raw);
+  if (!/[\p{L}\p{N}]/u.test(message)) throw new Error("The model did not return a usable commit message");
+  return Array.from(message).slice(0, MAX_COMMIT_MESSAGE_LENGTH).join("").trim();
+}
+
+/**
+ * Applies the same normalization as {@link parseGeneratedCommitMessage} without
+ * the final validation, so a partially streamed response can be shown while the
+ * model is still writing. Callers that need a usable message must use the strict
+ * parser.
+ */
+export function previewGeneratedCommitMessage(raw: string): string {
   let message = raw.trim();
   const fenced = message.match(/^```(?:text)?\s*([\s\S]*?)\s*```$/i);
   if (fenced) message = fenced[1].trim();
@@ -66,9 +79,7 @@ export function parseGeneratedCommitMessage(raw: string): string {
     .join("\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
-  message = message.replace(/^['"`]|['"`]$/g, "").trim();
-  if (!/[\p{L}\p{N}]/u.test(message)) throw new Error("The model did not return a usable commit message");
-  return Array.from(message).slice(0, MAX_COMMIT_MESSAGE_LENGTH).join("").trim();
+  return message.replace(/^['"`]|['"`]$/g, "").trim();
 }
 
 function generatedAssistantText(messages: AgentMessage[]): string {
@@ -99,6 +110,12 @@ function generatedModelText(message: AssistantMessage): string {
   return text;
 }
 
+function emitCommitMessagePreview(onUpdate: CommitMessageUpdate | undefined, raw: string): void {
+  if (!onUpdate) return;
+  const preview = previewGeneratedCommitMessage(raw);
+  if (preview) onUpdate(preview);
+}
+
 /** Generates from a project model without creating or persisting an AgentSession. */
 export async function generateCommitMessageWithModel(
   modelRuntime: ModelRuntime,
@@ -106,11 +123,12 @@ export async function generateCommitMessageWithModel(
   stagedDiff: string,
   gitCommitSkill?: string,
   language: CommitMessageLanguage = "en",
+  onUpdate?: CommitMessageUpdate,
 ): Promise<string> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), COMMIT_MESSAGE_TIMEOUT_MS);
   try {
-    const message = await modelRuntime.completeSimple(model, {
+    const stream = modelRuntime.streamSimple(model, {
       messages: [{
         role: "user",
         content: buildCommitMessagePrompt(stagedDiff, gitCommitSkill, language),
@@ -122,7 +140,20 @@ export async function generateCommitMessageWithModel(
       cacheRetention: "none",
       signal: controller.signal,
     });
-    return parseGeneratedCommitMessage(generatedModelText(message));
+    let raw = "";
+    let final: AssistantMessage | null = null;
+    for await (const event of stream) {
+      if (event.type === "text_delta") {
+        raw += event.delta;
+        emitCommitMessagePreview(onUpdate, raw);
+      } else if (event.type === "done") {
+        final = event.message;
+      } else if (event.type === "error") {
+        throw new Error(event.error.errorMessage || "The commit-message model request failed");
+      }
+    }
+    if (!final) throw new Error("The model did not return a commit message");
+    return parseGeneratedCommitMessage(generatedModelText(final));
   } catch (error) {
     if (controller.signal.aborted) throw new Error("Commit-message generation timed out");
     throw error;
@@ -136,6 +167,7 @@ export async function generateCommitMessage(
   source: AgentSession,
   stagedDiff: string,
   language: CommitMessageLanguage = "en",
+  onUpdate?: CommitMessageUpdate,
 ): Promise<string> {
   const sourceAgent = source.agent;
   await sourceAgent.waitForIdle();
@@ -147,6 +179,14 @@ export async function generateCommitMessage(
   };
   const temporaryAgent = new Agent(options);
   const gitCommitSkill = getGitCommitSkillInstructions(source.resourceLoader);
+  let raw = "";
+  const unsubscribe = onUpdate
+    ? temporaryAgent.subscribe((event) => {
+        if (event.type !== "message_update" || event.assistantMessageEvent.type !== "text_delta") return;
+        raw += event.assistantMessageEvent.delta;
+        emitCommitMessagePreview(onUpdate, raw);
+      })
+    : undefined;
   const runPromise = temporaryAgent.prompt(buildCommitMessagePrompt(stagedDiff, gitCommitSkill, language));
   let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -165,6 +205,7 @@ export async function generateCommitMessage(
     throw error;
   } finally {
     if (timeout) clearTimeout(timeout);
+    unsubscribe?.();
   }
   return parseGeneratedCommitMessage(generatedAssistantText(temporaryAgent.state.messages));
 }

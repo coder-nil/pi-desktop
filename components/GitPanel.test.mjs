@@ -62,7 +62,10 @@ test("summarizes staged changes with or without a selected session", () => {
   assert.match(source, /sessionId: string \| null/);
   assert.match(source, /fetch\("\/api\/git\/commit-message"/);
   assert.match(source, /JSON\.stringify\(\{ cwd, locale/);
-  assert.match(source, /setMessage\(data\.message\)/);
+  assert.match(source, /pushTarget\(event\.message\)/);
+  assert.match(source, /pushTarget\(finalMessage\)/);
+  assert.match(source, /res\.body\.getReader\(\)/);
+  assert.match(source, /revealNext\(reveal\.displayed, reveal\.target\)/);
   assert.match(source, /rows=\{7\}/);
   assert.match(source, /git\.summarizeCommit/);
   assert.doesNotMatch(source, /if \(!sessionId\) return/);

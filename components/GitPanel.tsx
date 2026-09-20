@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useI18n } from "@/hooks/useI18n";
+import { revealNext } from "@/lib/typewriter";
 import { BranchPicker } from "./BranchPicker";
 
 // MergeBranchPicker delegates to the shared picker, which renders the accessible
@@ -63,6 +64,14 @@ export function GitPanel({ cwd, sessionId, onClose, onChanged, onOpenFile }: { c
   // checkbox state are restored.
   const credentialPrefillKey = summary?.isGitRepository ? `${summary.remote ?? ""}|${summary.hasSavedCredential ? 1 : 0}` : null;
   const prefilledKeyRef = useRef<string | null>(null);
+  // Drives the typewriter reveal of the AI summary; see summarizeCommitMessage.
+  const summaryRevealRef = useRef({ frame: 0, target: "", displayed: "" });
+  useEffect(() => () => {
+    const reveal = summaryRevealRef.current;
+    if (reveal.frame) cancelAnimationFrame(reveal.frame);
+    reveal.frame = 0;
+    reveal.target = reveal.displayed;
+  }, []);
   useEffect(() => {
     if (!credentialPrefillKey || prefilledKeyRef.current === credentialPrefillKey) return;
     prefilledKeyRef.current = credentialPrefillKey;
@@ -116,18 +125,75 @@ export function GitPanel({ cwd, sessionId, onClose, onChanged, onOpenFile }: { c
   const summarizeCommitMessage = useCallback(async () => {
     setBusy("summarize");
     setError(null);
+    // Reveal streamed text at a steady pace so a burst of tokens still reads as
+    // a typewriter instead of appearing all at once.
+    const reveal = summaryRevealRef.current;
+    reveal.target = "";
+    reveal.displayed = "";
+    if (reveal.frame) cancelAnimationFrame(reveal.frame);
+    reveal.frame = 0;
+    const pump = () => {
+      reveal.frame = 0;
+      if (reveal.displayed !== reveal.target) {
+        reveal.displayed = revealNext(reveal.displayed, reveal.target);
+        setMessage(reveal.displayed);
+      }
+      if (reveal.displayed !== reveal.target) reveal.frame = requestAnimationFrame(pump);
+    };
+    const kick = () => {
+      if (!reveal.frame && reveal.displayed !== reveal.target) reveal.frame = requestAnimationFrame(pump);
+    };
+    const pushTarget = (value: string) => {
+      reveal.target = value;
+      kick();
+    };
+
+    let failure: string | null = null;
     try {
       const res = await fetch("/api/git/commit-message", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ cwd, locale, ...(sessionId ? { sessionId } : {}) }),
       });
-      const data = await res.json() as { message?: string; error?: string };
-      if (!res.ok || data.error || !data.message) throw new Error(data.error ?? `HTTP ${res.status}`);
-      setMessage(data.message);
+      if (!res.ok || !res.body) {
+        const data = await res.json().catch(() => null) as { error?: string } | null;
+        throw new Error(data?.error ?? `HTTP ${res.status}`);
+      }
+      // The route streams newline-delimited JSON: "update" events carry the
+      // message so far, "done" the authoritative result.
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffered = "";
+      let finalMessage: string | null = null;
+      let streamError: string | null = null;
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffered += decoder.decode(value, { stream: true });
+        let newline = buffered.indexOf("\n");
+        while (newline >= 0) {
+          const line = buffered.slice(0, newline).trim();
+          buffered = buffered.slice(newline + 1);
+          newline = buffered.indexOf("\n");
+          if (!line) continue;
+          const event = JSON.parse(line) as { type?: string; message?: string; error?: string };
+          if (event.type === "update" && event.message) pushTarget(event.message);
+          else if (event.type === "done" && event.message) finalMessage = event.message;
+          else if (event.type === "error") streamError = event.error ?? "The model did not return a commit message";
+        }
+      }
+      if (streamError) throw new Error(streamError);
+      if (!finalMessage) throw new Error("The model did not return a commit message");
+      pushTarget(finalMessage);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      failure = reason instanceof Error ? reason.message : String(reason);
     } finally {
+      kick();
+      await new Promise<void>((resolve) => {
+        const wait = () => (reveal.displayed === reveal.target ? resolve() : setTimeout(wait, 24));
+        wait();
+      });
+      if (failure) setError(failure);
       setBusy(null);
     }
   }, [cwd, locale, sessionId]);
