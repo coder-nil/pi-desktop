@@ -125,7 +125,9 @@ export function AppShell() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [initialNavigation] = useState(() => getInitialNavigation(searchParams));
-  const { preference } = useTheme();
+  const { preference, toggleTheme } = useTheme();
+  const themeLabelKey =
+    preference === "light" ? "theme.light" : preference === "dark" ? "theme.dark" : "theme.auto";
   const { locale, setLocale, t: translate, supportedLocales } = useI18n();
   const isMobile = useIsMobile();
   useViewportHeight();
@@ -359,11 +361,11 @@ export function AppShell() {
   }, []);
 
   // Single active panel — only one dropdown open at a time
-  const [activeTopPanel, setActiveTopPanel] = useState<"branches" | "system" | "session" | null>(null);
+  const [activeTopPanel, setActiveTopPanel] = useState<"branches" | "system" | "session" | "language" | null>(null);
   const [topPanelPos, setTopPanelPos] = useState<{ top: number; left: number; width: number } | null>(null);
 
   const toggleTopPanel = useCallback((
-    panel: "branches" | "system" | "session",
+    panel: "branches" | "system" | "session" | "language",
     keepMobileToolbarOpen = false,
   ) => {
     if (isMobile) setSidebarOpen(false);
@@ -1300,6 +1302,88 @@ export function AppShell() {
     );
   };
 
+  // 移动端悬浮工具栏的主题 / 语言入口：与 history / branches / system 同一排，
+  // 点完保持工具层展开（否则每切一次都要重新点开三点菜单）。
+  const renderThemeButton = (mobile: boolean) => (
+    <button
+      type="button"
+      onClick={(event) => {
+        const rect = event.currentTarget.getBoundingClientRect();
+        toggleTheme({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
+        if (mobile) setMobileToolbarMoreOpen(true);
+      }}
+      title={translate(themeLabelKey)}
+      aria-label={translate(themeLabelKey)}
+      style={{
+        display: "flex", alignItems: "center", justifyContent: "center",
+        width: TOP_BAR_ICON_BUTTON_SIZE, height: "100%", padding: 0,
+        background: "none", border: "none", borderRight: "1px solid var(--border)",
+        color: "var(--text-muted)", cursor: "pointer", flexShrink: 0, transition: "color 0.12s",
+      }}
+      onMouseEnter={(event) => { event.currentTarget.style.color = "var(--text)"; }}
+      onMouseLeave={(event) => { event.currentTarget.style.color = "var(--text-muted)"; }}
+      data-mobile-toolbar-action={mobile ? "theme" : undefined}
+    >
+      {preference === "light" ? (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="5" />
+          <line x1="12" y1="1" x2="12" y2="3" />
+          <line x1="12" y1="21" x2="12" y2="23" />
+          <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
+          <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+          <line x1="1" y1="12" x2="3" y2="12" />
+          <line x1="21" y1="12" x2="23" y2="12" />
+          <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
+          <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+        </svg>
+      ) : preference === "dark" ? (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+        </svg>
+      ) : (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <rect x="2" y="3" width="20" height="14" rx="2" />
+          <line x1="8" y1="21" x2="16" y2="21" />
+          <line x1="12" y1="17" x2="12" y2="21" />
+        </svg>
+      )}
+    </button>
+  );
+
+  const renderLanguageButton = (mobile: boolean) => (
+    <button
+      type="button"
+      onClick={() => toggleTopPanel("language", mobile)}
+      title={translate("common.language")}
+      aria-label={translate("common.language")}
+      aria-haspopup="menu"
+      aria-expanded={activeTopPanel === "language"}
+      aria-pressed={activeTopPanel === "language"}
+      style={{
+        display: "flex", alignItems: "center", justifyContent: "center",
+        width: TOP_BAR_ICON_BUTTON_SIZE, height: "100%", padding: 0,
+        background: activeTopPanel === "language" ? "var(--bg-selected)" : "none",
+        border: "none", borderRight: "1px solid var(--border)",
+        color: activeTopPanel === "language" ? "var(--text)" : "var(--text-muted)",
+        cursor: "pointer", flexShrink: 0, transition: "color 0.12s",
+      }}
+      onMouseEnter={(event) => { event.currentTarget.style.color = "var(--text)"; }}
+      onMouseLeave={(event) => {
+        event.currentTarget.style.color = activeTopPanel === "language" ? "var(--text)" : "var(--text-muted)";
+      }}
+      data-mobile-toolbar-action={mobile ? "language" : undefined}
+    >
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="m5 8 6 6" />
+        <path d="m4 14 6-6 2-3" />
+        <path d="M2 5h12" />
+        <path d="M7 2h1" />
+        <path d="m22 22-5-10-5 10" />
+        <path d="M14 18h6" />
+      </svg>
+    </button>
+  );
+
   const renderChatToolbarActions = (mobile: boolean) => {
     if (!mobile && !showChat) return null;
     return (
@@ -1905,6 +1989,8 @@ export function AppShell() {
                   }}
                 >
                   {renderChatToolbarActions(true)}
+                  {renderThemeButton(true)}
+                  {renderLanguageButton(true)}
                 </div>
               )}
             </div>
@@ -1969,6 +2055,45 @@ export function AppShell() {
                        {systemPromptLoading ? translate("system.loading") : translate("system.load")}
                     </div>
                   )}
+                </div>
+              )}
+              {activeTopPanel === "language" && (
+                <div
+                  role="menu"
+                  style={{
+                    background: "var(--bg-panel)",
+                    borderBottom: "1px solid var(--border)",
+                    boxShadow: "0 10px 28px rgba(0,0,0,0.10)",
+                    padding: "6px 0",
+                  }}
+                >
+                  {supportedLocales.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={item.id === locale}
+                      onClick={() => {
+                        setLocale(item.id as typeof locale);
+                        setActiveTopPanel(null);
+                      }}
+                      style={{
+                        display: "flex", alignItems: "center", justifyContent: "space-between",
+                        gap: 12, width: "100%", padding: "8px 16px",
+                        background: item.id === locale ? "var(--bg-selected)" : "none",
+                        border: "none",
+                        color: item.id === locale ? "var(--text)" : "var(--text-muted)",
+                        cursor: "pointer", fontSize: 12, textAlign: "left",
+                      }}
+                    >
+                      <span>{item.label}</span>
+                      {item.id === locale && (
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                      )}
+                    </button>
+                  ))}
                 </div>
               )}
               {activeTopPanel === "session" && (
