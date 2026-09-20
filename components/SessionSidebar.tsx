@@ -1314,17 +1314,15 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
               style={{
                 flexShrink: 0,
                 display: "inline-flex", alignItems: "center", justifyContent: "center",
-                width: 24, height: 24, padding: 0, borderRadius: 5,
+                height: 20, padding: "0 8px", borderRadius: 5,
                 border: appUpdate.updateAvailable ? "1px solid #d97706" : "1px solid var(--border)",
                 background: appUpdate.updateAvailable ? "rgba(217,119,6,0.12)" : "transparent",
                 color: appUpdate.updateAvailable ? "#d97706" : "var(--text-muted)",
                 cursor: "pointer", fontSize: 11, fontWeight: 600,
+                whiteSpace: "nowrap",
               }}
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M12 16V4m-4 4 4-4 4 4" />
-                <path d="M4 16v4h16v-4" />
-              </svg>
+              {`↑ v${appUpdate.latestVersion}`}
             </button>
           )}
           {onHideSidebar && (
