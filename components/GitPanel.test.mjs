@@ -27,6 +27,12 @@ test("supports staging, unstaging, and discarding all visible changes in one Git
   assert.match(source, /label=\{t\("git\.stageAll"\)\}/);
   assert.match(source, /label=\{t\("git\.unstageAll"\)\}/);
   assert.match(source, /label=\{t\("git\.discardAll"\)\}/);
+  // The discard-all button must only appear for real worktree changes, otherwise
+  // it renders for staged-only/untracked-only trees and looks broken when clicked.
+  assert.match(source, /const hasDiscardableChanges = unstaged\.some\(\(file\) => file\.status !== "untracked"\)/);
+  assert.match(source, /\{hasDiscardableChanges && <ActionButton label=\{t\("git\.discardAll"\)\}/);
+  assert.doesNotMatch(source, /summary\?\.changes\.files\.length > 0 && <ActionButton label=\{t\("git\.discardAll"\)\}/);
+  assert.match(source, /title=\{t\("git\.discardAllTitle"\)\}/);
 });
 
 test("opens a clicked changed file in the existing diff viewer", () => {
