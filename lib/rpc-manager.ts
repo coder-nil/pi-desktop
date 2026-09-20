@@ -885,10 +885,16 @@ export class AgentSessionWrapper {
 
       case "set_model": {
         const { provider, modelId } = command as { provider: string; modelId: string };
-        let model = this.inner.modelRuntime.getModel(provider, modelId);
-        if (!model) {
-          await this.inner.modelRuntime.refresh({ allowNetwork: false });
+        // Always refresh (cache-only) first: an existing cached model object may
+        // carry stale baseUrl/api config from an older models.json revision,
+        // which makes requests 404 even though the settings test route succeeds.
+        let model: ReturnType<typeof this.inner.modelRuntime.getModel> | undefined;
+        for (let attempt = 0; attempt < 2 && !model; attempt++) {
           model = this.inner.modelRuntime.getModel(provider, modelId);
+          if (!model) {
+            await this.inner.modelRuntime.refresh({ allowNetwork: false });
+            model = this.inner.modelRuntime.getModel(provider, modelId);
+          }
         }
         if (!model) throw new Error(`Model not found: ${provider}/${modelId}`);
         await this.inner.setModel(model);

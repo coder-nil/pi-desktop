@@ -615,7 +615,6 @@ export const zhCNLocale: LocalePlugin = {
     "mobile.pairLoading": "正在准备…",
     "mobile.pairScanHint": "手机与本机在同一 Wi-Fi 下，扫码即可在手机上打开遥控页。",
     "mobile.pairAuthHint": "首次打开需用用户名 pi 和访问密码登录。",
-    "mobile.pairNoSession": "当前会话还没存档，手机端会打开这个项目里最近的活动会话；先发一条消息即可固定到本会话。",
     "mobile.pairCopy": "复制链接",
     "mobile.pairCopied": "已复制",
     "mobile.pairLanRequired": "当前服务只监听本机，手机连不上。请用局域网模式启动：",

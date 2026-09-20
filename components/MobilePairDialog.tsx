@@ -15,13 +15,16 @@ type PairState =
  * 手机遥控入口：把当前会话的遥控地址做成二维码。
  *
  * 只展示地址与启动状态，密钥一律不出现在这里 —— 手机端仍需走 HTTP Basic 认证。
+ *
+ * `sessionId` 是必填的：没有会话 id 时二维码只能指向「这个项目里最近的活动会话」，
+ * 扫出来是别的会话，所以这种状态下不给入口（`ChatInput` 在没有 id 时不渲染按钮）。
  */
 export function MobilePairDialog({
   sessionId,
   cwd,
   onClose,
 }: {
-  sessionId?: string;
+  sessionId: string;
   cwd?: string;
   onClose: () => void;
 }) {
@@ -30,8 +33,7 @@ export function MobilePairDialog({
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    const params = new URLSearchParams();
-    if (sessionId) params.set("session", sessionId);
+    const params = new URLSearchParams({ session: sessionId });
     if (cwd) params.set("cwd", cwd);
     const query = params.toString();
     const controller = new AbortController();
@@ -111,11 +113,6 @@ export function MobilePairDialog({
                 {t("mobile.pairScanHint")}
                 {state.info.passwordRequired ? ` ${t("mobile.pairAuthHint")}` : ""}
               </p>
-              {!sessionId && (
-                <p style={{ margin: 0, fontSize: 11, color: "#f59e0b", lineHeight: 1.6 }}>
-                  {t("mobile.pairNoSession")}
-                </p>
-              )}
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 <code style={{ flex: 1, minWidth: 0, fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--text-muted)", background: "var(--bg-panel)", border: "1px solid var(--border)", borderRadius: 5, padding: "6px 8px", overflowWrap: "anywhere" }}>
                   {state.info.url}

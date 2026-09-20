@@ -1882,7 +1882,7 @@ export function AppShell() {
         style={{
           "--sidebar-width": `${sidebarResizer.width}px`,
           background: "var(--bg-panel)",
-          borderRight: "1px solid var(--border)",
+          borderRight: "none",
           display: "flex",
           flexDirection: "column",
           flexShrink: 0,

@@ -57,14 +57,17 @@ test("never leaks credentials through the pairing payload", () => {
   assert.doesNotMatch(dialogSource, /process\.env/);
 });
 
-test("warns when a brand-new session has no id to pin yet", () => {
-  assert.match(dialogSource, /\{!sessionId && \(/);
-  assert.match(dialogSource, /mobile\.pairNoSession/);
+test("only opens the dialog once the session has an id", () => {
+  // 入口与弹窗都要求 sessionId：没有 id 时二维码只能指向别的会话。
+  assert.match(chatInputSource, /\{pairDialogOpen && sessionId && \(/);
+  assert.match(dialogSource, /sessionId: string;/);
+  assert.doesNotMatch(dialogSource, /mobile\.pairNoSession/);
 });
 
 test("adds a scan button next to the attachment control", () => {
   assert.match(chatInputSource, /sessionId\?: string/);
-  assert.match(chatInputSource, /\{!isMobile && \(\s*<button\s*onClick=\{\(\) => setPairDialogOpen\(true\)\}/);
+  // 新建会话还没有 sessionId：这时不给入口，否则二维码只会指向别的会话。
+  assert.match(chatInputSource, /\{!isMobile && sessionId && \(\s*<button\s*onClick=\{\(\) => setPairDialogOpen\(true\)\}/);
   assert.match(chatInputSource, /<MobilePairDialog/);
   assert.match(chatWindowSource, /sessionId=\{session\?\.id \?\? sessionIdRef\.current \?\? undefined\}/);
 });

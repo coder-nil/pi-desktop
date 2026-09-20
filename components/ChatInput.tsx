@@ -2671,7 +2671,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 <polyline points="21 15 16 10 5 21" />
               </svg>
             </button>
-            {!isMobile && (
+            {/* 拿到会话 id 才给入口：新建会话还没有 sessionId，这时二维码只能指向
+                「这个项目里最近的活动会话」，扫出来是别的会话，反而误导。 */}
+            {!isMobile && sessionId && (
               <button
                 onClick={() => setPairDialogOpen(true)}
                 title={t("mobile.pairTitle")}
@@ -3397,9 +3399,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         </div>
       </div>
 
-      {pairDialogOpen && (
+      {pairDialogOpen && sessionId && (
         <MobilePairDialog
-          {...(sessionId ? { sessionId } : {})}
+          sessionId={sessionId}
           {...(cwd ? { cwd } : {})}
           onClose={() => setPairDialogOpen(false)}
         />

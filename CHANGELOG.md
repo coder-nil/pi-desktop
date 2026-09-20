@@ -34,6 +34,7 @@
 - 修复 `next build` 在 `Running TypeScript` 阶段报 TS2344 导致 CI 打包失败：`app/api/mobile/pair` 与 `state` 两个 route 额外导出了 `resolvePairPort` / `pickPendingUiRequest`，而 Next 16 的 route 类型只允许导出 HTTP 方法与约定字段；两个函数已移到 `lib/mobile-pair.ts` 与 `lib/mobile-state.ts`。
 - 修复侧边栏更新入口只剩图标、看不出有哪个版本的问题：恢复为显示 `↑ v<最新版本>` 的胶囊按钮。
 - 修复移动端悬浮工具栏丢失主题与语言入口的问题：主题按钮按当前偏好切换，语言按钮恢复为下拉选择。
+- 修复「手机查看」入口在新建会话（还没有 sessionId）时就出现的问题：那时二维码只能指向该项目里最近的活动会话，扫出来是别的会话；现在等会话产生后再显示。
 
 ## [0.85.1-alpha.8] - 2026-09-10
 

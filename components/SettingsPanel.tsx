@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import McpIcon from "@lobehub/icons/es/MCP/components/Mono";
-import { Blocks, Cpu, Keyboard, Layers3, Settings2 } from "lucide-react";
+import { Blocks, Cpu, Keyboard, Layers3, Settings2, Smartphone } from "lucide-react";
 import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { MCP_CATALOG, type McpCatalogEntry } from "@/lib/mcp-catalog";
@@ -49,6 +49,7 @@ function SettingsIcon({ name }: { name: SettingsSection }) {
   if (name === "models") return <Cpu size={17} strokeWidth={1.8} aria-hidden="true" />;
   if (name === "skills") return <Layers3 size={17} strokeWidth={1.8} aria-hidden="true" />;
   if (name === "plugins") return <Blocks size={17} strokeWidth={1.8} aria-hidden="true" />;
+  if (name === "mobile") return <Smartphone size={17} strokeWidth={1.8} aria-hidden="true" />;
   return <McpIcon size={17} aria-hidden="true" />;
 }
 

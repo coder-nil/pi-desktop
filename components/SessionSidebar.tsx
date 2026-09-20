@@ -2147,7 +2147,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       </div>
 
       {/* Session list */}
-      <div style={{ flex: explorerOpen && (selectedCwdProp || selectedCwd) ? "1 1 0" : "1 1 auto", overflowY: "auto", padding: "0", minHeight: 80 }}>
+      <div style={{ flex: explorerOpen && (selectedCwdProp || selectedCwd) ? "1 1 0" : "1 1 auto", overflowY: "auto", padding: "2px 0 4px", minHeight: 80 }}>
         {loading && (
           <div style={{ padding: "16px 14px", color: "var(--text-muted)", fontSize: 12 }}>
             {t("sidebar.loading")}
@@ -2816,6 +2816,21 @@ function SessionItem({
 
   // Fixed-height outer wrapper — content swaps in place so the list never reflows
   const ITEM_HEIGHT = 54;
+  // Transparent gap between rows: the row already insets itself 6px on the
+  // left/right (`marginInline`), so it needs the same breathing room on top and
+  // bottom — otherwise the 6px rounded rects collide vertically while sitting
+  // loose horizontally. Visual height 50 + a 2px gap keeps the old 54px rhythm.
+  const ITEM_GAP = 4;
+  // Collapse toggle (20px) + the row's 6px gap + its 8px right padding
+  const ACTION_LAYER_RIGHT_WITH_TOGGLE = 34;
+  // Hover actions sit in their own overlay layer, so the fade behind them must
+  // match the background of the row they cover.
+  const rowBackground = confirmDelete
+    ? "rgba(239,68,68,0.06)"
+    : isSelected ? "var(--bg-selected)" : hovered ? "var(--bg-hover)" : "transparent";
+  // When the layer is pinned by a title-generation status the row is not hovered,
+  // so its own background is transparent — fall back to the list's panel colour.
+  const actionLayerBackdrop = rowBackground === "transparent" ? "var(--bg-panel)" : rowBackground;
 
   return (
     <div
@@ -2824,21 +2839,29 @@ function SessionItem({
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => { setHovered(false); }}
       style={{
-        height: ITEM_HEIGHT,
+        height: ITEM_HEIGHT - ITEM_GAP,
         marginInline: 6,
+        marginBlock: ITEM_GAP / 2,
+        boxSizing: "border-box",
         display: "flex",
         alignItems: "center",
-        paddingLeft: depth > 0 ? depth * 12 + 14 : 14,
+        paddingLeft: depth > 0 ? depth * 12 + 16 : 16,
         paddingRight: 8,
         borderRadius: 6,
         cursor: confirmDelete || renaming ? "default" : "pointer",
-        background: confirmDelete
-          ? "rgba(239,68,68,0.06)"
-          : isSelected ? "var(--bg-selected)" : hovered ? "var(--bg-hover)" : "transparent",
-        borderLeft: confirmDelete
-          ? "2px solid #ef4444"
-          : isSelected ? "2px solid var(--accent)" : "2px solid transparent",
-        transition: "background 0.1s",
+        // Positioning context for the action overlay below
+        position: "relative",
+        background: rowBackground,
+        // The selected / delete accent is an inset ring instead of a
+        // `border-left`. WebKit also paints a hairline of a one-sided border
+        // around the whole rounded box, and since the row background covers
+        // only its rounded shape, that hairline showed up as stray accent
+        // arcs in the top-right / bottom-right corners. Padding-left above
+        // absorbs the 2px the removed border used to occupy.
+        boxShadow: confirmDelete
+          ? "inset 2px 0 0 0 #ef4444"
+          : isSelected ? "inset 2px 0 0 0 var(--accent)" : "none",
+        transition: "background 0.1s, box-shadow 0.1s",
         opacity: deleting ? 0.5 : 1,
         gap: 6,
         overflow: "hidden",
@@ -2939,7 +2962,7 @@ function SessionItem({
                 {title}
               </span>
             </div>
-            <div style={{ marginTop: 2, display: "flex", alignItems: "center", gap: 8, color: "var(--text-dim)", fontSize: 11, minWidth: 0 }}>
+            <div style={{ marginTop: 2, display: "flex", alignItems: "center", gap: 8, color: "var(--text-dim)", fontSize: 11, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden" }}>
               {searchMatch ? (
                 <span title={searchMatch} style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
                   {searchMatch}
@@ -2949,9 +2972,9 @@ function SessionItem({
               ) : isUnread ? (
                 <UnreadSessionIndicator />
               ) : (
-                <span title={session.modified}>{formatRelativeTime(session.modified)}</span>
+                <span title={session.modified} style={{ flexShrink: 0 }}>{formatRelativeTime(session.modified)}</span>
               )}
-              {!searchMatch && <span>{t("sidebar.messagesCount", { count: session.messageCount })}</span>}
+              {!searchMatch && <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{t("sidebar.messagesCount", { count: session.messageCount })}</span>}
               {!searchMatch && session.worktreeBranch && (
                 <span
                   title={`Worktree: ${session.cwd}`}
@@ -2989,9 +3012,25 @@ function SessionItem({
             </button>
           )}
 
-          {/* Action buttons — shown on hover */}
+          {/* Action buttons — an overlay layer pinned to the right edge. They must
+              never take part in the row's flex layout: doing so squeezed the
+              title/meta column and wrapped it on every hover. */}
           {(hovered || titleStatus) && !session.transient && (
-            <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+            <div
+              style={{
+                position: "absolute",
+                top: 0,
+                bottom: 0,
+                right: hasChildren ? ACTION_LAYER_RIGHT_WITH_TOGGLE : 8,
+                display: "flex",
+                alignItems: "center",
+                gap: 4,
+                flexShrink: 0,
+                paddingLeft: 16,
+                // Fade the covered text out instead of hiding it with a hard edge
+                background: `linear-gradient(to right, transparent, ${actionLayerBackdrop} 16px)`,
+              }}
+            >
               <button
                 onClick={(event) => {
                   event.stopPropagation();

@@ -615,7 +615,6 @@ export const enLocale: LocalePlugin = {
     "mobile.pairLoading": "Preparing…",
     "mobile.pairScanHint": "Same Wi-Fi as this computer. Scan to open the remote view on your phone.",
     "mobile.pairAuthHint": "Sign in as “pi” with your access password the first time.",
-    "mobile.pairNoSession": "This session has no file yet. The phone opens the project's most recent session; send one message to pin this one.",
     "mobile.pairCopy": "Copy link",
     "mobile.pairCopied": "Copied",
     "mobile.pairLanRequired": "This server only listens on localhost, so your phone cannot reach it. Start it in LAN mode:",
