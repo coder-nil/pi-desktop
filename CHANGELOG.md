@@ -31,6 +31,9 @@
 - 修复手机端回答扩展提问后，桌面端的弹窗不会关闭：现在 `requestExtensionUi()` 在所有结束路径（作答 / 超时 / 中止 / 取消）的统一出口广播 `extension_ui_resolved`，两端按请求 id 各自收起已作废的弹窗。
 - 修复扩展弹窗的输入内容每 15 秒被状态对账重置的问题（改按请求 id 重置，而不是按每次新建的请求对象）。
 - 修复 macOS 箭头功能键输入问题。
+- 修复 `next build` 在 `Running TypeScript` 阶段报 TS2344 导致 CI 打包失败：`app/api/mobile/pair` 与 `state` 两个 route 额外导出了 `resolvePairPort` / `pickPendingUiRequest`，而 Next 16 的 route 类型只允许导出 HTTP 方法与约定字段；两个函数已移到 `lib/mobile-pair.ts` 与 `lib/mobile-state.ts`。
+- 修复侧边栏更新入口只剩图标、看不出有哪个版本的问题：恢复为显示 `↑ v<最新版本>` 的胶囊按钮。
+- 修复移动端悬浮工具栏丢失主题与语言入口的问题：主题按钮按当前偏好切换，语言按钮恢复为下拉选择。
 
 ## [0.85.1-alpha.8] - 2026-09-10
 
