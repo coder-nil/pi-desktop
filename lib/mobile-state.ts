@@ -50,6 +50,36 @@ export const MOBILE_MAX_LIMIT = 300;
 /** 窗口里最后 N 条保留思考与工具细节，更早的历史只留一行摘要。 */
 export const MOBILE_DETAIL_WINDOW = 40;
 
+/** 阻塞式扩展 UI 请求（select / confirm / input / editor / custom）。 */
+const BLOCKING_UI_METHODS = new Set(["select", "confirm", "input", "editor", "custom"]);
+
+/** 活会话状态里与「待回答的扩展请求」相关的部分（`get_state` 返回值的子集）。 */
+export interface MobilePendingUiState {
+  pendingUiRequests?: unknown[];
+}
+
+/**
+ * 手机上要弹的待确认请求。
+ *
+ * `ask_user` 就是通过这条路径问问题的（扩展 UI 请求）：不问完，这一轮就一直挂着。
+ * 这里把第一个阻塞请求带到快照里，手机端才能把它画出来并回答；同时存在多个时
+ * 也只处理第一个，与桌面端一次只弹一个的行为一致。
+ */
+export function pickPendingUiRequest(
+  state: MobilePendingUiState | null,
+): Record<string, unknown> | null {
+  const requests = state?.pendingUiRequests;
+  if (!Array.isArray(requests)) return null;
+  for (const request of requests) {
+    if (typeof request !== "object" || request === null) continue;
+    const record = request as Record<string, unknown>;
+    if (typeof record.id !== "string" || typeof record.method !== "string") continue;
+    if (!BLOCKING_UI_METHODS.has(record.method)) continue;
+    return record;
+  }
+  return null;
+}
+
 export interface MobileProjectionOptions {
   /**
    * 保留「思考 + 工具入参/结果」的尾部条数，更早的消息降成摘要。

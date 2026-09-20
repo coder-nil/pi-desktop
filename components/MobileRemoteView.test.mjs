@@ -17,6 +17,10 @@ const stateRouteSource = await readFile(
   new URL("../app/api/mobile/state/route.ts", import.meta.url),
   "utf8",
 );
+const mobileStateSource = await readFile(
+  new URL("../lib/mobile-state.ts", import.meta.url),
+  "utf8",
+);
 const sessionSource = await readFile(new URL("../hooks/useAgentSession.ts", import.meta.url), "utf8");
 const chatWindowSource = await readFile(new URL("./ChatWindow.tsx", import.meta.url), "utf8");
 
@@ -137,8 +141,11 @@ test("asks the user on the phone when an extension (ask_user) is waiting", () =>
   assert.match(viewSource, /const pendingUiRequest = eventPrompt \?\? snapshot\?\.pendingUiRequest \?\? null/);
   assert.match(viewSource, /current\?\.id === resolvedId \? null : current/);
   // 快照接口也要把待确认请求带回来（从 get_state.pendingUiRequests 里挑第一个阻塞请求）。
+  // 挑选逻辑放在 lib/mobile-state.ts：route 模块只允许导出 HTTP 方法，
+  // 额外的导出让 next build 的类型检查失败（TS2344）。
   assert.match(stateRouteSource, /pendingUiRequests/);
-  assert.match(stateRouteSource, /const BLOCKING_UI_METHODS = new Set\(\["select", "confirm", "input", "editor", "custom"\]\)/);
+  assert.match(stateRouteSource, /pickPendingUiRequest\(liveState\)/);
+  assert.match(mobileStateSource, /const BLOCKING_UI_METHODS = new Set\(\["select", "confirm", "input", "editor", "custom"\]\)/);
   assert.match(stateRouteSource, /pendingUiRequest,/);
 });
 

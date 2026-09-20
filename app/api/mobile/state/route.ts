@@ -13,6 +13,7 @@ import {
   MOBILE_DEFAULT_LIMIT,
   MOBILE_DETAIL_WINDOW,
   MOBILE_MAX_LIMIT,
+  pickPendingUiRequest,
 } from "@/lib/mobile-state";
 import { isApiRequestAllowed } from "@/lib/request-security";
 
@@ -142,27 +143,4 @@ async function readLiveState(sessionId: string): Promise<LiveAgentState | null> 
   } catch {
     return null;
   }
-}
-
-/** 阻塞式扩展 UI 请求（select / confirm / input / editor / custom）。 */
-const BLOCKING_UI_METHODS = new Set(["select", "confirm", "input", "editor", "custom"]);
-
-/**
- * 手机上要弹的待确认请求。
- *
- * `ask_user` 就是通过这条路径问问题的（扩展 UI 请求）：不问完，这一轮就一直挂着。
- * 这里把第一个阻塞请求带到快照里，手机端才能把它画出来并回答；同时存在多个时
- * 也只处理第一个，与桌面端一次只弹一个的行为一致。
- */
-export function pickPendingUiRequest(state: LiveAgentState | null): Record<string, unknown> | null {
-  const requests = state?.pendingUiRequests;
-  if (!Array.isArray(requests)) return null;
-  for (const request of requests) {
-    if (typeof request !== "object" || request === null) continue;
-    const record = request as Record<string, unknown>;
-    if (typeof record.id !== "string" || typeof record.method !== "string") continue;
-    if (!BLOCKING_UI_METHODS.has(record.method)) continue;
-    return record;
-  }
-  return null;
 }

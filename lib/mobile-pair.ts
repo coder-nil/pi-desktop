@@ -78,6 +78,25 @@ export function pickLanAddress(
   return candidates[0]?.address ?? null;
 }
 
+/** 没有显式指定端口时，遥控页地址回退到的默认端口。 */
+const DEFAULT_MOBILE_PORT = "30141";
+
+/**
+ * 遥控页要用的端口。
+ *
+ * 优先取浏览器实际访问的 Host（反向代理换过端口时以它为准），其次跟随
+ * `PI_WEB_PORT` 启动参数，最后回退默认值。
+ */
+export function resolvePairPort(
+  hostHeader: string | null,
+  configuredPort?: string | null,
+): string {
+  const fromHeader = hostHeader?.match(/:(\d+)\s*$/)?.[1];
+  if (fromHeader) return fromHeader;
+  const configured = configuredPort?.trim();
+  return configured || DEFAULT_MOBILE_PORT;
+}
+
 /** 拼出遥控页地址，`session` / `cwd` 会按 URL 规则编码。 */
 export function buildMobileUrl(
   baseUrl: string,
