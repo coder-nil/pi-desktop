@@ -201,20 +201,34 @@ The conclusion of this section: **keeping the current authentication model (scan
 
 ### 8.0 Preconditions
 
-1. `π.ink` is already hosted on Cloudflare: the zone is visible in the dashboard and shown as Active (nameservers point at Cloudflare). If `π.ink` is an IDN, Cloudflare stores punycode internally; if a CLI tool rejects the domain, get the punycode form with:
+1. **Get the domain onto Cloudflare — this is where IDN domains usually get stuck.** Cloudflare can only host a **registered** domain as a zone, so check the status first:
+
    ```bash
+   # the punycode form of π.ink is xn--1xa.ink (browsers, certs and SNI all use it)
    node -e "console.log(new URL('https://π.ink').hostname)"
+   dig +short NS xn--1xa.ink @1.1.1.1     # NS records mean it is registered and delegated
+   whois -h whois.nic.ink xn--1xa.ink     # "No Data Found" means it is not registered
    ```
-2. LAN access already works:
+
+   Then take whichever applies:
+
+   - **Use a domain you already own (recommended, zero cost)**: `pi.ink` is already yours (registrar Alibaba Cloud / HiChina, expires 2027-03), so moving its zone to Cloudflare is the cheapest path. The entry can be `pi.ink` itself, or `π.pi.ink` (punycode `xn--1xa.pi.ink`, which also renders as π in a browser). **Write down the existing records before moving**: `pi.ink` and `www.pi.ink` currently resolve to `47.245.33.102`, and those records must be recreated in Cloudflare after the nameserver change, or the existing site goes down.
+   - **Register `π.ink`**: the registry currently answers "not registered" for `xn--1xa.ink`, but single-character labels are reserved or premium-priced at many registries. Whether it can be registered and at what price has to be checked in a registrar's search box with `π.ink` / `xn--1xa.ink`.
+   - **Use any other domain**: any domain already on Cloudflare works; nothing in this design depends on the π glyph.
+2. **Add the site in Cloudflare**: Dashboard → Add a site → enter the domain (unicode or punycode both work; the dashboard shows the zone in punycode) → Free plan → review the scanned DNS records → Cloudflare returns two nameservers.
+3. **Switch the nameservers at the registrar** to those two (Alibaba Cloud: domain → manage → DNS modification → custom DNS; `clientTransferProhibited` locks transfers, not nameserver changes). Wait until the zone is **Active** — usually minutes, up to 24 hours.
+4. **Wait for Universal SSL**: once the zone is active Cloudflare issues a certificate for `xn--1xa.ink` and `*.xn--1xa.ink` (the free plan covers the apex plus one wildcard level). Before it is issued `https://π.ink` shows a certificate error — a common reason the `curl` checks below fail.
+5. **Use punycode on the command line and in config files**: `cloudflared`, `dig` and `curl` handle unicode domains inconsistently, so use `xn--1xa.ink`; typing `π.ink` on a phone browser converts automatically.
+6. LAN access already works:
    - Settings → Phone access: enable it and set a password of at least 8 characters.
    - Join the phone to the **same Wi-Fi**, open the QR code from the app, and confirm you can read the session and send a prompt.
    - Do not touch DNS before this works, or you will debug two problems at once.
-3. Note the current ingress port (**it can change on every restart**):
+7. Note the current ingress port (**it can change on every restart**):
    ```bash
    cat ~/.pi/agent/desktop-access.runtime.json
    # {"lanPort":53124,"listening":true,"authSuccesses":0,...}
    ```
-4. Confirm the app is running and the phone-access switch is on. With the switch off the proxy does not listen at all and the tunnel returns 502.
+8. Confirm the app is running and the phone-access switch is on. With the switch off the proxy does not listen at all and the tunnel returns 502.
 
 ### 8.1 Install cloudflared
 
@@ -256,11 +270,11 @@ To find the session id: open that session on the desktop — the `session=` para
 cloudflared tunnel create pi-desktop
 # the output prints a UUID; the credentials file is ~/.cloudflared/<UUID>.json
 
-cloudflared tunnel route dns pi-desktop π.ink
+cloudflared tunnel route dns pi-desktop xn--1xa.ink
 cloudflared tunnel list
 ```
 
-`route dns` creates a CNAME for `π.ink` pointing at `<UUID>.cfargotunnel.com`.
+`route dns` creates a CNAME for `π.ink` (stored as `xn--1xa.ink` in the zone) pointing at `<UUID>.cfargotunnel.com`. Punycode is the safer form on the command line; unicode usually works too.
 
 ### 8.5 Write the config
 
@@ -271,7 +285,8 @@ tunnel: <UUID>
 credentials-file: /Users/<you>/.cloudflared/<UUID>.json
 
 ingress:
-  - hostname: π.ink
+  # punycode is safest here; π.ink works too, cloudflared converts it
+  - hostname: xn--1xa.ink
     service: http://127.0.0.1:<lanPort>
     originRequest:
       # make Next see a loopback host (the proxy rewrites Host too; this is belt and braces)
@@ -343,8 +358,10 @@ For long-lived operation use launchd with `KeepAlive`. The better option is to w
 | Phone shows a blank page / spins forever | Is there an `auth OK peer=127.0.0.1` line in `~/.pi/agent/desktop-access.log`? If not, the tunnel is not reaching the proxy: compare the port in `config.yml` with `desktop-access.runtime.json`, confirm Pi Desktop is running, and confirm the phone-access switch is on (with it off the proxy does not listen and the tunnel returns 502) |
 | Repeated auth prompts / always 401 | wrong password, or the phone cached old credentials (Safari → clear the site data for that origin and retry) |
 | 429 responses | the failed-auth rate limit. Wait 60 seconds; if it keeps happening someone is guessing passwords — turn public access off and rotate the password |
+| Page opens, but sending a prompt returns `{"error":"Untrusted API request"}` | The tunnel's forwarding headers bring the **public scheme** into the loopback upstream: `X-Forwarded-Proto: https` from Cloudflare makes Next compute `request.url` as `https://127.0.0.1:<lanPort>`, which no longer matches the proxy-rewritten `Origin: http://127.0.0.1:<lanPort>`, so the same-origin check fails. Only requests that carry an `Origin` header are affected — the writes, i.e. sending a prompt — while GET / SSE look fine because they omit `Origin`. Fix: the ingress proxy strips `X-Forwarded-Proto` / `X-Forwarded-Host` before forwarding (`rewrite_request_head()`). Also confirm the tunnel origin is `127.0.0.1:<lanPort>` (the ingress proxy), not Next's own port |
 | Page opens, but sending a prompt does nothing | SSE is being buffered: confirm `disableChunkedEncoding: false` in `config.yml`, confirm the response carries `Cache-Control: no-transform` (already in the code), and confirm no Cache Rule caches `/api/` |
 | `curl` works but the phone does not | phone-side DNS or cellular issue; open `https://π.ink` directly on the phone, and try both cellular and Wi-Fi |
+| `https://π.ink` shows a certificate error | the zone was just activated and Universal SSL is still being issued (wait 15–30 minutes); or the domain is not registered / not hosted on Cloudflare at all (redo steps 1–4 of 8.0) |
 | Everything 502s after an app restart | `lanPort` changed; update `config.yml` and restart cloudflared |
 | The LAN jump lands on an unreachable page | same-network false positive (typically the same carrier CGNAT `/24`): press Back to return to the HTTPS page and use "open over the internet"; long term, switch `ipMatchMode` to `exact` |
 

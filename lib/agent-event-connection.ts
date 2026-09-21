@@ -7,17 +7,34 @@ export interface AgentEventSourceLike {
   close(): void;
 }
 
-export type AgentEventConnectionStatus = "ready_timeout" | "startup_error" | "closed";
+export type AgentEventConnectionStatus =
+  | "ready_timeout"
+  | "startup_error"
+  /** Transport failure: the source errored or never became ready. */
+  | "closed"
+  /** The app closed or replaced the source on purpose (unmount, session switch, idle shutdown). */
+  | "aborted";
 
 export class AgentEventConnectionError extends Error {
   constructor(public readonly status: AgentEventConnectionStatus, message?: string) {
     super(message ?? (
       status === "ready_timeout"
         ? "Timed out starting the agent session. Please try again."
-        : "Failed to connect to the agent event stream. Please try again."
+        : status === "aborted"
+          ? "The agent event stream was closed."
+          : "Failed to connect to the agent event stream. Please try again."
     ));
     this.name = "AgentEventConnectionError";
   }
+}
+
+/**
+ * A pending attempt that was given up on purpose carries `status: "aborted"`.
+ * Callers must not report those as connection failures: nobody is waiting for
+ * that stream anymore, so "please try again" would be misleading.
+ */
+export function isAgentEventStreamAbort(error: unknown): boolean {
+  return error instanceof AgentEventConnectionError && error.status === "aborted";
 }
 
 type Attempt = {
@@ -54,7 +71,7 @@ export class AgentEventConnection {
 
   close(): void {
     this.stopRetrying();
-    if (this.current) this.discard(this.current, new AgentEventConnectionError("closed"));
+    if (this.current) this.discard(this.current, new AgentEventConnectionError("aborted"));
   }
 
   maintain(sessionId: string): void {
@@ -64,7 +81,9 @@ export class AgentEventConnection {
       if (retryGeneration !== this.retryGeneration) return;
       if (error instanceof AgentEventConnectionError) {
         if (error.status === "startup_error") this.stopRetrying();
-        else this.scheduleRetry(sessionId);
+        // A deliberate close/replacement is not a transport failure, so it
+        // neither retries nor reaches the unexpected-error reporter.
+        else if (error.status !== "aborted") this.scheduleRetry(sessionId);
       } else {
         this.options.onUnexpectedError?.(error);
       }
@@ -86,7 +105,7 @@ export class AgentEventConnection {
       await connection.attempt.promise;
       if (this.current !== connection) {
         if (this.current?.sessionId === sessionId) continue;
-        throw new AgentEventConnectionError("closed");
+        throw new AgentEventConnectionError("aborted");
       }
       if (connection.source.readyState === EVENT_SOURCE_OPEN) return;
 
@@ -96,7 +115,7 @@ export class AgentEventConnection {
   }
 
   private open(sessionId: string): Connection {
-    if (this.current) this.discard(this.current, new AgentEventConnectionError("closed"));
+    if (this.current) this.discard(this.current, new AgentEventConnectionError("aborted"));
 
     let source: AgentEventSourceLike;
     try {
@@ -168,7 +187,7 @@ export class AgentEventConnection {
     if (this.current !== connection) return;
     this.discard(connection, error);
     if (error.status === "startup_error") this.stopRetrying();
-    else this.scheduleRetry(connection.sessionId);
+    else if (error.status !== "aborted") this.scheduleRetry(connection.sessionId);
   }
 
   private discard(connection: Connection, error: AgentEventConnectionError): void {

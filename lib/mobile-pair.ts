@@ -1,4 +1,5 @@
 import type { NetworkInterfaceInfo } from "node:os";
+import type { DesktopTunnelState } from "@/lib/desktop-access";
 
 /**
  * 手机遥控页的地址推导。
@@ -30,6 +31,13 @@ export interface MobilePairInfo {
   desktopShell: boolean;
   /** `url` 为 null 时的原因，供界面给出对应提示。 */
   reason: MobilePairReason;
+  /**
+   * 公网入口地址（隧道 running 时才有）。quick 模式是随机 trycloudflare 域名，
+   * named 模式是固定域名；两者指向的都是同一个入口代理。
+   */
+  publicUrl?: string | null;
+  /** 公网隧道状态，界面据此区分「没开」与「正在启动」。 */
+  publicState?: DesktopTunnelState;
 }
 
 function isIpv4(value: string): boolean {

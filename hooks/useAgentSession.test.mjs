@@ -50,6 +50,9 @@ test("keeps the session event stream open through the idle grace window", () => 
   assert.match(promptDoneSource, /notifyPromptStage\(runId\)/);
   assert.match(promptDoneSource, /scheduleEventStreamClose\(sid\)/);
   assert.match(sendSource, /const definitivelyRejected = !promptRequestStarted/);
+  assert.match(sendSource, /const streamAborted = isAgentEventStreamAbort\(e\)/);
+  assert.match(sendSource, /if \(!streamAborted\) console\.error\("Failed to send message:", e\)/);
+  assert.match(sendSource, /if \(!streamAborted\) \{[\s\S]*?addNotice\(\{[\s\S]*?restoreSubmission\(message, images, composerDraftKey\)/);
   assert.match(sendSource, /if \(!definitivelyRejected && sentSessionId\) \{[\s\S]*?waitForPromptSettlement/);
   assert.match(sendSource, /restoreSubmission\(message, images, composerDraftKey\);[\s\S]*?if \(sentSessionId\) \{[\s\S]*?reconcileAgentState\(sentSessionId\);[\s\S]*?return;[\s\S]*?\}[\s\S]*?closeEvents\(\)/);
   assert.doesNotMatch(

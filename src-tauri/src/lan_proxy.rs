@@ -15,10 +15,12 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 const HEAD_LIMIT: usize = 64 * 1024;
 const CONFIG_POLL_INTERVAL: Duration = Duration::from_millis(400);
+/// 运行态文件的重写周期（即使没有流量）—— 见 manager 循环里的注释。
+const RUNTIME_REFRESH_INTERVAL: Duration = Duration::from_secs(5);
 const ACCEPT_POLL_INTERVAL: Duration = Duration::from_millis(50);
 const CLIENT_HEAD_TIMEOUT: Duration = Duration::from_secs(20);
 const COPY_BUFFER_SIZE: usize = 32 * 1024;
@@ -229,6 +231,8 @@ pub fn is_public_asset_request(head: &str) -> bool {
 /// 改写请求头：目标是让回环上的 Next 视其为本机请求。
 ///
 /// * `Host` / `Origin` → 回环地址（否则 origin 校验会拒绝手机来的 POST）；
+/// * 丢掉 `X-Forwarded-Proto` / `X-Forwarded-Host`：Cloudflare 会写入公网方案的转发头，
+///   而它们会让上面那次改写失效 —— 见下方分支里的注释；
 /// * `Connection` → close（代理按「一请求一连接」转发，不做连接复用），
 ///   但 WebSocket 升级必须保留 `Connection: Upgrade`，否则握手直接失败；
 /// * 丢掉 `Proxy-*` 与 `Keep-Alive`。
@@ -268,6 +272,16 @@ pub fn rewrite_request_head(head: &str, target_port: u16) -> String {
         } else if name.eq_ignore_ascii_case("referer") {
             let rewritten = rewrite_referer(value.trim(), &loopback);
             out.push_str(&format!("Referer: {rewritten}\r\n"));
+        } else if name.eq_ignore_ascii_case("x-forwarded-proto")
+            || name.eq_ignore_ascii_case("x-forwarded-host")
+        {
+            // Cloudflare 边缘会写入 `X-Forwarded-Proto: https` / `X-Forwarded-Host: <公网域名>`。
+            // 不能原样透传：Next 会拿 `X-Forwarded-Proto` 去拼 `request.url`，于是回环请求被算成
+            // `https://127.0.0.1:<port>`，与上面改写后的 `Origin: http://127.0.0.1:<port>` 协议对不上，
+            // 同源判定失败 —— 只带 Origin 的写操作（POST /api/agent/... 发消息）会稳定 403
+            // "Untrusted API request"，而 GET / SSE 不带 Origin 所以看起来正常。
+            // 本代理已经把请求伪装成回环请求，这些描述公网的转发头必须一起丢掉。
+            continue;
         } else if name.eq_ignore_ascii_case("connection")
             || name.eq_ignore_ascii_case("keep-alive")
             || name.eq_ignore_ascii_case("proxy-connection")
@@ -635,7 +649,15 @@ fn bind_listener(excluded_port: u16) -> Option<(TcpListener, u16)> {
 }
 
 fn write_runtime_port(path: &Path, port: Option<u16>, stats: Option<&ProxyStats>) {
-    let mut payload = serde_json::json!({ "lanPort": port, "listening": port.is_some() });
+    // `ownerPid` 很关键：这份运行态文件会**跨进程重启复用**，而端口是随机分配、
+    // 重启后会变。没有它，隧道管理器会在新代理还没绑定之前读到上一轮的旧端口 ——
+    // 那个端口届时可能已经被别的进程（比如 Next dev server）占住，于是隧道直接
+    // 指向 Next，Host 不经改写，手机请求全变成 403 Untrusted。
+    let mut payload = serde_json::json!({
+        "lanPort": port,
+        "listening": port.is_some(),
+        "ownerPid": std::process::id(),
+    });
     if let (Some(entry), Some(stats)) = (payload.as_object_mut(), stats) {
         if let Some(fields) = stats.snapshot().as_object() {
             for (key, value) in fields {
@@ -733,6 +755,7 @@ pub fn start(config_path: PathBuf, runtime_path: PathBuf, target_port: u16) -> L
             config_path.display()
         ));
         let mut last_stats: Option<String> = None;
+        let mut last_runtime_write = Instant::now();
 
         while !manager_shutdown.load(Ordering::SeqCst) {
             // 配置文件只有几十字节，每次轮询直接读，避免依赖 mtime 精度。
@@ -760,14 +783,19 @@ pub fn start(config_path: PathBuf, runtime_path: PathBuf, target_port: u16) -> L
                     write_runtime_port(&runtime_path, None, Some(&stats));
                 }
             } else if want_listening {
-                // 监听中：只在计数变化时重写，避免高频写盘。
+                // 监听中：只在计数变化时重写，避免高频写盘；但至少每 5 秒重写一次 ——
+                // 这份文件是共享的，另一个实例（或退出的旧实例）可能把它覆盖成别人的
+                // 记录，而隧道管理器只认本进程写下的记录，不重写就会被「抢走」。
                 let snapshot = stats.snapshot().to_string();
-                if last_stats.as_deref() != Some(snapshot.as_str()) {
+                if last_stats.as_deref() != Some(snapshot.as_str())
+                    || last_runtime_write.elapsed() >= RUNTIME_REFRESH_INTERVAL
+                {
                     let port = active
                         .as_ref()
                         .and_then(|_| read_runtime_port(&runtime_path));
                     write_runtime_port(&runtime_path, port, Some(&stats));
                     last_stats = Some(snapshot);
+                    last_runtime_write = Instant::now();
                 }
             }
 
@@ -836,6 +864,27 @@ mod tests {
         // 保留其余头，避免破坏请求语义。
         assert!(rewritten.contains("Content-Type: application/json\r\n"));
         assert!(!rewritten.contains("Proxy-Connection"));
+    }
+
+    #[test]
+    fn drops_forwarded_scheme_headers_so_the_loopback_origin_still_matches() {
+        // 隧道场景下 Cloudflare 会带上这几个头。X-Forwarded-Proto 的 https 会让 Next 把
+        // request.url 算成 https://127.0.0.1:<port>，与改写后的 http Origin 不匹配，
+        // 于是手机发消息稳定 403 Untrusted API request。
+        let tunneled = "POST /api/agent/abc HTTP/1.1\r\nHost: xn--1xa.works\r\nOrigin: https://xn--1xa.works\r\nX-Forwarded-Proto: https\r\nX-Forwarded-Host: xn--1xa.works\r\nCf-Connecting-Ip: 240e:46d::1\r\nContent-Type: application/json\r\n\r\n";
+        let rewritten = rewrite_request_head(tunneled, 48000);
+        assert!(
+            !rewritten.to_ascii_lowercase().contains("x-forwarded-proto"),
+            "{rewritten:?}"
+        );
+        assert!(
+            !rewritten.to_ascii_lowercase().contains("x-forwarded-host"),
+            "{rewritten:?}"
+        );
+        assert!(rewritten.contains("Host: 127.0.0.1:48000\r\n"));
+        assert!(rewritten.contains("Origin: http://127.0.0.1:48000\r\n"));
+        // 判定「同网还是公网」要用它，不能丢。
+        assert!(rewritten.contains("Cf-Connecting-Ip: 240e:46d::1\r\n"));
     }
 
     #[test]

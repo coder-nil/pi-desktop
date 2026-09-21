@@ -201,20 +201,34 @@
 
 ### 8.0 前置检查
 
-1. `π.ink` 已经托管在 Cloudflare：Cloudflare 控制台里能看到这个 zone，状态是 Active（域名服务器 NS 已指向 Cloudflare）。如果 `π.ink` 是 IDN 域名，Cloudflare 内部用 punycode 存储；命令行工具如果报域名非法，用下面这条取 punycode 形式：
+1. **域名先落到 Cloudflare —— IDN 域名最容易卡住的就是这一步。** Cloudflare 只能把**已注册**的域名当成 zone 托管，所以先确认状态：
+
    ```bash
+   # π.ink 的 punycode 形式是 xn--1xa.ink（浏览器/证书/SNI 内部都用它）
    node -e "console.log(new URL('https://π.ink').hostname)"
+   dig +short NS xn--1xa.ink @1.1.1.1     # 有 NS 才说明已注册并已解析
+   whois -h whois.nic.ink xn--1xa.ink     # "No Data Found" = 还没注册
    ```
-2. Pi Desktop 的局域网访问已经跑通：
+
+   然后按实际情况走其中一条：
+
+   - **用已经持有的域名（推荐，零成本）**：`pi.ink` 已经在你的名下（注册商阿里云 / HiChina，2027-03 到期），把它的 zone 搬到 Cloudflare 最省事：入口可以直接用 `pi.ink`，也可以用 `π.pi.ink`（punycode `xn--1xa.pi.ink`，浏览器里同样显示 π）。**搬迁前先把现有解析抄下来**：当前 `pi.ink` 与 `www.pi.ink` 的 A 记录都是 `47.245.33.102`，NS 换到 Cloudflare 后要把这些记录在 Cloudflare 里重建，否则原站点会断。
+   - **注册 `π.ink`**：`xn--1xa.ink` 目前注册局查询结果是「未注册」，但单字符标签在不少注册局是保留或溢价域名，能不能注册、多少钱，要在注册商搜索框里用 `π.ink` / `xn--1xa.ink` 实际查一次为准。
+   - **换一个别的域名**：任意一个已在 Cloudflare 的域名都能用，本方案不依赖 `π` 这个字形。
+2. **在 Cloudflare 添加站点**：Dashboard → Add a site → 输入域名（unicode 或 punycode 都接受，仪表盘里会以 punycode 形式显示 zone）→ 选 Free 套餐 → 核对它扫描出的 DNS 记录 → Cloudflare 给出两个 NS 地址。
+3. **到注册商把 NS 换成 Cloudflare 给的那两个**（阿里云：域名 → 管理 → DNS 修改 → 自定义 DNS；`clientTransferProhibited` 只锁转移，不影响改 NS）。等 zone 状态变成 **Active**，通常几分钟，最多 24 小时。
+4. **等 Universal SSL 签发完**：zone 激活后 Cloudflare 会自动为 `xn--1xa.ink` 和 `*.xn--1xa.ink` 签证书（免费版覆盖根域 + 一级通配符）。证书没签好之前 `https://π.ink` 会报证书错误，这是后面 `curl` 失败的常见原因。
+5. **命令行与配置文件统一写 punycode**：`cloudflared`、`dig`、`curl` 对 unicode 域名的支持不一致，统一用 `xn--1xa.ink`；手机浏览器输入 `π.ink` 会自动转换，不受影响。
+6. Pi Desktop 的局域网访问已经跑通：
    - 设置 → 手机访问：打开开关，设置一个至少 8 位的密码。
    - 手机连**同一个 Wi-Fi**，用应用里「扫码」按钮出的二维码打开遥控页，确认能看会话、能发消息。
    - 这一步没过就不要动 DNS，否则会同时引入两个问题。
-3. 记下当前入口端口（**每次重启应用都可能变**）：
+7. 记下当前入口端口（**每次重启应用都可能变**）：
    ```bash
    cat ~/.pi/agent/desktop-access.runtime.json
    # {"lanPort":53124,"listening":true,"authSuccesses":0,...}
    ```
-4. 确认应用正在运行、且手机访问开关是开着的。开关关掉时代理根本不监听，隧道会直接 502。
+8. 确认应用正在运行、且手机访问开关是开着的。开关关掉时代理根本不监听，隧道会直接 502。
 
 ### 8.1 安装 cloudflared
 
@@ -256,11 +270,11 @@ https://xxxx-xxxx.trycloudflare.com/m?session=<会话 id>&cwd=<会话的工作�
 cloudflared tunnel create pi-desktop
 # 输出里会给出 UUID，凭证文件：~/.cloudflared/<UUID>.json
 
-cloudflared tunnel route dns pi-desktop π.ink
+cloudflared tunnel route dns pi-desktop xn--1xa.ink
 cloudflared tunnel list
 ```
 
-`route dns` 会在 Cloudflare 上为 `π.ink` 建一条指向 `<UUID>.cfargotunnel.com` 的 CNAME。
+`route dns` 会在 Cloudflare 上为 `π.ink`（zone 里记录为 `xn--1xa.ink`）建一条指向 `<UUID>.cfargotunnel.com` 的 CNAME。命令行里用 punycode 更保险，写 unicode 一般也可以。
 
 ### 8.5 写配置
 
@@ -271,7 +285,8 @@ tunnel: <UUID>
 credentials-file: /Users/<你的用户名>/.cloudflared/<UUID>.json
 
 ingress:
-  - hostname: π.ink
+  # 用 punycode 形式最保险；也可以写 π.ink，cloudflared 会做转换
+  - hostname: xn--1xa.ink
     service: http://127.0.0.1:<lanPort>
     originRequest:
       # 让 Next 侧看到的是回环地址（代理本身也会改写 Host，这里是双保险）
@@ -343,8 +358,10 @@ nohup cloudflared tunnel run pi-desktop > /tmp/cloudflared.log 2>&1 &
 | 手机白屏 / 一直转圈 | `~/.pi/agent/desktop-access.log` 里有没有 `auth OK peer=127.0.0.1`。完全没有 → 隧道没打到代理：检查 `config.yml` 里的端口与 `desktop-access.runtime.json` 是否一致、Pi Desktop 是否在运行、手机访问开关是否打开（关掉时代理不监听，隧道会 502） |
 | 反复弹认证 / 一直 401 | 密码不对，或手机记住了旧凭据（Safari → 网站数据里清掉该站点后重试） |
 | 出现 429 | 触发了失败认证的限流。等 60 秒；若持续出现，说明有人在试密码，直接关掉公网入口并改密码 |
+| 页面能打开，但发消息返回 `{"error":"Untrusted API request"}` | 隧道的转发头把**公网协议**带进了回环上游：Cloudflare 写的 `X-Forwarded-Proto: https` 会让 Next 把 `request.url` 算成 `https://127.0.0.1:<lanPort>`，与代理改写后的 `Origin: http://127.0.0.1:<lanPort>` 对不上，同源校验失败。只有带 `Origin` 的请求会中招，也就是写操作（发消息），GET / SSE 不带 Origin 所以看起来正常。修复：入口代理转发前丢掉 `X-Forwarded-Proto` / `X-Forwarded-Host`（`rewrite_request_head()`）。同时确认隧道 origin 是 `127.0.0.1:<lanPort>`（入口代理），不是 Next 自己的端口 |
 | 页面能打开，但发消息没有任何反应 | SSE 被缓冲：确认 `config.yml` 里 `disableChunkedEncoding: false`；确认响应头里有 `Cache-Control: no-transform`（代码已带）；确认 Cloudflare 的 Cache Rule 没把 `/api/` 缓存 |
 | `curl` 通了但手机打不开 | 手机侧 DNS / 蜂窝网络问题；先用手机浏览器直接打开 `https://π.ink`，或用蜂窝和 Wi-Fi 各试一次 |
+| `https://π.ink` 报证书错误 | zone 刚激活，Universal SSL 还在签发（等 15–30 分钟）；或者域名根本没注册 / 没托管到 Cloudflare（回到 8.0 第 1–4 步核对） |
 | 重启应用后全部 502 | `lanPort` 变了，改 `config.yml` 后重启 cloudflared |
 | 走局域网跳过去打不开 | 同网判定误判（常见于同一运营商 CGNAT 的 `/24` 撞段）：按浏览器返回键回到 HTTPS 页，用「用外网打开」；长期方案是把 `ipMatchMode` 改成 `exact` |
 

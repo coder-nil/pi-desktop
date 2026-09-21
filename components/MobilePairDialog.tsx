@@ -57,7 +57,11 @@ export function MobilePairDialog({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [onClose]);
 
-  const url = state.phase === "ready" ? state.info.url : null;
+  // 二维码只放一个入口：优先公网（哪儿都能打开）。手机与服务端同网时怎么切到
+  // 局域网直连由服务端在打开那一刻判定，不需要用户选 —— 见 lib/mobile-route.ts。
+  const lanUrl = state.phase === "ready" ? state.info.url : null;
+  const publicUrl = state.phase === "ready" ? state.info.publicUrl ?? null : null;
+  const url = publicUrl ?? lanUrl;
 
   const handleCopy = useCallback(() => {
     if (!url) return;
@@ -102,20 +106,25 @@ export function MobilePairDialog({
             <p style={{ margin: 0, fontSize: 12, color: "#f87171", overflowWrap: "anywhere" }}>{state.message}</p>
           )}
 
-          {state.phase === "ready" && state.info.url && (
+          {state.phase === "ready" && url && (
             <>
               <div style={{ display: "flex", justifyContent: "center" }}>
                 <div style={{ padding: 10, borderRadius: 8, background: "#fff" }}>
-                  <QRCodeSVG value={state.info.url} size={168} level="M" marginSize={0} />
+                  <QRCodeSVG value={url} size={168} level="M" marginSize={0} />
                 </div>
               </div>
               <p style={{ margin: 0, fontSize: 11, color: "var(--text-muted)", lineHeight: 1.6 }}>
-                {t("mobile.pairScanHint")}
+                {publicUrl ? t("mobile.pairPublicHint") : t("mobile.pairScanHint")}
                 {state.info.passwordRequired ? ` ${t("mobile.pairAuthHint")}` : ""}
               </p>
+              {!publicUrl && (
+                <p style={{ margin: 0, fontSize: 10, color: "var(--text-dim)", lineHeight: 1.6 }}>
+                  {t("mobile.pairPublicOff")}
+                </p>
+              )}
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 <code style={{ flex: 1, minWidth: 0, fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--text-muted)", background: "var(--bg-panel)", border: "1px solid var(--border)", borderRadius: 5, padding: "6px 8px", overflowWrap: "anywhere" }}>
-                  {state.info.url}
+                  {url}
                 </code>
                 <button
                   type="button"
@@ -128,7 +137,7 @@ export function MobilePairDialog({
             </>
           )}
 
-          {state.phase === "ready" && !state.info.url && (
+          {state.phase === "ready" && !url && (
             <>
               <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)", lineHeight: 1.6 }}>
                 {state.info.reason === "no-lan-address"

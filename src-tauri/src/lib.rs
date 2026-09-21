@@ -16,6 +16,7 @@ use std::{
 use portable_pty::{native_pty_system, Child as PtyChild, CommandBuilder, MasterPty, PtySize};
 
 mod lan_proxy;
+mod tunnel;
 use serde::Serialize;
 use tauri::webview::PageLoadEvent;
 use tauri::window::Color;
@@ -39,6 +40,9 @@ struct ServerState(Mutex<Option<DesktopServer>>);
 
 /// 局域网反向代理（手机访问）。配置未启用时它不监听任何端口。
 struct LanProxyState(Mutex<Option<lan_proxy::LanProxyHandle>>);
+
+/// 公网入口隧道（Cloudflare Tunnel）。配置未启用时它不会拉起 cloudflared。
+struct TunnelState(Mutex<Option<tunnel::TunnelHandle>>);
 
 struct TerminalSession {
     master: Box<dyn MasterPty + Send>,
@@ -310,6 +314,15 @@ fn loopback_address(port: u16) -> SocketAddr {
     SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port))
 }
 
+/// 用户主目录。`agent_dir()` 与 cloudflared 凭据目录都从它派生。
+fn home_dir() -> PathBuf {
+    #[cfg(windows)]
+    let home = std::env::var_os("USERPROFILE");
+    #[cfg(not(windows))]
+    let home = std::env::var_os("HOME");
+    home.map(PathBuf::from).unwrap_or_default()
+}
+
 /// 与 Node 侧 `getAgentDir()` 保持一致：`PI_AGENT_DIR` 优先，否则 `~/.pi/agent`。
 fn agent_dir() -> PathBuf {
     if let Some(configured) = std::env::var_os("PI_AGENT_DIR") {
@@ -317,25 +330,100 @@ fn agent_dir() -> PathBuf {
             return PathBuf::from(configured);
         }
     }
-    #[cfg(windows)]
-    let home = std::env::var_os("USERPROFILE");
-    #[cfg(not(windows))]
-    let home = std::env::var_os("HOME");
-    home.map(PathBuf::from)
-        .unwrap_or_default()
-        .join(".pi")
-        .join("agent")
+    home_dir().join(".pi").join("agent")
 }
 
-/// 启动手机访问代理。是否真的监听由配置文件决定，未启用时它什么都不做。
-fn start_lan_proxy(app: &tauri::AppHandle, server_port: u16) {
+/// 解析 cloudflared 可执行文件的位置。
+///
+/// 顺序：显式环境变量（开发/排障）→ 随 app 打包的 sidecar → PATH → Homebrew 常见位置。
+/// 找不到时返回 None，让隧道管理器把状态报成 `missing-binary`，界面就能直接说明原因。
+fn resolve_cloudflared_binary(app: &tauri::AppHandle) -> Option<PathBuf> {
+    if let Some(configured) = std::env::var_os("PI_CLOUDFLARED_PATH") {
+        let candidate = PathBuf::from(configured);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+
+    if let Ok(resources) = app.path().resource_dir() {
+        for candidate in [
+            resources.join("binaries").join("cloudflared"),
+            resources.join("cloudflared"),
+        ] {
+            if candidate.is_file() {
+                make_executable(&candidate);
+                return Some(candidate);
+            }
+        }
+    }
+
+    if let Some(found) = cloudflared_on_path() {
+        return Some(found);
+    }
+
+    ["/opt/homebrew/bin/cloudflared", "/usr/local/bin/cloudflared"]
+        .iter()
+        .map(PathBuf::from)
+        .find(|candidate| candidate.is_file())
+}
+
+fn cloudflared_on_path() -> Option<PathBuf> {
+    let executable = if cfg!(windows) { "cloudflared.exe" } else { "cloudflared" };
+    std::env::var_os("PATH")
+        .map(|value| {
+            std::env::split_paths(&value)
+                .map(|directory| directory.join(executable))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default()
+        .into_iter()
+        .find(|candidate| candidate.is_file())
+}
+
+/// 打包进 app 的二进制可能丢掉执行位，启动前补回来。
+fn make_executable(path: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(metadata) = fs::metadata(path) {
+            let mut permissions = metadata.permissions();
+            if permissions.mode() & 0o111 == 0 {
+                permissions.set_mode(0o755);
+                let _ = fs::set_permissions(path, permissions);
+            }
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = path;
+}
+
+/// 启动手机访问的两个后台件：局域网反向代理 + 公网入口隧道。
+/// 两者都只看配置文件：未启用时它们什么都不做。
+fn start_mobile_access(app: &tauri::AppHandle, server_port: u16) {
     let directory = agent_dir();
-    let handle = lan_proxy::start(
+    let proxy = lan_proxy::start(
         directory.join("desktop-access.json"),
         directory.join("desktop-access.runtime.json"),
         server_port,
     );
     if let Ok(mut guard) = app.state::<LanProxyState>().0.lock() {
+        *guard = Some(proxy);
+    }
+
+    // 隧道指向哪个端口不在这里决定：入口代理绑的是随机端口，隧道管理器会自己
+    // 盯 desktop-access.runtime.json 里的 lanPort，变了就带隧道一起重起。
+    let tunnel_dir = directory.join("tunnel");
+    let binary = resolve_cloudflared_binary(app)
+        .unwrap_or_else(|| tunnel_dir.join("cloudflared-not-found"));
+    let handle = tunnel::start(
+        directory.join("desktop-access.json"),
+        directory.join("desktop-access.tunnel.json"),
+        directory.join("desktop-access.runtime.json"),
+        binary,
+        tunnel_dir,
+        home_dir().join(".cloudflared"),
+    );
+    if let Ok(mut guard) = app.state::<TunnelState>().0.lock() {
         *guard = Some(handle);
     }
 }
@@ -433,6 +521,9 @@ fn spawn_server(
         .env("PORT", port.to_string())
         .env("PI_WEB_HOSTNAME", HOST)
         .env("PI_WEB_DESKTOP_API_ORIGIN", DESKTOP_API_ORIGIN)
+        // 让 Next 也能辨别「运行态文件里的端口是不是本实例写的」：
+        // 这个文件跨重启复用，旧端口可能已被别的进程占用。
+        .env("PI_WEB_SHELL_PID", std::process::id().to_string())
         .env("PI_WEB_NO_OPEN", "1")
         .stdin(Stdio::null())
         .stdout(Stdio::from(stdout))
@@ -623,7 +714,7 @@ fn start_application(app: tauri::AppHandle) {
                 .map_err(|error| format!("Could not inspect the Pi Desktop server: {error}"))
         })?;
         create_main_webview(&app, port)?;
-        start_lan_proxy(&app, port);
+        start_mobile_access(&app, port);
         Ok(())
     })();
 
@@ -637,6 +728,12 @@ fn start_application(app: tauri::AppHandle) {
 }
 
 fn stop_server(app: &tauri::AppHandle) {
+    // 先断公网入口，再回收本地代理与 server：退出应用就等于关掉对外暴露。
+    if let Ok(mut guard) = app.state::<TunnelState>().0.lock() {
+        if let Some(mut handle) = guard.take() {
+            handle.stop();
+        }
+    }
     if let Ok(mut guard) = app.state::<LanProxyState>().0.lock() {
         if let Some(mut proxy) = guard.take() {
             proxy.stop();
@@ -650,13 +747,13 @@ fn stop_server(app: &tauri::AppHandle) {
 }
 
 #[cfg(unix)]
-fn configure_process_group(command: &mut Command) {
+pub(crate) fn configure_process_group(command: &mut Command) {
     use std::os::unix::process::CommandExt;
     command.process_group(0);
 }
 
 #[cfg(windows)]
-fn configure_process_group(command: &mut Command) {
+pub(crate) fn configure_process_group(command: &mut Command) {
     use std::os::windows::process::CommandExt;
     command.creation_flags(0x0000_0200);
 }
@@ -675,7 +772,7 @@ fn request_graceful_shutdown(child: &Child) {
         .status();
 }
 
-fn terminate_process(child: &mut Child, timeout: Duration) {
+pub(crate) fn terminate_process(child: &mut Child, timeout: Duration) {
     request_graceful_shutdown(child);
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
@@ -717,6 +814,7 @@ pub fn run() {
         ])
         .manage(ServerState(Mutex::new(None)))
         .manage(LanProxyState(Mutex::new(None)))
+        .manage(TunnelState(Mutex::new(None)))
         .manage(TerminalState {
             sessions: Mutex::new(HashMap::new()),
             next_id: AtomicU64::new(1),
