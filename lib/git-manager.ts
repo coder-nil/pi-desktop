@@ -4,7 +4,7 @@ import { tmpdir } from "os";
 import path from "path";
 import { join } from "path";
 import { promisify } from "util";
-import { getGitStatus } from "./git-changes";
+import { getGitStatus, listUntrackedPaths } from "./git-changes";
 import { gitCredentialKind, loadGitCredential, saveGitCredential, type GitCredential } from "./git-credentials";
 
 const execFileAsync = promisify(execFile);
@@ -32,6 +32,13 @@ export interface GitSummary {
   operation: GitOperationKind;
   branches: string[];
   changes: Awaited<ReturnType<typeof getGitStatus>>;
+  /**
+   * Untracked files that `discard_all` will delete; nothing can restore them.
+   *
+   * `getGitStatus` cannot supply this list: it returns worktree-relative paths
+   * and therefore reports nothing at all for a cwd inside a subdirectory.
+   */
+  untrackedPaths: string[];
 }
 
 declare global {
@@ -223,7 +230,7 @@ async function worktreeForBranch(cwd: string, branch: string): Promise<string | 
 export async function getGitSummary(cwd: string): Promise<GitSummary> {
   const root = await repositoryRoot(cwd);
   if (!root) {
-    return { isGitRepository: false, repositoryRoot: null, branch: null, upstream: null, ahead: 0, behind: 0, remote: null, credentialKind: "none", hasSavedCredential: false, savedCredentialUsername: null, operation: null, branches: [], changes: await getGitStatus(cwd) };
+    return { isGitRepository: false, repositoryRoot: null, branch: null, upstream: null, ahead: 0, behind: 0, remote: null, credentialKind: "none", hasSavedCredential: false, savedCredentialUsername: null, operation: null, branches: [], changes: await getGitStatus(cwd), untrackedPaths: [] };
   }
   const [branchResult, upstreamResult, remoteResult, branchesResult, changes, operation] = await Promise.all([
     git(cwd, ["branch", "--show-current"]).catch(() => ""),
@@ -252,7 +259,7 @@ export async function getGitSummary(cwd: string): Promise<GitSummary> {
   // The username is not a secret (the token is) — echoing it back lets the panel
   // prefill the field so users can see what they previously saved.
   const savedCredentialUsername = savedCredential?.kind === "https" ? savedCredential.username ?? null : null;
-  return { isGitRepository: true, repositoryRoot: root, branch: branchResult || null, upstream, ahead, behind, remote, credentialKind: gitCredentialKind(remote), hasSavedCredential, savedCredentialUsername, operation, branches, changes };
+  return { isGitRepository: true, repositoryRoot: root, branch: branchResult || null, upstream, ahead, behind, remote, credentialKind: gitCredentialKind(remote), hasSavedCredential, savedCredentialUsername, operation, branches, changes, untrackedPaths: await listUntrackedPaths(root) };
 }
 
 export async function runGitAction(cwd: string, action: GitAction, input: { paths?: unknown; message?: unknown; rebase?: unknown; branch?: unknown; newBranch?: unknown; startPoint?: unknown; targetBranch?: unknown; remoteUrl?: unknown; credential?: GitCredential; rememberCredential?: unknown }): Promise<GitSummary> {
@@ -263,9 +270,28 @@ export async function runGitAction(cwd: string, action: GitAction, input: { path
         const paths = relativePaths(root, input.paths);
         if (action === "stage") await git(cwd, ["add", "--", ...paths]);
         if (action === "unstage") await git(cwd, ["restore", "--staged", "--", ...paths]);
-        if (action === "discard") await git(cwd, ["restore", "--worktree", "--source=HEAD", "--", ...paths]);
+        if (action === "discard") {
+          // A staged rename/copy holds two paths: the new one and the original.
+          // Restoring only the new path leaves the index entry behind, so the
+          // discard silently does nothing. Unstage first, then restore the
+          // worktree; `--source=HEAD` supplies the file contents.
+          await git(cwd, ["restore", "--staged", "--", ...paths]);
+          await git(cwd, ["restore", "--worktree", "--source=HEAD", "--", ...paths]);
+        }
       } else if (action === "discard_all") {
-        await git(cwd, ["checkout", "--", "."]);
+        // "Discard all" restores the whole checkout to its pre-edit state, so it
+        // has to cover all three kinds of local change:
+        //   1. staged changes in the index          -> reset --mixed
+        //   2. unstaged/deleted tracked files       -> checkout -- .
+        //   3. untracked files that only exist here -> clean -fd
+        // The default `git clean -fd` (no -x) keeps ignored files, so build
+        // output and .env-style local config survive. `reset` and `checkout`
+        // need a commit to fall back to; a repository without HEAD can still
+        // drop its staged and untracked changes.
+        const hasHead = !(await git(cwd, ["rev-parse", "--verify", "--quiet", "HEAD"]).then(() => false, () => true));
+        if (hasHead) await git(cwd, ["reset", "--quiet"]);
+        if (hasHead) await git(cwd, ["checkout", "--", "."]);
+        await git(cwd, ["clean", "-fd", "--quiet"]);
       } else if (action === "commit") {
         if (typeof input.message !== "string" || !input.message.trim()) throw new Error("A commit message is required");
         await git(cwd, ["commit", "-m", input.message.trim()]);
@@ -343,5 +369,6 @@ export async function runGitAction(cwd: string, action: GitAction, input: { path
       throw new Error(errorMessage(error));
     }
   });
-  return getGitSummary(cwd);
+  const summary = await getGitSummary(cwd);
+  return { ...summary, untrackedPaths: summary.isGitRepository ? await listUntrackedPaths(summary.repositoryRoot ?? cwd) : [] };
 }

@@ -99,6 +99,32 @@ function countUntrackedTextLines(filePath: string): number {
   }
 }
 
+/**
+ * Untracked files under the repository, as absolute native paths.
+ *
+ * `getGitStatus` cannot answer this: it filters entries to the session cwd, so a
+ * session working inside a subdirectory never sees the files at the top level
+ * that `git clean -fd` would delete. Ports, symlinks, and `.gitignore`d files
+ * are excluded because none of them are removable by a plain `clean -fd`.
+ */
+export async function listUntrackedPaths(repositoryRoot: string): Promise<string[]> {
+  const output = await git(repositoryRoot, [
+    "ls-files",
+    "--others",
+    "--exclude-standard",
+    "--directory",
+    "--no-empty-directory",
+    "-z",
+  ]);
+  return output
+    .split("\0")
+    .filter(Boolean)
+    .map((entry) => (entry.endsWith("/") ? entry.slice(0, -1) : entry))
+    .filter(Boolean)
+    .map((entry) => path.resolve(repositoryRoot, entry))
+    .sort((a, b) => a.localeCompare(b));
+}
+
 export async function getGitStatus(cwd: string): Promise<GitStatusResponse> {
   const repositoryRoot = await findRepositoryRoot(cwd);
   if (!repositoryRoot) {

@@ -27,6 +27,20 @@ test("supports staging, unstaging, and discarding all visible changes in one Git
   assert.match(source, /label=\{t\("git\.stageAll"\)\}/);
   assert.match(source, /label=\{t\("git\.unstageAll"\)\}/);
   assert.match(source, /label=\{t\("git\.discardAll"\)\}/);
+  // The button must open the in-app confirmation instead of the native one, so
+  // the dialog can list the untracked files that are about to be deleted.
+  assert.match(source, /onClick=\{\(\) => setConfirmingDiscardAll\(true\)\}/);
+  assert.doesNotMatch(source, /window\.confirm\(t\("git\.discardAllConfirm"\)\)/);
+});
+
+test("confirms discard-all against the untracked files it is about to delete", () => {
+  assert.match(source, /untrackedPaths: string\[\]/);
+  assert.match(source, /<DiscardAllConfirmDialog summary=\{summary\} untrackedPaths=\{untrackedPaths\}/);
+  assert.match(source, /role="alertdialog"/);
+  for (const key of ["git.discardAllConfirm", "git.discardAllTracked", "git.discardAllUntracked", "git.discardAllNoUntracked", "git.discardAllMore", "git.discardAllConfirmCancel", "git.discardAllConfirmAction"]) {
+    assert.match(source, new RegExp(`t\\("${key.replace(/\./g, "\\.")}"`));
+  }
+  assert.match(source, /git\.discardAllTitle/);
 });
 
 test("opens a clicked changed file in the existing diff viewer", () => {

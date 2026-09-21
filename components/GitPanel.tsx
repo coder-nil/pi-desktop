@@ -29,6 +29,7 @@ type GitSummary = {
   operation: "merge" | "rebase" | "cherry-pick" | "revert" | null;
   branches: string[];
   changes: { files: GitFileStatus[]; additions: number; deletions: number };
+  untrackedPaths: string[];
 };
 
 type Action = "stage" | "unstage" | "discard" | "discard_all" | "commit" | "fetch" | "pull" | "push" | "merge" | "continue" | "abort" | "set_remote_url" | "summarize";
@@ -55,6 +56,7 @@ export function GitPanel({ cwd, sessionId, onClose, onChanged, onOpenFile }: { c
   const [editingRemote, setEditingRemote] = useState(false);
   const [remoteDraft, setRemoteDraft] = useState("");
   const [busy, setBusy] = useState<Action | null>(null);
+  const [confirmingDiscardAll, setConfirmingDiscardAll] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Prefill the credential form from the encrypted store so users can tell at a
@@ -138,6 +140,7 @@ export function GitPanel({ cwd, sessionId, onClose, onChanged, onOpenFile }: { c
 
   const staged = summary?.changes.files.filter((file) => file.indexStatus !== " " && file.indexStatus !== "?") ?? [];
   const unstaged = summary?.changes.files.filter((file) => file.worktreeStatus !== " " || file.indexStatus === "?") ?? [];
+  const untrackedPaths = summary?.untrackedPaths ?? [];
   const conflictCount = summary?.changes.files.filter((file) => file.status === "conflict").length ?? 0;
   const mergeBranches = summary?.branches.filter((branch) => branch !== summary.branch) ?? [];
   const disabled = busy !== null;
@@ -149,7 +152,9 @@ export function GitPanel({ cwd, sessionId, onClose, onChanged, onOpenFile }: { c
       if (event.key === "Escape" && !disabled) {
         event.preventDefault();
         event.stopPropagation();
-        if (editingRemote) {
+        if (confirmingDiscardAll) {
+          setConfirmingDiscardAll(false);
+        } else if (editingRemote) {
           setEditingRemote(false);
           setRemoteDraft("");
         } else {
@@ -159,7 +164,7 @@ export function GitPanel({ cwd, sessionId, onClose, onChanged, onOpenFile }: { c
     };
     document.addEventListener("keydown", handleKeyDown, true);
     return () => document.removeEventListener("keydown", handleKeyDown, true);
-  }, [disabled, editingRemote, onClose]);
+  }, [confirmingDiscardAll, disabled, editingRemote, onClose]);
 
   return (
     <div role="presentation" className="git-panel-overlay">
@@ -181,7 +186,7 @@ export function GitPanel({ cwd, sessionId, onClose, onChanged, onOpenFile }: { c
               <span style={{ color: "var(--text-muted)", fontSize: 11 }}>{t("git.sync")}</span><span style={{ fontFamily: "var(--font-mono)", fontSize: 12 }}>{summary.upstream ? `↑${summary.ahead} ↓${summary.behind}` : t("git.noUpstream")}</span>
             </div>
             {summary.operation && <div style={{ marginTop: 10, padding: "9px 10px", border: "1px solid rgba(214,168,75,.5)", background: "rgba(214,168,75,.10)", color: "var(--text)", fontSize: 12 }}>{t("git.operationInProgress", { operation: t(`git.operation.${summary.operation}`) })}{conflictCount ? ` ${t("git.operationConflicts", { count: conflictCount })}` : ""}<div style={{ display: "flex", gap: 6, marginTop: 8 }}><ActionButton label={t("git.continue")} busy={busy} action="continue" onClick={() => void run("continue")} /><ActionButton label={t("git.abort")} busy={busy} action="abort" danger onClick={() => void run("abort")} /></div></div>}
-            <div style={sectionStyle}><SectionTitle title={t("git.changesSummary", { additions: summary.changes.additions, deletions: summary.changes.deletions })} action={<div style={{ display: "flex", gap: 6 }}>{unstaged.length > 0 && <ActionButton label={t("git.stageAll")} action="stage" busy={busy} onClick={() => void run("stage", { paths: unstaged.map((file) => file.filePath) })} />}{summary?.changes.files.length > 0 && <ActionButton label={t("git.discardAll")} action="discard_all" busy={busy} danger disabled={conflictCount > 0} onClick={() => window.confirm(t("git.discardAllConfirm")) && void run("discard_all")} />}</div>} /><FileList files={unstaged} empty={t("git.noUnstagedChanges")} busy={busy} onOpenDiff={openDiff} onStage={(filePath) => void run("stage", { paths: [filePath] })} onDiscard={(file) => { if (file.status !== "untracked" && window.confirm(t("git.discardFileConfirm", { file: fileName(file.filePath) }))) void run("discard", { paths: [file.filePath] }); }} /></div>
+            <div style={sectionStyle}><SectionTitle title={t("git.changesSummary", { additions: summary.changes.additions, deletions: summary.changes.deletions })} action={<div style={{ display: "flex", gap: 6 }}>{unstaged.length > 0 && <ActionButton label={t("git.stageAll")} action="stage" busy={busy} onClick={() => void run("stage", { paths: unstaged.map((file) => file.filePath) })} />}{summary?.changes.files.length > 0 && <ActionButton label={t("git.discardAll")} action="discard_all" busy={busy} danger disabled={conflictCount > 0} title={t("git.discardAllTitle")} onClick={() => setConfirmingDiscardAll(true)} />}</div>} /><FileList files={unstaged} empty={t("git.noUnstagedChanges")} busy={busy} onOpenDiff={openDiff} onStage={(filePath) => void run("stage", { paths: [filePath] })} onDiscard={(file) => { if (file.status !== "untracked" && window.confirm(t("git.discardFileConfirm", { file: fileName(file.filePath) }))) void run("discard", { paths: [file.filePath] }); }} /></div>
             <div style={sectionStyle}><SectionTitle title={t("git.stagedSummary", { count: staged.length })} action={staged.length > 0 ? <ActionButton label={t("git.unstageAll")} action="unstage" busy={busy} onClick={() => void run("unstage", { paths: staged.map((file) => file.filePath) })} /> : undefined} /><FileList files={staged} empty={t("git.nothingStaged")} busy={busy} onOpenDiff={openDiff} onUnstage={(filePath) => void run("unstage", { paths: [filePath] })} /></div>
             <div style={sectionStyle}><SectionTitle title={t("git.commit")} /><textarea value={message} onChange={(event) => setMessage(event.target.value)} placeholder={t("git.commitMessage")} disabled={disabled} rows={7} style={{ width: "100%", resize: "vertical", padding: 8, border: "1px solid var(--border)", borderRadius: 5, background: "var(--bg)", color: "var(--text)", fontFamily: "inherit", fontSize: 12, lineHeight: 1.5 }} /><div style={{ marginTop: 7, display: "flex", justifyContent: "flex-end", gap: 6 }}><ActionButton label={t("git.summarizeCommit")} action="summarize" busy={busy} disabled={staged.length === 0 || conflictCount > 0} title={t("git.summarizeCommitTitle")} onClick={() => void summarizeCommitMessage()} /><ActionButton label={t("git.commitStaged")} action="commit" busy={busy} disabled={!message.trim() || staged.length === 0 || conflictCount > 0} onClick={() => void run("commit", { message })} /></div></div>
             <div style={sectionStyle}>
@@ -200,6 +205,7 @@ export function GitPanel({ cwd, sessionId, onClose, onChanged, onOpenFile }: { c
             <div style={sectionStyle}><SectionTitle title={t("git.mergeBranch")} /><div style={{ display: "flex", gap: 6 }}><MergeBranchPicker branches={mergeBranches} value={mergeBranch} disabled={disabled} onChange={setMergeBranch} /><ActionButton label={t("git.merge")} action="merge" busy={busy} disabled={!mergeBranch || mergeBranches.length === 0} onClick={() => void run("merge", { branch: mergeBranch })} /></div></div>
           </>}
         </main>
+        {confirmingDiscardAll && summary?.isGitRepository && <DiscardAllConfirmDialog summary={summary} untrackedPaths={untrackedPaths} busy={busy} onCancel={() => setConfirmingDiscardAll(false)} onConfirm={() => { setConfirmingDiscardAll(false); void run("discard_all"); }} />}
       </section>
     </div>
   );
@@ -213,7 +219,31 @@ function SectionTitle({ title, action }: { title: string; action?: ReactNode }) 
 function ActionButton({ label, action, busy, disabled, danger, title, onClick }: { label: string; action: Action; busy: Action | null; disabled?: boolean; danger?: boolean; title?: string; onClick: () => void }) { const { t } = useI18n(); const pending = busy === action; const inactive = Boolean(busy) || disabled; const hoverBackground = danger ? "rgba(248,113,113,.12)" : "var(--bg-hover)"; return <button type="button" title={title} onClick={onClick} disabled={inactive} onMouseEnter={(event) => { if (!inactive) event.currentTarget.style.background = hoverBackground; }} onMouseLeave={(event) => { event.currentTarget.style.background = "transparent"; }} style={{ flexShrink: 0, height: 30, padding: "0 10px", border: "none", borderRadius: 5, background: "transparent", color: danger ? "#ef4444" : "var(--text)", cursor: inactive ? "not-allowed" : "pointer", opacity: inactive ? .58 : 1, fontSize: 11, fontWeight: 600, lineHeight: 1, whiteSpace: "nowrap", transition: "background .12s" }}>{pending ? t("git.working") : label}</button>; }
 function FileList({ files, empty, busy, onOpenDiff, onStage, onUnstage, onDiscard }: { files: GitFileStatus[]; empty: string; busy: Action | null; onOpenDiff: (file: GitFileStatus) => void; onStage?: (filePath: string) => void; onUnstage?: (filePath: string) => void; onDiscard?: (file: GitFileStatus) => void }) { const { t } = useI18n(); if (!files.length) return <div style={{ color: "var(--text-dim)", fontSize: 12 }}>{empty}</div>; return <div style={{ height: 220, border: "1px solid var(--border)", borderRadius: 6, overflowY: "auto" }}>{files.map((file) => <div key={`${file.filePath}:${file.indexStatus}:${file.worktreeStatus}`} style={{ minHeight: 35, padding: "5px 7px", display: "flex", alignItems: "center", gap: 7, borderBottom: "1px solid var(--border)" }}><button type="button" onClick={() => onOpenDiff(file)} disabled={Boolean(busy)} title={file.filePath} style={{ minWidth: 0, flex: 1, display: "flex", alignItems: "center", gap: 7, padding: 0, border: "none", background: "transparent", color: "var(--text)", cursor: busy ? "not-allowed" : "pointer", textAlign: "left" }} onMouseEnter={(event) => { if (!busy) event.currentTarget.style.color = "var(--accent)"; }} onMouseLeave={(event) => { event.currentTarget.style.color = "var(--text)"; }}><span style={{ width: 14, flexShrink: 0, color: STATUS_COLOR[file.status], fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 700 }}>{file.code}</span><span style={{ minWidth: 0, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: "var(--font-mono)", fontSize: 11 }}>{fileName(file.filePath)}</span></button>{onStage && <ActionButton label={t("git.stage")} action="stage" busy={busy} onClick={() => onStage(file.filePath)} />}{onUnstage && <ActionButton label={t("git.unstage")} action="unstage" busy={busy} onClick={() => onUnstage(file.filePath)} />}{onDiscard && file.status !== "untracked" && <ActionButton label={t("git.discard")} action="discard" busy={busy} danger onClick={() => onDiscard(file)} />}</div>)}</div>; }
 
-function DiscardAllConfirmDialog({ onCancel, onConfirm, busy }: { onCancel: () => void; onConfirm: () => void; busy: Action | null }) { const { t } = useI18n(); return (<div style={{ padding: 14, textAlign: "center" }}><p style={{ color: "var(--text)", marginBottom: 14, fontSize: 12 }}>{t("git.discardAllConfirm")}</p><div style={{ display: "flex", gap: 10, justifyContent: "center" }}><ActionButton label={t("git.discardAllConfirmCancel")} action="discard_all" busy={busy} onClick={onCancel} /><ActionButton label={t("git.discardAllConfirmAction")} action="discard_all" busy={busy} danger onClick={onConfirm} /></div></div>); }
+/**
+ * Confirmation shown before `discard_all`.
+ *
+ * Untracked files are deleted by this action and cannot be recovered, so the
+ * dialog lists them by name and spells out that they are removed from disk.
+ */
+function DiscardAllConfirmDialog({ summary, untrackedPaths, busy, onCancel, onConfirm }: { summary: GitSummary; untrackedPaths: string[]; busy: Action | null; onCancel: () => void; onConfirm: () => void }) {
+  const { t } = useI18n();
+  const snapshot = useRef(untrackedPaths).current;
+  const shown = snapshot.slice(0, 8);
+  return (
+    <div role="alertdialog" aria-label={t("git.discardAllConfirm")} style={{ padding: 14, display: "grid", gap: 10 }}>
+      <p style={{ margin: 0, color: "var(--text)", fontSize: 12, lineHeight: 1.5 }}>{t("git.discardAllConfirm")}</p>
+      <div style={{ display: "grid", gap: 5, padding: 9, border: "1px solid var(--border)", borderRadius: 6, background: "var(--bg-panel)", fontSize: 11, color: "var(--text-muted)" }}>
+        <div>{t("git.discardAllTracked", { count: summary.changes.files.length - snapshot.length })}</div>
+        <div>{snapshot.length > 0 ? t("git.discardAllUntracked", { count: snapshot.length }) : t("git.discardAllNoUntracked")}</div>
+        {shown.length > 0 && <ul style={{ margin: 0, padding: "4px 0 0 16px", fontFamily: "var(--font-mono)", lineHeight: 1.6, overflowWrap: "anywhere" }}>{shown.map((filePath) => <li key={filePath}>{filePath}</li>)}{snapshot.length > shown.length && <li>{t("git.discardAllMore", { count: snapshot.length - shown.length })}</li>}</ul>}
+      </div>
+      <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+        <ActionButton label={t("git.discardAllConfirmCancel")} action="discard_all" busy={busy} onClick={onCancel} />
+        <ActionButton label={t("git.discardAllConfirmAction")} action="discard_all" busy={busy} danger onClick={onConfirm} />
+      </div>
+    </div>
+  );
+}
 function MergeBranchPicker({ branches, value, disabled, onChange }: { branches: string[]; value: string; disabled: boolean; onChange: (branch: string) => void }) {
   return <BranchPicker branches={branches} value={value} disabled={disabled} placement="above" onChange={onChange} />;
 }
