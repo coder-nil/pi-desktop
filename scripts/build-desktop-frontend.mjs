@@ -14,7 +14,13 @@ const parkedProxyFile = join(root, `.desktop-proxy-${process.pid}.ts`);
 // `dynamic = "force-dynamic"` 的页面并直接失败，所以和 API / proxy 一样挪走。
 const mobilePageDirectory = join(root, "app", "m");
 const parkedMobilePageDirectory = join(root, `.desktop-m-${process.pid}`);
-const devTypesDirectory = join(root, ".next", "dev");
+// 每个构建目标有各自的 distDir（见 next.config.ts）：`.next-dev` / `.next-desktop-dev` /
+// `.next-desktop-frontend`。tsconfig 把所有目标的 dev 类型都 include 了，所以这些目录一旦
+// 留下来，就会拿旧路由表来检查当前（已经移走 API 和 /m 的）源码，报一堆 TS2307。
+const devTypesDirectories = [
+  join(root, ".next", "dev"),
+  join(root, ".next-desktop-dev", "dev"),
+];
 const nextOutputDirectory = join(root, ".next");
 const standaloneDirectory = join(nextOutputDirectory, "standalone");
 const staticDirectory = join(nextOutputDirectory, "static");
@@ -83,7 +89,9 @@ await rm(parkedStandaloneDirectory, { recursive: true, force: true });
 await rm(parkedStaticDirectory, { recursive: true, force: true });
 // The desktop build temporarily hides API routes. Remove stale dev route types
 // so TypeScript does not resolve validator imports for those hidden routes.
-await rm(devTypesDirectory, { recursive: true, force: true });
+for (const directory of devTypesDirectories) {
+  await rm(directory, { recursive: true, force: true });
+}
 const parkedStandalone = await parkIfPresent(standaloneDirectory, parkedStandaloneDirectory);
 const parkedStatic = await parkIfPresent(staticDirectory, parkedStaticDirectory);
 await rename(apiDirectory, parkedApiDirectory);
