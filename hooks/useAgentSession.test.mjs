@@ -50,6 +50,9 @@ test("keeps the session event stream open through the idle grace window", () => 
   assert.match(promptDoneSource, /notifyPromptStage\(runId\)/);
   assert.match(promptDoneSource, /scheduleEventStreamClose\(sid\)/);
   assert.match(sendSource, /const definitivelyRejected = !promptRequestStarted/);
+  assert.match(sendSource, /const streamAborted = isAgentEventStreamAbort\(e\)/);
+  assert.match(sendSource, /if \(!streamAborted\) console\.error\("Failed to send message:", e\)/);
+  assert.match(sendSource, /if \(!streamAborted\) \{[\s\S]*?addNotice\(\{[\s\S]*?restoreSubmission\(message, images, composerDraftKey\)/);
   assert.match(sendSource, /if \(!definitivelyRejected && sentSessionId\) \{[\s\S]*?waitForPromptSettlement/);
   assert.match(sendSource, /restoreSubmission\(message, images, composerDraftKey\);[\s\S]*?if \(sentSessionId\) \{[\s\S]*?reconcileAgentState\(sentSessionId\);[\s\S]*?return;[\s\S]*?\}[\s\S]*?closeEvents\(\)/);
   assert.doesNotMatch(
@@ -340,9 +343,12 @@ test("restores pending extension dialogs from authoritative agent state", () => 
 
   assert.match(source, /function latestExtensionDialog\(requests: ExtensionUiRequest\[\] \| undefined\)/);
   assert.match(loadSource, /const pendingDialog = latestExtensionDialog\(liveState\.pendingUiRequests\)/);
-  assert.match(loadSource, /if \(pendingDialog\) setExtensionDialog\(pendingDialog\)/);
   assert.match(reconcileSource, /const pendingDialog = latestExtensionDialog\(state\?\.pendingUiRequests\)/);
-  assert.match(reconcileSource, /if \(pendingDialog\) setExtensionDialog\(pendingDialog\)/);
+  // 从权威状态恢复，同时也能收：手机端答过的弹窗不能一直留在桌面上。
+  // 按 id 比较，避免每次对账都用新对象重置正在输入的弹窗。
+  for (const section of [loadSource, reconcileSource]) {
+    assert.match(section, /setExtensionDialog\(\(current\) => \(current\?\.id === pendingDialog\?\.id \? current : pendingDialog \?\? null\)\)/);
+  }
 });
 
 test("routes blocking extension requests through deduplicated browser attention notifications", () => {
@@ -474,7 +480,8 @@ test("keeps prompt anchor measurement outside the React update cycle", () => {
   assert.match(anchorLifecycleEffectSource, /promptAnchorMeasureFrameRef\.current = requestAnimationFrame\(\(\) => \{\s*promptAnchorMeasureFrameRef\.current = null;\s*updatePromptAnchorSpacer\(\)/);
   assert.match(anchorLifecycleEffectSource, /disposed = true;[\s\S]*?promptAnchorUpdateRef\.current === updatePromptAnchorSpacer[\s\S]*?cancelAnimationFrame\(promptAnchorMeasureFrameRef\.current\)/);
   assert.match(anchorSyncEffectSource, /promptAnchorUpdateRef\.current\?\.\(\);\s*\}, \[streamState\.streamingMessage\]\)/);
-  assert.match(chatWindowSource, /<div ref=\{messageContentRef\} style=\{\{/);
+  // ref 与 style 之间允许插别的属性（data-chat-message-content 就在这里）。
+  assert.match(chatWindowSource, /<div ref=\{messageContentRef\}[^>]*?style=\{\{/);
 });
 
 test("uses the prompt anchor as the only trailing message spacer", () => {

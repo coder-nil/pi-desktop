@@ -6,10 +6,11 @@ const source = await readFile(new URL("./SettingsPanel.tsx", import.meta.url), "
 const shortcutCatalog = await readFile(new URL("../lib/keyboard-shortcuts.ts", import.meta.url), "utf8");
 
 test("keeps all settings resources inside one navigable dialog", () => {
-  assert.match(source, /type SettingsView = "menu" \| "general" \| "shortcuts" \| "models" \| "skills" \| "plugins" \| "mcp" \| "mcp-editor"/);
+  assert.match(source, /type SettingsView = "menu" \| "general" \| "shortcuts" \| "models" \| "skills" \| "plugins" \| "mcp" \| "mobile" \| "mcp-editor"/);
   assert.match(source, /<ModelsConfig embedded onSaved=\{onModelsSaved\} \/>/);
   assert.match(source, /<SkillsConfig cwd=\{cwd\} embedded \/>/);
   assert.match(source, /<PluginsConfig cwd=\{cwd\} sessionId=\{sessionId\} embedded onReloaded=\{onSessionReloaded\} \/>/);
+  assert.match(source, /<MobileAccessSettings \/>/);
   assert.doesNotMatch(source, /onOpenModels|onOpenSkills|onOpenPlugins/);
 });
 

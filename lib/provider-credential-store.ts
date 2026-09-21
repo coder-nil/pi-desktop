@@ -85,6 +85,26 @@ export function storeProviderCredential(
 }
 
 /**
+ * Read a stored API key so the settings page can show a masked hint.
+ *
+ * Server-side only — the raw value must never be sent to the browser.
+ */
+export function readStoredApiKey(
+  providerId: string,
+  authPath = join(getAgentDir(), "auth.json"),
+): string | null {
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(authPath, "utf-8"));
+    if (!isRecord(parsed)) return null;
+    const credential = parsed[providerId];
+    if (!isRecord(credential) || credential.type !== "api_key") return null;
+    return typeof credential.key === "string" ? credential.key : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Removes a provider credential only when its current stored type matches.
  *
  * The comparison and write share the same proper-lockfile lock used by pi's

@@ -4,7 +4,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { parseDiscoveredModels } from "./model-discovery";
 import { APISETS_BASE_URL, APISETS_PROVIDER_ID } from "./desktop-provider-constants";
-import { fetchModelsDevCatalog } from "./models-dev-discovery";
+import { getModelsDevCatalog } from "./models-dev-discovery";
 import type { ModelCatalogEntry } from "./model-catalog";
 import { responsesTerminalFetch } from "./responses-terminal-fetch";
 import type { Api, FetchFunction, Model, Provider } from "@earendil-works/pi-ai";
@@ -64,35 +64,46 @@ function modelsDevDeepSeekProvider(base: Provider<Api>): Provider<Api> {
     baseUrl: DEEPSEEK_BASE_URL,
     getModels: () => models,
     async refreshModels(context) {
-      if (!context.allowNetwork) {
-        if (context.stored?.etag === "models.dev") {
-          const stored = context.stored.models.filter((model) => model.provider === DEEPSEEK_PROVIDER_ID);
-          await context.publish({ update: () => { models = [...stored]; } });
-        }
-        return;
-      }
-
-      const refreshed = modelsDevDeepSeekModels(
-        await fetchModelsDevCatalog({ signal: context.signal, force: context.force }),
-        models,
-      );
+      // 目录来自 pi.sqlite 缓存时这里不会碰到网络；只有缓存完全缺失或显式
+      // force（用户主动刷新）时才会等待 models.dev。
+      const catalog = await getModelsDevCatalog({
+        signal: context.signal,
+        force: context.force,
+        ...(context.allowNetwork ? {} : { offline: true }),
+      });
+      const refreshed = modelsDevDeepSeekModels(catalog, models);
       if (refreshed.length === 0) {
+        if (!context.allowNetwork) {
+          // 离线刷新只负责恢复：本地缓存的 models-store.json 优先，其次是目录缓存。
+          if (context.stored?.etag === "models.dev") {
+            const stored = context.stored.models.filter((model) => model.provider === DEEPSEEK_PROVIDER_ID);
+            await context.publish({ update: () => { models = [...stored]; } });
+          }
+          return;
+        }
         throw new Error("models.dev did not return any DeepSeek models");
       }
       await context.publish({
-        persist: { models: refreshed, checkedAt: Date.now(), etag: "models.dev" },
+        // 离线刷新只负责恢复内存态，绝不写 models-store.json。
+        ...(context.allowNetwork
+          ? { persist: { models: refreshed, checkedAt: Date.now(), etag: "models.dev" } }
+          : {}),
         update: () => { models = refreshed; },
       });
     },
   };
 }
 
-function apiSetsModels(payload: unknown) {
+function apiSetsModels(payload: unknown): Model<Api>[] {
   return parseDiscoveredModels(payload).map((model) => ({
     id: model.id,
     name: model.name ?? model.id,
+    // provider/baseUrl 必须随模型一起持久化：恢复 models-store.json 时要按
+    // provider 过滤，SDK 也会直接采用这里给出的协议（见 lib/desktop-providers.ts 注释）。
+    provider: APISETS_PROVIDER_ID,
     // Coding exposes GPT through Responses, matching Codex's wire protocol.
-    ...(model.id.startsWith("gpt-") ? { api: "openai-responses" as const } : {}),
+    api: model.id.startsWith("gpt-") ? "openai-responses" : "anthropic-messages",
+    baseUrl: APISETS_BASE_URL,
     reasoning: true,
     input: ["text", "image"] as ("text" | "image")[],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
@@ -100,6 +111,18 @@ function apiSetsModels(payload: unknown) {
     maxTokens: model.maxTokens ?? 16_384,
     ...(model.id === "glm-5.3" ? { compat: { allowEmptySignature: true } } : {}),
   }));
+}
+
+/** providers/apisets 没有静态模型表，只认上游 /v1/models；etag 用来标记缓存来源。 */
+const APISETS_CATALOG_ETAG = "apisets-models-api-v2";
+/** 上游目录很少变，没必要每次打开设置都打一次（用户仍可用 force 刷新）。 */
+const APISETS_REFRESH_INTERVAL_MS = 30 * 60 * 1000;
+
+function apiSetsStoredModels(
+  stored: { models: readonly Model<Api>[]; etag?: string } | undefined,
+): Model<Api>[] {
+  if (stored?.etag !== APISETS_CATALOG_ETAG) return [];
+  return stored.models.filter((model) => model.provider === APISETS_PROVIDER_ID);
 }
 
 /** Register providers shipped by Pi Desktop on a runtime instance. */
@@ -111,17 +134,35 @@ export function registerDesktopProviders(modelRuntime: ModelRuntime): void {
       api: "anthropic-messages",
       authHeader: true,
       async refreshModels(context) {
-        if (context.credential?.type !== "api_key" || !context.credential.key) return [];
+        const cached = apiSetsStoredModels(context.stored);
+        if (!context.allowNetwork || context.signal.aborted) return cached;
+
+        const recentlyChecked = context.stored?.etag === APISETS_CATALOG_ETAG
+          && context.stored.checkedAt !== undefined
+          && Date.now() - context.stored.checkedAt < APISETS_REFRESH_INTERVAL_MS;
+        if (!context.force && recentlyChecked) return cached;
+
+        const credential = context.credential;
+        if (credential?.type !== "api_key" || !credential.key) return cached;
 
         const response = await fetch(`${APISETS_BASE_URL}/v1/models`, {
           headers: {
             Accept: "application/json",
-            Authorization: `Bearer ${context.credential.key}`,
+            Authorization: `Bearer ${credential.key}`,
           },
           signal: context.signal,
         });
         if (!response.ok) throw new Error(`APIsets model catalog returned HTTP ${response.status}`);
-        return apiSetsModels(await response.json());
+        const models = apiSetsModels(await response.json());
+        if (models.length === 0) throw new Error("APIsets model catalog did not return any models");
+
+        // 持久化目录：新进程/新 runtime 在 cache-only 阶段就能拿到模型列表，
+        // 不必等上游请求（见 createDesktopModelRuntime 与 refreshDesktopProviderCatalogs）。
+        await context.publish({
+          persist: { models, checkedAt: Date.now(), etag: APISETS_CATALOG_ETAG },
+          update: () => {},
+        });
+        return models;
       },
     });
   }
@@ -144,9 +185,14 @@ export async function createDesktopModelRuntime(options?: CreateModelRuntimeOpti
       ? withResponsesFetch(requestOptions)
       : requestOptions);
   registerDesktopProviders(modelRuntime);
-  // registerNativeProvider schedules a cache-only refresh. Await our scoped
-  // refresh so a caller's immediate network refresh cannot race that task.
-  await modelRuntime.refresh({ allowNetwork: false, providers: [DEEPSEEK_PROVIDER_ID] });
+  // Cache-only 恢复应用自带的服务商目录：apisets 只认上游 /v1/models，没有
+  // models-store.json 缓存就会一直接不到。registerProvider/registerNativeProvider
+  // 会各自调度一个后台 cache-only 刷新，这里 await 自己的，避免跟调用方的
+  // 立刻网络刷新竞争。
+  await modelRuntime.refresh({
+    allowNetwork: false,
+    providers: [APISETS_PROVIDER_ID, DEEPSEEK_PROVIDER_ID],
+  });
   return modelRuntime;
 }
 

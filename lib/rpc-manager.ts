@@ -885,10 +885,16 @@ export class AgentSessionWrapper {
 
       case "set_model": {
         const { provider, modelId } = command as { provider: string; modelId: string };
-        let model = this.inner.modelRuntime.getModel(provider, modelId);
-        if (!model) {
-          await this.inner.modelRuntime.refresh({ allowNetwork: false });
+        // Always refresh (cache-only) first: an existing cached model object may
+        // carry stale baseUrl/api config from an older models.json revision,
+        // which makes requests 404 even though the settings test route succeeds.
+        let model: ReturnType<typeof this.inner.modelRuntime.getModel> | undefined;
+        for (let attempt = 0; attempt < 2 && !model; attempt++) {
           model = this.inner.modelRuntime.getModel(provider, modelId);
+          if (!model) {
+            await this.inner.modelRuntime.refresh({ allowNetwork: false });
+            model = this.inner.modelRuntime.getModel(provider, modelId);
+          }
         }
         if (!model) throw new Error(`Model not found: ${provider}/${modelId}`);
         await this.inner.setModel(model);
@@ -1175,6 +1181,8 @@ export class AgentSessionWrapper {
   private resolveExtensionUiResponse(response: ExtensionUiResponse): void {
     const pending = this.pendingUiResponses.get(response.id);
     if (!pending) return;
+    // “已作答”的广播在 requestExtensionUi 的 cleanup 里统一发出（那里也是超时/
+    // 中止的出口），所以这里只负责唤醒等着的那个 Promise。
     pending.resolve(response);
   }
 
@@ -1534,11 +1542,25 @@ export class AgentSessionWrapper {
 
     return new Promise((resolve) => {
       let timeoutId: ReturnType<typeof setTimeout> | undefined;
+      let announced = false;
+      /**
+       * 请求不再存在的那一刻（被回答 / 超时 / 被中止 / 被取消）都从这里走，
+       * 所以“这条请求作废了”的广播也放在这里：这是唯一的出口。
+       *
+       * 不放在 `resolveExtensionUiResponse` 里是因为超时与中止不经过它，
+       * 那种情况下另一边只能等 15s 状态对账才能把弹窗收掉。
+       */
+      const announceResolved = () => {
+        if (announced) return;
+        announced = true;
+        this.emit({ type: "extension_ui_resolved", id } as AgentEvent);
+      };
       const cleanup = () => {
         if (timeoutId) clearTimeout(timeoutId);
         signal?.removeEventListener("abort", onAbort);
         this.pendingUiRequests.delete(id);
         this.pendingUiResponses.delete(id);
+        announceResolved();
       };
       const settle = (value: T) => {
         cleanup();
@@ -1993,7 +2015,9 @@ export async function startRpcSession(
       },
       ...(trustReloadOptions ? { resourceLoaderReloadOptions: trustReloadOptions } : {}),
     });
-    await refreshDesktopProviderCatalogs(services.modelRuntime).catch(() => {});
+    // 本地缓存（models-store.json / pi.sqlite 目录缓存）已能给出已配置服务商的
+    // 模型；远端刷新不阻塞会话创建，否则发第一条消息要等 models.dev 数秒。
+    void refreshDesktopProviderCatalogs(services.modelRuntime).catch(() => {});
     const scope = await resolveVisibleModels(
       services.modelRuntime,
       services.settingsManager.getEnabledModels(),

@@ -48,7 +48,9 @@ async function loadModels(cwd: string): Promise<ModelsData> {
     modelRuntime,
     ...(trustReloadOptions ? { resourceLoaderReloadOptions: trustReloadOptions } : {}),
   });
-  await refreshDesktopProviderCatalogs(services.modelRuntime).catch(() => {});
+  // 已配置的服务商模型来自 models-store.json / pi.sqlite 缓存，此处立即可用；
+  // models.dev 的刷新放到后台，避免模型选择器在远端目录返回前为空。
+  void refreshDesktopProviderCatalogs(services.modelRuntime).catch(() => {});
   const modelError = services.modelRuntime.getError();
   const settings: SettingsManager = services.settingsManager;
   // `enabledModels` supports globs and fuzzy patterns, so resolve it the same

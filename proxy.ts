@@ -37,6 +37,21 @@ export function proxy(request: NextRequest) {
     : isApiRequestHostAllowed(request);
 
   if (!isTrustedRequest) {
+    // 手机/隧道那条链路上出现 403 时，光看“Untrusted”无法定位：把判定用到的原始头部
+    // 打出来（会进应用的服务端日志）。这里不打 Authorization 之类的内容。
+    console.warn("[pi][security] rejected untrusted request", JSON.stringify({
+      method: request.method,
+      path: request.nextUrl.pathname + (request.nextUrl.search ? "?…" : ""),
+      isApiRequest,
+      host: request.headers.get("host"),
+      origin: request.headers.get("origin"),
+      secFetchSite: request.headers.get("sec-fetch-site"),
+      secFetchMode: request.headers.get("sec-fetch-mode"),
+      referer: request.headers.get("referer"),
+      forwardedHost: request.headers.get("x-forwarded-host"),
+      userAgent: request.headers.get("user-agent")?.slice(0, 90),
+      hostAllowed: isApiRequestHostAllowed(request),
+    }));
     if (!isApiRequest) {
       return new NextResponse("Untrusted request", { status: 403 });
     }

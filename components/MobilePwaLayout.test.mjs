@@ -40,7 +40,8 @@ test("contains chat content and inputs within the mobile viewport", () => {
   assert.match(cssSource, /\.markdown-body \{[\s\S]*?min-width: 0;[\s\S]*?max-width: 100%;[\s\S]*?overflow-x: hidden;/);
   assert.match(cssSource, /\.markdown-code-block \{[\s\S]*?min-width: 0;[\s\S]*?max-width: 100%;/);
   assert.match(chatWindowSource, /overflow-x-hidden overflow-y-auto/);
-  assert.match(chatInputSource, /flex: 1,\s*minWidth: 0,\s*width: "100%",/);
+  // 允许 flex / minWidth / width 之间插别的属性（alignSelf、display 就加在这里）。
+  assert.match(chatInputSource, /flex: 1,[\s\S]{0,120}?minWidth: 0,[\s\S]{0,120}?width: "100%",/);
 });
 
 test("prevents iOS focus zoom from widening the layout", () => {

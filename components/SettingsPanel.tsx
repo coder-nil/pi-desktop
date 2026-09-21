@@ -2,12 +2,13 @@
 
 import { useEffect, useState } from "react";
 import McpIcon from "@lobehub/icons/es/MCP/components/Mono";
-import { Blocks, Cpu, Keyboard, Layers3, Settings2 } from "lucide-react";
+import { Blocks, Cpu, Keyboard, Layers3, Settings2, Smartphone } from "lucide-react";
 import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { MCP_CATALOG, type McpCatalogEntry } from "@/lib/mcp-catalog";
 import { KEYBOARD_SHORTCUT_GROUPS, KEYBOARD_SHORTCUTS } from "@/lib/keyboard-shortcuts";
 import { ModelsConfig } from "./ModelsConfig";
+import { MobileAccessSettings } from "./MobileAccessSettings";
 import { PluginsConfig } from "./PluginsConfig";
 import { SkillsConfig } from "./SkillsConfig";
 
@@ -31,7 +32,7 @@ type SettingsPanelProps = {
   supportedLocales: { id: string; label: string }[];
 };
 
-type SettingsView = "menu" | "general" | "shortcuts" | "models" | "skills" | "plugins" | "mcp" | "mcp-editor";
+type SettingsView = "menu" | "general" | "shortcuts" | "models" | "skills" | "plugins" | "mcp" | "mobile" | "mcp-editor";
 type SettingsSection = Exclude<SettingsView, "menu" | "mcp-editor">;
 type McpScope = "project" | "global";
 
@@ -48,6 +49,7 @@ function SettingsIcon({ name }: { name: SettingsSection }) {
   if (name === "models") return <Cpu size={17} strokeWidth={1.8} aria-hidden="true" />;
   if (name === "skills") return <Layers3 size={17} strokeWidth={1.8} aria-hidden="true" />;
   if (name === "plugins") return <Blocks size={17} strokeWidth={1.8} aria-hidden="true" />;
+  if (name === "mobile") return <Smartphone size={17} strokeWidth={1.8} aria-hidden="true" />;
   return <McpIcon size={17} aria-hidden="true" />;
 }
 
@@ -317,6 +319,7 @@ export function SettingsPanel({ cwd, hasProject, projectTrusted, sessionId, onCl
     { id: "skills", label: t("common.skills"), description: t("settings.skillsDescription"), disabled: !hasProject },
     { id: "plugins", label: t("common.plugins"), description: t("settings.pluginsDescription"), disabled: !hasProject },
     { id: "mcp", label: t("settings.mcp"), description: t("settings.mcpDescription"), disabled: false },
+    { id: "mobile", label: t("settings.mobile"), description: t("settings.mobileDescription"), disabled: false },
   ] satisfies Array<{ id: SettingsSection; label: string; description: string; disabled: boolean }>;
 
   return (
@@ -529,7 +532,7 @@ export function SettingsPanel({ cwd, hasProject, projectTrusted, sessionId, onCl
                   </div>
                 ) : (
                   <div style={{ padding: "14px 18px 18px" }}>
-                    <p style={{ margin: 0, color: "var(--text-muted)", fontSize: 12, lineHeight: 1.55, maxWidth: 720 }}>{t("settings.mcpBody")}</p>
+                    <p style={{ margin: 0, color: "var(--text-muted)", fontSize: 12, lineHeight: 1.55 }}>{t("settings.mcpBody")}</p>
                     <div style={{ marginTop: 12, padding: "9px 11px", border: "1px solid var(--border)", borderRadius: 7, background: "var(--bg-panel)", color: "var(--text-muted)", fontSize: 11, lineHeight: 1.6 }}>
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
                         <div style={{ color: "var(--text)", fontWeight: 600 }}>{t("settings.mcpConfigFiles")}</div>
@@ -547,8 +550,10 @@ export function SettingsPanel({ cwd, hasProject, projectTrusted, sessionId, onCl
                       </button>
                     </div>
                     <div style={{ position: "relative", marginTop: 14 }}>
-                      <input value={mcpQuery} onChange={(event) => setMcpQuery(event.target.value)} placeholder={t("settings.mcpSearchPlaceholder")} aria-label={t("settings.mcpSearchPlaceholder")} style={{ width: "100%", height: 34, padding: "0 10px 0 30px", border: "1px solid var(--border)", borderRadius: 6, background: "var(--bg-panel)", color: "var(--text)", fontSize: 12, outline: "none" }} />
-                      <span aria-hidden="true" style={{ position: "absolute", left: 10, top: 7, color: "var(--text-dim)", fontSize: 15 }}>⌕</span>
+                      <input value={mcpQuery} onChange={(event) => setMcpQuery(event.target.value)} placeholder={t("settings.mcpSearchPlaceholder")} aria-label={t("settings.mcpSearchPlaceholder")} style={{ width: "100%", height: 34, padding: "0 10px 0 29px", border: "1px solid var(--border)", borderRadius: 6, background: "var(--bg-panel)", color: "var(--text)", fontSize: 12, outline: "none" }} />
+                      <span aria-hidden="true" style={{ position: "absolute", left: 9, top: 0, bottom: 0, display: "flex", alignItems: "center", color: "var(--text-dim)", pointerEvents: "none" }}>
+                        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><circle cx="7" cy="7" r="4.5" /><line x1="10.6" y1="10.6" x2="14" y2="14" /></svg>
+                      </span>
                     </div>
                     {mcpNotice && <div role="status" style={{ marginTop: 10, color: "#16a34a", fontSize: 11 }}>{mcpNotice}</div>}
                     {mcpError && <div role="alert" style={{ marginTop: 10, color: "#dc2626", fontSize: 11, lineHeight: 1.5, overflowWrap: "anywhere" }}>{mcpError}</div>}
@@ -593,6 +598,18 @@ export function SettingsPanel({ cwd, hasProject, projectTrusted, sessionId, onCl
                     </button>
                   </div>
                 )}
+              </section>
+            )}
+
+            {visitedSections.has("mobile") && (
+              <section hidden={activeSection !== "mobile"} aria-hidden={activeSection !== "mobile"} style={{ height: "100%", overflowY: "auto" }}>
+                <div style={{ padding: "15px 18px 12px", borderBottom: "1px solid var(--border)" }}>
+                  <div style={{ color: "var(--text)", fontSize: 15, fontWeight: 700 }}>{t("settings.mobile")}</div>
+                  <div style={{ marginTop: 3, color: "var(--text-muted)", fontSize: 11 }}>{t("settings.mobileDescription")}</div>
+                </div>
+                <div style={{ padding: "14px 18px 18px" }}>
+                  <MobileAccessSettings />
+                </div>
               </section>
             )}
           </main>

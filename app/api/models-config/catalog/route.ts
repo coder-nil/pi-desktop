@@ -7,7 +7,7 @@ import {
   searchModelCatalog,
   type ModelCatalogEntry,
 } from "@/lib/model-catalog";
-import { fetchModelsDevCatalog } from "@/lib/models-dev-discovery";
+import { getModelsDevCatalog } from "@/lib/models-dev-discovery";
 
 export const dynamic = "force-dynamic";
 
@@ -34,7 +34,7 @@ function getCache(): CatalogCache {
  */
 async function loadCatalog(): Promise<{ entries: ModelCatalogEntry[]; source: string }> {
   const configs = loadConfiguredProviders();
-  let entries = await fetchModelsDevCatalog();
+  let entries = await getModelsDevCatalog();
 
   if (configs.length > 0) {
     const liveResults = await Promise.allSettled(

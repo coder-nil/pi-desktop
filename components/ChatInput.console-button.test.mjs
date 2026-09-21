@@ -25,5 +25,10 @@ test("passes the console action and active state from the shell", () => {
 test("toggles the console closed when its button is clicked again", () => {
   const handler = shellSource.match(/const handleOpenConsole = useCallback\([\s\S]*?\n  \}, \[[^\n]+\);/)?.[0];
   assert.ok(handler);
-  assert.match(handler, /setConsoleOpen\(\(current\) => terminalCwds\.includes\(cwd\) \? !current : true\)/);
+  // 第一次点：先把 cwd 登记进 terminalCwds 再打开。旧写法只调 setConsoleOpen(true)，
+  // 而 consoleActive={consoleOpen && terminalCwds.includes(cwd)} 就永远不成立，按钮不高亮。
+  assert.match(handler, /const hasTerminal = terminalCwds\.includes\(cwd\)/);
+  assert.match(handler, /if \(!hasTerminal\) \{[\s\S]*?setTerminalCwds\([\s\S]*?setConsoleOpen\(true\);/);
+  // 已经登记过：再点一次收起。
+  assert.match(handler, /setConsoleOpen\(\(current\) => !current\)/);
 });

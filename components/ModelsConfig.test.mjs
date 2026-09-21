@@ -175,3 +175,24 @@ test("thinking level overrides keep explicit default, disabled, and custom contr
   assert.match(editor, /state === "null"/);
   assert.match(editor, /state === "string"/);
 });
+
+test("a configured API key renders an editable mask inside the input", () => {
+  const detail = source.slice(
+    source.indexOf("function ApiKeyDetail"),
+    source.indexOf("// ── Provider helpers"),
+  );
+
+  assert.ok(detail.length > 0, "ApiKeyDetail is present");
+  // 未编辑时输入框显示掩码，并强制明文（掩码本身已是脱敏内容）。
+  assert.match(detail, /revealed=\{provider\.configured && apiKey === maskedKey && Boolean\(maskedKey\)\}/);
+  assert.match(detail, /if \(!dirty\) setApiKey\(maskedKey \?\? ""\)/);
+  assert.match(detail, /if \(!dirty && maskedKey\) inputRef\.current\?\.select\(\)/);
+  // 掩码不能被当成真实 Key 提交。
+  assert.match(detail, /if \(!trimmed \|\| trimmed === maskedKey\) return;/);
+  assert.match(detail, /const canSave = Boolean\(apiKey\.trim\(\)\) && apiKey\.trim\(\) !== maskedKey/);
+  // 断开连接跟提示文案同一行。
+  assert.match(detail, /t\("i18n\.apiKeyStoredHint"\)/);
+  assert.match(detail, /\{removing \? t\("i18n\.removing"\) : t\("i18n\.disconnect"\)\}/);
+  // 明文 Key 只能出现在保存请求体里，绝不来自响应。
+  assert.doesNotMatch(detail, /d\.apiKey/);
+});

@@ -20,7 +20,7 @@ import { getPreferredToolPreset, setPreferredToolPreset } from "@/lib/tool-prese
 import { getToolNamesForPreset, type ToolEntry, type ToolPreset } from "@/lib/tool-presets";
 import type { SessionStatsInfo } from "@/lib/pi-types";
 import { userMessageKey } from "@/lib/prompt-recovery";
-import { AgentEventConnection } from "@/lib/agent-event-connection";
+import { AgentEventConnection, isAgentEventStreamAbort } from "@/lib/agent-event-connection";
 import { getToolExecutionProgress } from "@/lib/tool-execution-progress";
 import {
   CHAT_SCROLL_REATTACH_TOLERANCE,
@@ -551,7 +551,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           if (liveState.extensionWidgets !== undefined) setExtensionWidgets(liveState.extensionWidgets ?? []);
           if (liveState.queuedMessages !== undefined) setQueuedMessages(normalizeQueuedMessages(liveState.queuedMessages));
           const pendingDialog = latestExtensionDialog(liveState.pendingUiRequests);
-          if (pendingDialog) setExtensionDialog(pendingDialog);
+          // 对账时也要能“收”：否则手机端答过的弹窗会一直留在桌面上。
+          // 按 id 比较，避免每次对账都用新对象把正在输入的弹窗重置一遍。
+          setExtensionDialog((current) => (current?.id === pendingDialog?.id ? current : pendingDialog ?? null));
         } else if (!agentState.running) {
           setQueuedMessages({ steering: [], followUp: [] });
         }
@@ -1035,7 +1037,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setIsCompacting(state?.isCompacting ?? false);
       setQueuedMessages(normalizeQueuedMessages(state?.queuedMessages));
       const pendingDialog = latestExtensionDialog(state?.pendingUiRequests);
-      if (pendingDialog) setExtensionDialog(pendingDialog);
+      // 同上：状态里没有待确认请求了就把弹窗收掉（可能是手机端答的）。
+      setExtensionDialog((current) => (current?.id === pendingDialog?.id ? current : pendingDialog ?? null));
       const busy = data.running && state
         && (state.isStreaming || state.isPromptRunning || state.isCompacting);
       if (busy) {
@@ -1331,6 +1334,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       case "extension_ui_request":
         handleExtensionUiRequest(event as ExtensionUiRequest);
         break;
+      case "extension_ui_resolved":
+        // 这个请求已经被另一边（手机端 / 另一个窗口）答了：把自己那个已经作废的
+        // 弹窗收掉，否则两边会各留一个，用户还会对着旧问题再答一次。
+        setExtensionDialog((current) => (current?.id === event.id ? null : current));
+        break;
     }
   }, [addNotice, cancelEventStreamGrace, handleExtensionUiRequest, loadSession, notifyAgentEnd, notifyPromptStage, scheduleEventStreamClose, scrollToBottom, settleUiStage]);
   handleAgentEventRef.current = handleAgentEvent;
@@ -1440,7 +1448,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         void waitForPromptSettlement(sentSessionId, promptRunId);
       }
     } catch (e) {
-      console.error("Failed to send message:", e);
+      // Unmounting (or switching sessions) while the readiness handshake is in
+      // flight closes the stream on purpose. That abort is not a connection
+      // failure: skip the console error and the notice, but still put the
+      // submission back in the composer.
+      const streamAborted = isAgentEventStreamAbort(e);
+      if (!streamAborted) console.error("Failed to send message:", e);
       const definitivelyRejected = !promptRequestStarted || isPromptRejectedError(e);
       // A transport/proxy failure after dispatch is ambiguous: the server may
       // have accepted the prompt before the response was lost. Keep SSE alive
@@ -1456,7 +1469,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           ? prev
           : [...prev.slice(0, optimisticIndex), ...prev.slice(optimisticIndex + 1)];
       });
-      addNotice({ type: "error", message: e instanceof Error ? e.message : String(e) });
+      if (!streamAborted) {
+        addNotice({
+          type: "error",
+          message: e instanceof Error ? e.message : String(e),
+        });
+      }
       restoreSubmission(message, images, composerDraftKey);
       optimisticUserMessageKeyRef.current = null;
       // Rejection only describes this submission. Another tab or an event we

@@ -10,6 +10,7 @@ import {type AtQueryMatch, buildAtInsertText, buildEntriesFromFiles, extractAtQu
 import {FolderIcon, getFileIcon} from "./FileIcons";
 import {useIsMobile} from "@/hooks/useIsMobile";
 import {useI18n} from "@/hooks/useI18n";
+import {MobilePairDialog} from "./MobilePairDialog";
 import type {ToolPreset} from "@/lib/tool-presets";
 
 export interface AttachedImage {
@@ -64,6 +65,8 @@ interface Props {
   draftKey?: string;
   /** Session working directory — enables the @ file autocomplete menu */
   cwd?: string | null;
+  /** 当前会话 id，用于生成手机遥控二维码。 */
+  sessionId?: string;
 }
 
 export interface ChatInputHandle {
@@ -494,6 +497,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   onPromptWithStreamingBehavior,
   draftKey,
   cwd,
+  sessionId,
 }: Props, ref) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
@@ -505,6 +509,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     draftKey ? getDraft(draftKey)?.selectedMentions ?? [] : []
   ));
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
+  const [pairDialogOpen, setPairDialogOpen] = useState(false);
   const [modelDropdownRect, setModelDropdownRect] = useState<{ top: number; left: number; width: number } | null>(null);
   const [modelFilter, setModelFilter] = useState("");
   const [toolDropdownOpen, setToolDropdownOpen] = useState(false);
@@ -1752,7 +1757,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         flexShrink: 0,
         background: "transparent",
         padding: "0 16px 8px",
-        paddingRight: isMobile ? 16 : 52, // desktop: 16px base + 36px for ChatMinimap alignment
+        paddingRight: 16,
       }}
     >
       {/* Hidden file input */}
@@ -2666,6 +2671,42 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 <polyline points="21 15 16 10 5 21" />
               </svg>
             </button>
+            {/* 拿到会话 id 才给入口：新建会话还没有 sessionId，这时二维码只能指向
+                「这个项目里最近的活动会话」，扫出来是别的会话，反而误导。 */}
+            {!isMobile && sessionId && (
+              <button
+                onClick={() => setPairDialogOpen(true)}
+                title={t("mobile.pairTitle")}
+                aria-label={t("mobile.pairTitle")}
+                style={{
+                  flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                  width: 32, height: 32, padding: 0,
+                  background: "none", border: "none",
+                  borderRadius: 9,
+                  color: pairDialogOpen ? "var(--accent)" : "var(--text-muted)",
+                  cursor: "pointer",
+                  transition: "background 0.12s, color 0.12s",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = "var(--bg-hover)";
+                  e.currentTarget.style.color = "var(--text)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = "none";
+                  e.currentTarget.style.color = pairDialogOpen ? "var(--accent)" : "var(--text-muted)";
+                }}
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="3" width="7" height="7" rx="1" />
+                  <rect x="14" y="3" width="7" height="7" rx="1" />
+                  <rect x="3" y="14" width="7" height="7" rx="1" />
+                  <line x1="14" y1="14" x2="14" y2="14.01" />
+                  <line x1="21" y1="14" x2="21" y2="21" />
+                  <line x1="14" y1="21" x2="21" y2="21" />
+                  <line x1="17.5" y1="14" x2="17.5" y2="17.5" />
+                </svg>
+              </button>
+            )}
             <div ref={skillMenuRef} style={{ position: "relative", flexShrink: 0 }}>
               <button
                 type="button"
@@ -3357,6 +3398,14 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
 
         </div>
       </div>
+
+      {pairDialogOpen && sessionId && (
+        <MobilePairDialog
+          sessionId={sessionId}
+          {...(cwd ? { cwd } : {})}
+          onClose={() => setPairDialogOpen(false)}
+        />
+      )}
     </div>
   );
 });

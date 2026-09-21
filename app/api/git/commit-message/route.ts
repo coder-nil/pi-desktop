@@ -1,7 +1,8 @@
 import fs from "fs";
 import { NextRequest, NextResponse } from "next/server";
 import { createAgentSessionServices, getAgentDir, type AgentSession } from "@earendil-works/pi-coding-agent";
-import { generateCommitMessage, generateCommitMessageWithModel, getGitCommitSkillInstructions, type CommitMessageLanguage } from "@/lib/commit-message";
+import { generateCommitMessage, generateCommitMessageWithModel, getGitCommitSkillInstructions, type CommitMessageLanguage, type CommitMessageUpdate } from "@/lib/commit-message";
+import { streamCommitMessage } from "@/lib/commit-message-stream";
 import { getAllowedFileRoots, isExistingFilePathAllowed, isFilePathAllowed, isWindowsAbsolutePath } from "@/lib/file-access";
 import { getStagedDiff } from "@/lib/git-manager";
 import { resolveVisibleModels, selectInitialModelScope } from "@/lib/model-scope";
@@ -24,7 +25,7 @@ export async function POST(request: NextRequest) {
     const cwd = await validateCwd(body.cwd);
     const stagedDiff = await getStagedDiff(cwd);
     const language: CommitMessageLanguage = body.locale === "zh-CN" ? "zh-CN" : "en";
-    let message: string;
+    let generate: (onUpdate: CommitMessageUpdate) => Promise<string>;
 
     if (typeof body.sessionId === "string" && body.sessionId) {
       const filePath = await resolveSessionPath(body.sessionId);
@@ -34,7 +35,7 @@ export async function POST(request: NextRequest) {
         ? { session: existing }
         : await startRpcSession(body.sessionId, filePath, undefined);
       await session.waitUntilReady?.();
-      message = await generateCommitMessage(session.inner as unknown as AgentSession, stagedDiff, language);
+      generate = (onUpdate) => generateCommitMessage(session.inner as unknown as AgentSession, stagedDiff, language, onUpdate);
     } else {
       const agentDir = getAgentDir();
       const trustReloadOptions = projectTrustReloadOptions(cwd, agentDir);
@@ -60,11 +61,12 @@ export async function POST(request: NextRequest) {
           ? { defaultModel: { provider: defaultProvider, modelId: defaultModelId } }
           : {}),
       });
-      if (!initial.model) throw new Error("No available model configured for commit-message generation");
+      const model = initial.model;
+      if (!model) throw new Error("No available model configured for commit-message generation");
       const gitCommitSkill = getGitCommitSkillInstructions(services.resourceLoader);
-      message = await generateCommitMessageWithModel(services.modelRuntime, initial.model, stagedDiff, gitCommitSkill, language);
+      generate = (onUpdate) => generateCommitMessageWithModel(services.modelRuntime, model, stagedDiff, gitCommitSkill, language, onUpdate);
     }
-    return NextResponse.json({ message });
+    return streamCommitMessage(generate);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return NextResponse.json({ error: message }, { status: message === "Access denied" ? 403 : 400 });

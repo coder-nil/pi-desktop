@@ -5,12 +5,18 @@ use std::{
     net::{Ipv4Addr, Shutdown, SocketAddr, SocketAddrV4, TcpListener, TcpStream},
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
-    sync::{atomic::{AtomicU64, Ordering}, mpsc, Mutex},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        mpsc, Mutex,
+    },
     thread,
     time::{Duration, Instant},
 };
 
 use portable_pty::{native_pty_system, Child as PtyChild, CommandBuilder, MasterPty, PtySize};
+
+mod lan_proxy;
+mod tunnel;
 use serde::Serialize;
 use tauri::webview::PageLoadEvent;
 use tauri::window::Color;
@@ -32,6 +38,12 @@ struct DesktopServer {
 
 struct ServerState(Mutex<Option<DesktopServer>>);
 
+/// 局域网反向代理（手机访问）。配置未启用时它不监听任何端口。
+struct LanProxyState(Mutex<Option<lan_proxy::LanProxyHandle>>);
+
+/// 公网入口隧道（Cloudflare Tunnel）。配置未启用时它不会拉起 cloudflared。
+struct TunnelState(Mutex<Option<tunnel::TunnelHandle>>);
+
 struct TerminalSession {
     master: Box<dyn MasterPty + Send>,
     writer: Box<dyn Write + Send>,
@@ -45,15 +57,25 @@ impl Drop for TerminalSession {
             // Interactive jobs have their own foreground process group.
             // End that group as well as the shell's group when the panel closes.
             if let Some(group) = self.master.process_group_leader() {
-                if group > 0 { unsafe { libc::kill(-group, libc::SIGKILL); } }
+                if group > 0 {
+                    unsafe {
+                        libc::kill(-group, libc::SIGKILL);
+                    }
+                }
             }
             if let Some(pid) = self.child.process_id() {
-                if pid > 0 { unsafe { libc::kill(-(pid as i32), libc::SIGKILL); } }
+                if pid > 0 {
+                    unsafe {
+                        libc::kill(-(pid as i32), libc::SIGKILL);
+                    }
+                }
             }
         }
         #[cfg(windows)]
         if let Some(pid) = self.child.process_id() {
-            let _ = Command::new("taskkill").args(["/PID", &pid.to_string(), "/T", "/F"]).status();
+            let _ = Command::new("taskkill")
+                .args(["/PID", &pid.to_string(), "/T", "/F"])
+                .status();
         }
         let _ = self.child.kill();
         let _ = self.child.wait();
@@ -78,15 +100,40 @@ struct TerminalExit {
     terminal_id: String,
 }
 
-fn create_terminal(command: CommandBuilder, cols: u16, rows: u16) -> Result<(TerminalSession, Box<dyn Read + Send>), String> {
+fn create_terminal(
+    command: CommandBuilder,
+    cols: u16,
+    rows: u16,
+) -> Result<(TerminalSession, Box<dyn Read + Send>), String> {
     let pair = native_pty_system()
-        .openpty(PtySize { rows: rows.clamp(2, 500), cols: cols.clamp(2, 500), pixel_width: 0, pixel_height: 0 })
+        .openpty(PtySize {
+            rows: rows.clamp(2, 500),
+            cols: cols.clamp(2, 500),
+            pixel_width: 0,
+            pixel_height: 0,
+        })
         .map_err(|error| format!("Could not create terminal: {error}"))?;
-    let reader = pair.master.try_clone_reader().map_err(|error| error.to_string())?;
-    let writer = pair.master.take_writer().map_err(|error| error.to_string())?;
-    let child = pair.slave.spawn_command(command).map_err(|error| format!("Could not start shell: {error}"))?;
+    let reader = pair
+        .master
+        .try_clone_reader()
+        .map_err(|error| error.to_string())?;
+    let writer = pair
+        .master
+        .take_writer()
+        .map_err(|error| error.to_string())?;
+    let child = pair
+        .slave
+        .spawn_command(command)
+        .map_err(|error| format!("Could not start shell: {error}"))?;
     drop(pair.slave);
-    Ok((TerminalSession { master: pair.master, writer, child }, reader))
+    Ok((
+        TerminalSession {
+            master: pair.master,
+            writer,
+            child,
+        },
+        reader,
+    ))
 }
 
 #[tauri::command]
@@ -111,8 +158,13 @@ fn terminal_start(
     command.env("TERM", "xterm-256color");
     command.env("COLORTERM", "truecolor");
 
-    let mut sessions = state.sessions.lock().map_err(|_| "Terminal registry is unavailable.".to_string())?;
-    if sessions.len() >= 16 { return Err("Close an existing terminal before opening another.".to_string()); }
+    let mut sessions = state
+        .sessions
+        .lock()
+        .map_err(|_| "Terminal registry is unavailable.".to_string())?;
+    if sessions.len() >= 16 {
+        return Err("Close an existing terminal before opening another.".to_string());
+    }
     let (session, mut reader) = create_terminal(command, cols, rows)?;
     let terminal_id = format!("terminal-{}", state.next_id.fetch_add(1, Ordering::Relaxed));
     sessions.insert(terminal_id.clone(), session);
@@ -125,42 +177,97 @@ fn terminal_start(
             match reader.read(&mut buffer) {
                 Ok(0) | Err(_) => break,
                 Ok(length) => {
-                    let _ = app.emit_to("main", "terminal-output", TerminalOutput {
-                        terminal_id: output_id.clone(),
-                        data: buffer[..length].to_vec(),
-                    });
+                    let _ = app.emit_to(
+                        "main",
+                        "terminal-output",
+                        TerminalOutput {
+                            terminal_id: output_id.clone(),
+                            data: buffer[..length].to_vec(),
+                        },
+                    );
                 }
             }
         }
         let state = app.state::<TerminalState>();
-        let session = state.sessions.lock().ok().and_then(|mut sessions| sessions.remove(&output_id));
+        let session = state
+            .sessions
+            .lock()
+            .ok()
+            .and_then(|mut sessions| sessions.remove(&output_id));
         drop(session);
-        let _ = app.emit_to("main", "terminal-exit", TerminalExit { terminal_id: output_id });
+        let _ = app.emit_to(
+            "main",
+            "terminal-exit",
+            TerminalExit {
+                terminal_id: output_id,
+            },
+        );
     });
 
     Ok(terminal_id)
 }
 
 #[tauri::command]
-fn terminal_write(state: tauri::State<'_, TerminalState>, terminal_id: String, data: Vec<u8>) -> Result<(), String> {
-    if data.len() > 1024 * 1024 { return Err("Terminal input is too large.".to_string()); }
-    let mut sessions = state.sessions.lock().map_err(|_| "Terminal registry is unavailable.".to_string())?;
-    let session = sessions.get_mut(&terminal_id).ok_or_else(|| "Terminal is not running.".to_string())?;
-    session.writer.write_all(&data).map_err(|error| format!("Could not write to terminal: {error}"))?;
-    session.writer.flush().map_err(|error| format!("Could not flush terminal input: {error}"))
+fn terminal_write(
+    state: tauri::State<'_, TerminalState>,
+    terminal_id: String,
+    data: Vec<u8>,
+) -> Result<(), String> {
+    if data.len() > 1024 * 1024 {
+        return Err("Terminal input is too large.".to_string());
+    }
+    let mut sessions = state
+        .sessions
+        .lock()
+        .map_err(|_| "Terminal registry is unavailable.".to_string())?;
+    let session = sessions
+        .get_mut(&terminal_id)
+        .ok_or_else(|| "Terminal is not running.".to_string())?;
+    session
+        .writer
+        .write_all(&data)
+        .map_err(|error| format!("Could not write to terminal: {error}"))?;
+    session
+        .writer
+        .flush()
+        .map_err(|error| format!("Could not flush terminal input: {error}"))
 }
 
 #[tauri::command]
-fn terminal_resize(state: tauri::State<'_, TerminalState>, terminal_id: String, cols: u16, rows: u16) -> Result<(), String> {
-    let sessions = state.sessions.lock().map_err(|_| "Terminal registry is unavailable.".to_string())?;
-    let session = sessions.get(&terminal_id).ok_or_else(|| "Terminal is not running.".to_string())?;
-    session.master.resize(PtySize { rows: rows.clamp(2, 500), cols: cols.clamp(2, 500), pixel_width: 0, pixel_height: 0 })
+fn terminal_resize(
+    state: tauri::State<'_, TerminalState>,
+    terminal_id: String,
+    cols: u16,
+    rows: u16,
+) -> Result<(), String> {
+    let sessions = state
+        .sessions
+        .lock()
+        .map_err(|_| "Terminal registry is unavailable.".to_string())?;
+    let session = sessions
+        .get(&terminal_id)
+        .ok_or_else(|| "Terminal is not running.".to_string())?;
+    session
+        .master
+        .resize(PtySize {
+            rows: rows.clamp(2, 500),
+            cols: cols.clamp(2, 500),
+            pixel_width: 0,
+            pixel_height: 0,
+        })
         .map_err(|error| format!("Could not resize terminal: {error}"))
 }
 
 #[tauri::command]
-fn terminal_close(state: tauri::State<'_, TerminalState>, terminal_id: String) -> Result<(), String> {
-    let session = state.sessions.lock().map_err(|_| "Terminal registry is unavailable.".to_string())?.remove(&terminal_id);
+fn terminal_close(
+    state: tauri::State<'_, TerminalState>,
+    terminal_id: String,
+) -> Result<(), String> {
+    let session = state
+        .sessions
+        .lock()
+        .map_err(|_| "Terminal registry is unavailable.".to_string())?
+        .remove(&terminal_id);
     drop(session);
     Ok(())
 }
@@ -205,6 +312,120 @@ fn reserve_port() -> Result<u16, String> {
 
 fn loopback_address(port: u16) -> SocketAddr {
     SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port))
+}
+
+/// 用户主目录。`agent_dir()` 与 cloudflared 凭据目录都从它派生。
+fn home_dir() -> PathBuf {
+    #[cfg(windows)]
+    let home = std::env::var_os("USERPROFILE");
+    #[cfg(not(windows))]
+    let home = std::env::var_os("HOME");
+    home.map(PathBuf::from).unwrap_or_default()
+}
+
+/// 与 Node 侧 `getAgentDir()` 保持一致：`PI_AGENT_DIR` 优先，否则 `~/.pi/agent`。
+fn agent_dir() -> PathBuf {
+    if let Some(configured) = std::env::var_os("PI_AGENT_DIR") {
+        if !configured.is_empty() {
+            return PathBuf::from(configured);
+        }
+    }
+    home_dir().join(".pi").join("agent")
+}
+
+/// 解析 cloudflared 可执行文件的位置。
+///
+/// 顺序：显式环境变量（开发/排障）→ 随 app 打包的 sidecar → PATH → Homebrew 常见位置。
+/// 找不到时返回 None，让隧道管理器把状态报成 `missing-binary`，界面就能直接说明原因。
+fn resolve_cloudflared_binary(app: &tauri::AppHandle) -> Option<PathBuf> {
+    if let Some(configured) = std::env::var_os("PI_CLOUDFLARED_PATH") {
+        let candidate = PathBuf::from(configured);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+
+    if let Ok(resources) = app.path().resource_dir() {
+        for candidate in [
+            resources.join("binaries").join("cloudflared"),
+            resources.join("cloudflared"),
+        ] {
+            if candidate.is_file() {
+                make_executable(&candidate);
+                return Some(candidate);
+            }
+        }
+    }
+
+    if let Some(found) = cloudflared_on_path() {
+        return Some(found);
+    }
+
+    ["/opt/homebrew/bin/cloudflared", "/usr/local/bin/cloudflared"]
+        .iter()
+        .map(PathBuf::from)
+        .find(|candidate| candidate.is_file())
+}
+
+fn cloudflared_on_path() -> Option<PathBuf> {
+    let executable = if cfg!(windows) { "cloudflared.exe" } else { "cloudflared" };
+    std::env::var_os("PATH")
+        .map(|value| {
+            std::env::split_paths(&value)
+                .map(|directory| directory.join(executable))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default()
+        .into_iter()
+        .find(|candidate| candidate.is_file())
+}
+
+/// 打包进 app 的二进制可能丢掉执行位，启动前补回来。
+fn make_executable(path: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(metadata) = fs::metadata(path) {
+            let mut permissions = metadata.permissions();
+            if permissions.mode() & 0o111 == 0 {
+                permissions.set_mode(0o755);
+                let _ = fs::set_permissions(path, permissions);
+            }
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = path;
+}
+
+/// 启动手机访问的两个后台件：局域网反向代理 + 公网入口隧道。
+/// 两者都只看配置文件：未启用时它们什么都不做。
+fn start_mobile_access(app: &tauri::AppHandle, server_port: u16) {
+    let directory = agent_dir();
+    let proxy = lan_proxy::start(
+        directory.join("desktop-access.json"),
+        directory.join("desktop-access.runtime.json"),
+        server_port,
+    );
+    if let Ok(mut guard) = app.state::<LanProxyState>().0.lock() {
+        *guard = Some(proxy);
+    }
+
+    // 隧道指向哪个端口不在这里决定：入口代理绑的是随机端口，隧道管理器会自己
+    // 盯 desktop-access.runtime.json 里的 lanPort，变了就带隧道一起重起。
+    let tunnel_dir = directory.join("tunnel");
+    let binary = resolve_cloudflared_binary(app)
+        .unwrap_or_else(|| tunnel_dir.join("cloudflared-not-found"));
+    let handle = tunnel::start(
+        directory.join("desktop-access.json"),
+        directory.join("desktop-access.tunnel.json"),
+        directory.join("desktop-access.runtime.json"),
+        binary,
+        tunnel_dir,
+        home_dir().join(".cloudflared"),
+    );
+    if let Ok(mut guard) = app.state::<TunnelState>().0.lock() {
+        *guard = Some(handle);
+    }
 }
 
 fn log_path(app: &tauri::AppHandle) -> PathBuf {
@@ -300,6 +521,9 @@ fn spawn_server(
         .env("PORT", port.to_string())
         .env("PI_WEB_HOSTNAME", HOST)
         .env("PI_WEB_DESKTOP_API_ORIGIN", DESKTOP_API_ORIGIN)
+        // 让 Next 也能辨别「运行态文件里的端口是不是本实例写的」：
+        // 这个文件跨重启复用，旧端口可能已被别的进程占用。
+        .env("PI_WEB_SHELL_PID", std::process::id().to_string())
         .env("PI_WEB_NO_OPEN", "1")
         .stdin(Stdio::null())
         .stdout(Stdio::from(stdout))
@@ -371,7 +595,11 @@ fn show_startup_error(app: &tauri::AppHandle, message: &str, log_path: &Path) {
 
 #[cfg(target_os = "macos")]
 extern "C" {
-    fn pi_show_startup_overlay(window: *mut std::ffi::c_void, bytes: *const u8, length: usize) -> bool;
+    fn pi_show_startup_overlay(
+        window: *mut std::ffi::c_void,
+        bytes: *const u8,
+        length: usize,
+    ) -> bool;
     fn pi_raise_startup_overlay(window: *mut std::ffi::c_void);
     fn pi_hide_startup_overlay(window: *mut std::ffi::c_void);
 }
@@ -401,10 +629,14 @@ fn create_main_window(app: &tauri::AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 fn hide_startup_overlay(app: tauri::AppHandle) -> Result<(), String> {
-    let window = app.get_window("main").ok_or_else(|| "The application window is unavailable.".to_string())?;
+    let window = app
+        .get_window("main")
+        .ok_or_else(|| "The application window is unavailable.".to_string())?;
     #[cfg(target_os = "macos")]
     if let Ok(native) = window.ns_window() {
-        unsafe { pi_hide_startup_overlay(native); }
+        unsafe {
+            pi_hide_startup_overlay(native);
+        }
     }
     Ok(())
 }
@@ -449,7 +681,8 @@ fn create_main_webview(app: &tauri::AppHandle, port: u16) -> Result<(), String> 
         })();
         let _ = sender.send(result);
     }).map_err(|error| error.to_string())?;
-    receiver.recv_timeout(Duration::from_secs(30))
+    receiver
+        .recv_timeout(Duration::from_secs(30))
         .map_err(|_| "Timed out while creating the application WebView.".to_string())?
 }
 
@@ -481,6 +714,7 @@ fn start_application(app: tauri::AppHandle) {
                 .map_err(|error| format!("Could not inspect the Pi Desktop server: {error}"))
         })?;
         create_main_webview(&app, port)?;
+        start_mobile_access(&app, port);
         Ok(())
     })();
 
@@ -494,6 +728,17 @@ fn start_application(app: tauri::AppHandle) {
 }
 
 fn stop_server(app: &tauri::AppHandle) {
+    // 先断公网入口，再回收本地代理与 server：退出应用就等于关掉对外暴露。
+    if let Ok(mut guard) = app.state::<TunnelState>().0.lock() {
+        if let Some(mut handle) = guard.take() {
+            handle.stop();
+        }
+    }
+    if let Ok(mut guard) = app.state::<LanProxyState>().0.lock() {
+        if let Some(mut proxy) = guard.take() {
+            proxy.stop();
+        }
+    }
     let state = app.state::<ServerState>();
     let server = state.0.lock().ok().and_then(|mut guard| guard.take());
     if let Some(mut server) = server {
@@ -502,13 +747,13 @@ fn stop_server(app: &tauri::AppHandle) {
 }
 
 #[cfg(unix)]
-fn configure_process_group(command: &mut Command) {
+pub(crate) fn configure_process_group(command: &mut Command) {
     use std::os::unix::process::CommandExt;
     command.process_group(0);
 }
 
 #[cfg(windows)]
-fn configure_process_group(command: &mut Command) {
+pub(crate) fn configure_process_group(command: &mut Command) {
     use std::os::windows::process::CommandExt;
     command.creation_flags(0x0000_0200);
 }
@@ -527,7 +772,7 @@ fn request_graceful_shutdown(child: &Child) {
         .status();
 }
 
-fn terminate_process(child: &mut Child, timeout: Duration) {
+pub(crate) fn terminate_process(child: &mut Child, timeout: Duration) {
     request_graceful_shutdown(child);
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
@@ -568,6 +813,8 @@ pub fn run() {
             terminal_close,
         ])
         .manage(ServerState(Mutex::new(None)))
+        .manage(LanProxyState(Mutex::new(None)))
+        .manage(TunnelState(Mutex::new(None)))
         .manage(TerminalState {
             sessions: Mutex::new(HashMap::new()),
             next_id: AtomicU64::new(1),
@@ -606,10 +853,21 @@ mod tests {
     fn terminal_shell_reads_input_reports_cwd_and_tracks_resize() {
         let directory = std::env::temp_dir().canonicalize().unwrap();
         let mut command = CommandBuilder::new("/bin/sh");
-        command.args(["-c", "read value; printf 'received:%s\\n' \"$value\"; pwd; stty size"]);
+        command.args([
+            "-c",
+            "read value; printf 'received:%s\\n' \"$value\"; pwd; stty size",
+        ]);
         command.cwd(&directory);
         let (mut session, mut reader) = create_terminal(command, 80, 24).unwrap();
-        session.master.resize(PtySize { cols: 100, rows: 30, pixel_width: 0, pixel_height: 0 }).unwrap();
+        session
+            .master
+            .resize(PtySize {
+                cols: 100,
+                rows: 30,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .unwrap();
         assert_eq!(session.master.get_size().unwrap().cols, 100);
         let (sender, receiver) = mpsc::channel();
         thread::spawn(move || {
@@ -639,8 +897,10 @@ mod tests {
 
     #[test]
     fn release_page_opener_accepts_only_the_official_repository() {
-        assert!("https://github.com/coder-nil/pi-desktop/releases/tag/v1.0.0"
-            .starts_with(RELEASE_URL_PREFIX));
+        assert!(
+            "https://github.com/coder-nil/pi-desktop/releases/tag/v1.0.0"
+                .starts_with(RELEASE_URL_PREFIX)
+        );
         assert!(!"https://github.com/example/pi-desktop/releases/tag/v1.0.0"
             .starts_with(RELEASE_URL_PREFIX));
     }

@@ -1,5 +1,6 @@
 "use client";
 import { registerAbortHandler } from "@/hooks/useKeyboardShortcuts";
+import { createPortal } from "react-dom";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AgentMessage, AssistantContentBlock, AssistantMessage, BashExecutionMessage, BlockingExtensionUiRequest, CustomMessage, ExtensionUiRequest, SessionInfo, SessionTreeNode, ToolResultMessage, UserMessage } from "@/lib/types";
 import { normalizeCustomPanelLines, parseAnsiLine } from "@/lib/ansi";
@@ -42,6 +43,12 @@ interface Props {
   onSessionStatsPanelOpen?: () => void;
   onContextUsageChange?: (usage: { percent: number | null; contextWindow: number; tokens: number | null } | null) => void;
   onScrollContainerChange?: (container: HTMLDivElement | null) => void;
+  /**
+   * 右栏槽位。minimap 现在是 AppShell 里与 sidebar 平级的一条常驻列，
+   * 节点层通过 portal 渲染进去，但仍由 ChatWindow 拥有数据与滚动容器引用。
+   */
+  minimapHost?: HTMLDivElement | null;
+  onMinimapStateChange?: (state: { visible: boolean; previewOpen: boolean }) => void;
   onOpenFile?: (filePath: string) => void;
   onOpenConsole?: () => void;
   consoleActive?: boolean;
@@ -69,7 +76,6 @@ function phaseLabel(phase: AgentPhase, t: (key: string, params?: Record<string, 
   return null;
 }
 
-const CHAT_MINIMAP_WIDTH = 36;
 const CHAT_COLUMN_PADDING = 16;
 
 function hasFinalAssistantAnswer(message: AgentMessage): boolean {
@@ -186,7 +192,7 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, defaultExpanded = fa
   );
 }
 
-export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemPromptLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onScrollContainerChange, onOpenFile, onOpenConsole, consoleActive, soundEnabled = true, playDoneSound = () => {}, unlockAudio }: Props) {
+export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemPromptLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onScrollContainerChange, minimapHost = null, onMinimapStateChange, onOpenFile, onOpenConsole, consoleActive, soundEnabled = true, playDoneSound = () => {}, unlockAudio }: Props) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
 
@@ -359,14 +365,14 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     return history.reverse();
   }, [messages]);
   const messageRefs = useMessageRefs(visibleMessages.length);
-  const [minimapState, setMinimapState] = useState({ visible: false, previewOpen: false });
+  // 可见性/预览状态的持有者现在是 AppShell（它渲染右栏），这里只负责去重上报。
+  const minimapStateRef = useRef({ visible: false, previewOpen: false });
   const handleMinimapStateChange = useCallback((next: { visible: boolean; previewOpen: boolean }) => {
-    setMinimapState((current) => (
-      current.visible === next.visible && current.previewOpen === next.previewOpen
-        ? current
-        : next
-    ));
-  }, []);
+    const current = minimapStateRef.current;
+    if (current.visible === next.visible && current.previewOpen === next.previewOpen) return;
+    minimapStateRef.current = next;
+    onMinimapStateChange?.(next);
+  }, [onMinimapStateChange]);
   const revealHistoryForMinimap = useCallback(() => {
     setVisibleCount((current) => Math.max(current, messages.length * 2));
   }, [messages.length]);
@@ -521,6 +527,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
       consoleActive={consoleActive}
       draftKey={session?.id ?? newSessionDraftKey ?? undefined}
       cwd={session?.cwd ?? newSessionCwd}
+      sessionId={session?.id ?? sessionIdRef.current ?? undefined}
     />
   );
 
@@ -600,7 +607,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
           position: "absolute",
           top: 12,
           left: 0,
-          right: isMobile ? 0 : CHAT_MINIMAP_WIDTH,
+          right: 0,
           zIndex: 40,
           display: "flex",
           justifyContent: "center",
@@ -621,8 +628,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
       ) : (
       <>
       <div
-        className="flex min-w-0 flex-1 overflow-hidden"
-        style={!isMobile ? { paddingRight: CHAT_MINIMAP_WIDTH } : undefined}
+        className="relative flex min-w-0 flex-1 overflow-hidden"
       >
         <div ref={scrollContainerRef} className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto pt-4 [scrollbar-width:none]">
           <div style={{ minWidth: 0, padding: `0 ${CHAT_COLUMN_PADDING}px` }}>
@@ -842,7 +848,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
             </div>
           </div>
         </div>
-        {isMobile ? null : (
+        {isMobile || !minimapHost ? null : createPortal(
           <ChatMinimap
             messages={messages}
             streamingMessage={streamState.streamingMessage}
@@ -850,34 +856,16 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
             messageRefs={messageRefs}
             onRevealHistory={revealHistoryForMinimap}
             onStateChange={handleMinimapStateChange}
-          />
+          />,
+          minimapHost,
         )}
       </div>
 
       <div className="relative">
         {chatInputElement}
-        <div
-          data-minimap-status-clearance=""
-          style={!isMobile && minimapState.visible ? { marginRight: CHAT_MINIMAP_WIDTH } : undefined}
-        >
+        <div data-minimap-status-clearance="">
           <ExtensionStatusBar statuses={extensionStatuses} widgets={extensionWidgets} />
         </div>
-        {!isMobile && minimapState.visible && (
-          <div
-            aria-hidden="true"
-            data-minimap-input-rail=""
-            style={{
-              position: "absolute",
-              top: 0,
-              right: 0,
-              bottom: 0,
-              width: CHAT_MINIMAP_WIDTH,
-              background: "var(--bg-panel)",
-              borderLeft: minimapState.previewOpen ? "none" : "1px solid var(--border)",
-              pointerEvents: "none",
-            }}
-          />
-        )}
       </div>
       </>
       )}
@@ -964,11 +952,14 @@ function ExtensionDialog({
   onRespond: (request: ExtensionDialogRequest, response: { value: string } | { confirmed: boolean } | { cancelled: true }) => void;
 }) {
   const { t } = useI18n();
-  const [value, setValue] = useState(request.method === "editor" ? request.prefill ?? "" : "");
+  const initialValue = request.method === "editor" ? request.prefill ?? "" : "";
+  const [value, setValue] = useState(initialValue);
 
+  // 按 id 重置，而不是按请求对象：状态对账每 15s 会带来一个新对象，
+  // 按对象重置会把用户正在输入的内容抹掉。
   useEffect(() => {
-    setValue(request.method === "editor" ? request.prefill ?? "" : "");
-  }, [request]);
+    setValue(initialValue);
+  }, [request.id, initialValue]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {

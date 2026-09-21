@@ -9,6 +9,20 @@ export const RIGHT_PANEL_FALLBACK_WIDTH = 560;
 export const RIGHT_PANEL_MIN_WIDTH = 300;
 export const RIGHT_PANEL_MAX_WIDTH = 1200;
 
+/**
+ * Chat minimap rail width. It is a real layout column at the same level as the
+ * sidebar, so the chat column gives up this much width instead of reserving it
+ * with inner padding.
+ */
+export const CHAT_MINIMAP_WIDTH = 36;
+
+/**
+ * Height of the chat top bar / of the minimap rail's file-panel toggle row.
+ * Shared so the minimap node layer can inset its first node below the toggle
+ * instead of drawing a square on top of the icon.
+ */
+export const CHAT_TOP_BAR_HEIGHT = 36;
+
 const COMPACT_CHAT_MIN_WIDTH = 320;
 const DESKTOP_CHAT_MIN_WIDTH = 420;
 
