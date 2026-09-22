@@ -245,9 +245,11 @@ export async function getGitSummary(cwd: string): Promise<GitSummary> {
   let behind = 0;
   if (upstream) {
     try {
-      const [behindText, aheadText] = (await git(cwd, ["rev-list", "--left-right", "--count", `HEAD...${upstream}`])).split(/\s+/);
-      behind = Number(behindText) || 0;
+      // `HEAD...upstream` prints "left right": commits only in HEAD (ahead)
+      // followed by commits only in upstream (behind).
+      const [aheadText, behindText] = (await git(cwd, ["rev-list", "--left-right", "--count", `HEAD...${upstream}`])).split(/\s+/);
       ahead = Number(aheadText) || 0;
+      behind = Number(behindText) || 0;
     } catch { /* upstream may be unavailable locally */ }
   }
   const branches = [...new Set(branchesResult.split("\n").map((branch) => branch.trim()).filter(Boolean))]

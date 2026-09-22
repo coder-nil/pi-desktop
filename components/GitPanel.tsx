@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { ArrowDown, ArrowUp } from "lucide-react";
 import { useI18n } from "@/hooks/useI18n";
 import { revealNext } from "@/lib/typewriter";
 import { BranchPicker } from "./BranchPicker";
@@ -253,7 +254,7 @@ export function GitPanel({ cwd, sessionId, onClose, onChanged, onOpenFile }: { c
           {summary?.isGitRepository && <>
             <div style={summaryStyle}>
               <span style={{ color: "var(--text-muted)", fontSize: 11 }}>{t("git.branch")}</span><strong style={{ fontFamily: "var(--font-mono)", fontSize: 12 }}>{summary.branch ?? t("git.detachedHead")}</strong>
-              <span style={{ color: "var(--text-muted)", fontSize: 11 }}>{t("git.sync")}</span><span style={{ fontFamily: "var(--font-mono)", fontSize: 12 }}>{summary.upstream ? `↑${summary.ahead} ↓${summary.behind}` : t("git.noUpstream")}</span>
+              <span style={{ color: "var(--text-muted)", fontSize: 11 }}>{t("git.sync")}</span><span>{summary.upstream ? <SyncIndicator ahead={summary.ahead} behind={summary.behind} /> : <span style={{ fontFamily: "var(--font-mono)", fontSize: 12 }}>{t("git.noUpstream")}</span>}</span>
             </div>
             {summary.operation && <div style={{ marginTop: 10, padding: "9px 10px", border: "1px solid rgba(214,168,75,.5)", background: "rgba(214,168,75,.10)", color: "var(--text)", fontSize: 12 }}>{t("git.operationInProgress", { operation: t(`git.operation.${summary.operation}`) })}{conflictCount ? ` ${t("git.operationConflicts", { count: conflictCount })}` : ""}<div style={{ display: "flex", gap: 6, marginTop: 8 }}><ActionButton label={t("git.continue")} busy={busy} action="continue" onClick={() => void run("continue")} /><ActionButton label={t("git.abort")} busy={busy} action="abort" danger onClick={() => void run("abort")} /></div></div>}
             <div style={sectionStyle}><SectionTitle title={t("git.changesSummary", { additions: summary.changes.additions, deletions: summary.changes.deletions })} action={<div style={{ display: "flex", gap: 6 }}>{unstaged.length > 0 && <ActionButton label={t("git.stageAll")} action="stage" busy={busy} onClick={() => void run("stage", { paths: unstaged.map((file) => file.filePath) })} />}{summary?.changes.files.length > 0 && <ActionButton label={t("git.discardAll")} action="discard_all" busy={busy} danger disabled={conflictCount > 0} title={t("git.discardAllTitle")} onClick={() => setConfirmingDiscardAll(true)} />}</div>} /><FileList files={unstaged} empty={t("git.noUnstagedChanges")} busy={busy} onOpenDiff={openDiff} onStage={(filePath) => void run("stage", { paths: [filePath] })} onDiscard={(file) => { if (file.status !== "untracked" && window.confirm(t("git.discardFileConfirm", { file: fileName(file.filePath) }))) void run("discard", { paths: [file.filePath] }); }} /></div>
@@ -284,6 +285,36 @@ export function GitPanel({ cwd, sessionId, onClose, onChanged, onOpenFile }: { c
 const iconButtonStyle: CSSProperties = { width: 28, height: 28, padding: 0, border: "none", borderRadius: 5, background: "transparent", color: "var(--text-muted)", cursor: "pointer", fontSize: 18, lineHeight: 1, transition: "background .12s, color .12s" };
 const sectionStyle: CSSProperties = { marginTop: 18, paddingTop: 14, borderTop: "1px solid var(--border)" };
 const summaryStyle: CSSProperties = { display: "grid", gridTemplateColumns: "58px minmax(0, 1fr)", rowGap: 7, alignItems: "center", padding: "10px", background: "var(--bg-panel)", border: "1px solid var(--border)", borderRadius: 6 };
+
+function SyncIndicator({ ahead, behind }: { ahead: number; behind: number }) {
+  const { t } = useI18n();
+  const chipStyle = (active: boolean): CSSProperties => ({
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 4,
+    minWidth: 36,
+    height: 24,
+    padding: "0 7px",
+    border: "1px solid var(--border)",
+    borderRadius: 999,
+    background: "var(--bg)",
+    color: active ? "currentColor" : "var(--text-dim)",
+    flexShrink: 0,
+  });
+  const countStyle: CSSProperties = { fontFamily: "var(--font-mono)", fontSize: 11, lineHeight: 1 };
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+      <span role="img" aria-label={t("git.ahead", { count: ahead })} title={t("git.ahead", { count: ahead })} style={ahead > 0 ? { ...chipStyle(true), color: "#60a5fa" } : chipStyle(false)}>
+        <ArrowUp size={13} strokeWidth={2.5} aria-hidden="true" />
+        <span style={countStyle}>{ahead}</span>
+      </span>
+      <span role="img" aria-label={t("git.behind", { count: behind })} title={t("git.behind", { count: behind })} style={behind > 0 ? { ...chipStyle(true), color: "#d6a84b" } : chipStyle(false)}>
+        <ArrowDown size={13} strokeWidth={2.5} aria-hidden="true" />
+        <span style={countStyle}>{behind}</span>
+      </span>
+    </span>
+  );
+}
 const credentialInputStyle: CSSProperties = { width: "100%", boxSizing: "border-box", minHeight: 30, padding: "5px 7px", border: "1px solid var(--border)", borderRadius: 5, background: "var(--bg)", color: "var(--text)", fontFamily: "inherit", fontSize: 12 };
 function SectionTitle({ title, action }: { title: string; action?: ReactNode }) { return <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8, color: "var(--text-muted)", fontSize: 11, fontWeight: 700, letterSpacing: ".04em", textTransform: "uppercase" }}><span>{title}</span>{action}</div>; }
 function ActionButton({ label, action, busy, disabled, danger, title, onClick }: { label: string; action: Action; busy: Action | null; disabled?: boolean; danger?: boolean; title?: string; onClick: () => void }) { const { t } = useI18n(); const pending = busy === action; const inactive = Boolean(busy) || disabled; const hoverBackground = danger ? "rgba(248,113,113,.12)" : "var(--bg-hover)"; return <button type="button" title={title} onClick={onClick} disabled={inactive} onMouseEnter={(event) => { if (!inactive) event.currentTarget.style.background = hoverBackground; }} onMouseLeave={(event) => { event.currentTarget.style.background = "transparent"; }} style={{ flexShrink: 0, height: 30, padding: "0 10px", border: "none", borderRadius: 5, background: "transparent", color: danger ? "#ef4444" : "var(--text)", cursor: inactive ? "not-allowed" : "pointer", opacity: inactive ? .58 : 1, fontSize: 11, fontWeight: 600, lineHeight: 1, whiteSpace: "nowrap", transition: "background .12s" }}>{pending ? t("git.working") : label}</button>; }

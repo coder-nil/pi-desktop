@@ -66,6 +66,15 @@ test("keeps change lists scrollable at a fixed height", () => {
   assert.match(source, /overflowY: "auto"/);
 });
 
+test("renders sync ahead and behind as icon status chips", () => {
+  assert.match(source, /import \{ ArrowDown, ArrowUp \} from "lucide-react"/);
+  assert.match(source, /<ArrowUp size=\{13\} strokeWidth=\{2\.5\}/);
+  assert.match(source, /<ArrowDown size=\{13\} strokeWidth=\{2\.5\}/);
+  assert.match(source, /t\("git\.ahead", \{ count: ahead \}\)/);
+  assert.match(source, /t\("git\.behind", \{ count: behind \}\)/);
+  assert.doesNotMatch(source, /`↑\$\{summary\.ahead\} ↓\$\{summary\.behind\}`/);
+});
+
 test("summarizes staged changes with or without a selected session", () => {
   assert.match(source, /sessionId: string \| null/);
   assert.match(source, /fetch\("\/api\/git\/commit-message"/);

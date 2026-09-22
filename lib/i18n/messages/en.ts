@@ -120,6 +120,8 @@ export const enLocale: LocalePlugin = {
     "git.notRepository": "This directory is not a Git repository.",
     "git.branch": "Branch",
     "git.sync": "Sync",
+    "git.ahead": "{count} commits to push",
+    "git.behind": "{count} commits to pull",
     "git.detachedHead": "Detached HEAD",
     "git.noUpstream": "No upstream",
     "git.operation.merge": "Merge",

@@ -120,6 +120,8 @@ export const zhCNLocale: LocalePlugin = {
     "git.notRepository": "此目录不是 Git 仓库。",
     "git.branch": "分支",
     "git.sync": "同步",
+    "git.ahead": "待推送 {count} 个提交",
+    "git.behind": "待拉取 {count} 个提交",
     "git.detachedHead": "分离 HEAD",
     "git.noUpstream": "无上游分支",
     "git.operation.merge": "合并",
