@@ -2,6 +2,25 @@
 
 所有重要变更都会记录在此文件中。
 
+## [0.85.1-alpha.14] - 2026-09-22
+
+### Added
+
+- 新增 `npm run version:next`：自动推导下一个版本号（`0.85.1-alpha.13` → `0.85.1-alpha.14`、`1.2.3` → `1.2.4`、`1.2.3-beta` → `1.2.3-beta.1`），同步全部派生版本字段后自动复跑一次校验，输出 `Verified application version <version>`。
+- 侧边栏标记等待用户回答的项目：阻塞中的扩展 UI 请求（如 `ask_user`）会随运行状态广播同步，项目选择框与下拉项目行显示人头发声图标与数量。
+- Windows 上没有 Git Bash 时回退到 PowerShell：bash 工具槽统一解析为实际可用的 shell，创建会话、切换工具预设与执行命令保持一致。
+
+### Changed
+
+- 版本同步（`version:next` / `version:set` / `version:sync`）在 `CHANGELOG.md` 缺少当前版本小节时插入 `## [<version>] - <date>` 与版本统一说明；已有小节保持只读，插入内容跟随文件换行风格，`version:check` 同步校验该小节是否存在。
+- 应用、npm、Tauri 和 Cargo 版本号统一为 `0.85.1-alpha.14`。
+
+### Fixed
+
+- 修复 Git 面板同步计数颠倒：修正 ahead/behind 计算顺序，正确区分本地待推送与上游待拉取提交，并改用带图标的同步状态标签展示数量。
+- 修复桌面前端静态导出时 `app/m` 动态页面导致的构建失败：导出前临时移出该目录、结束后恢复，并校验产物根目录及 `server` 子目录中不存在 `m` / `m.*`。
+- 修复桌面前端构建残留旧路由表导致 `TS2307`：构建前循环清理 `.next/dev` 与 `.next-desktop-dev/dev` 两个 dev 类型目录。
+
 ## [0.85.1-alpha.13] - 2026-09-22
 
 ### Added

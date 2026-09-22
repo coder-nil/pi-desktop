@@ -36,14 +36,22 @@ For macOS, the workflow adds `Fix Pi Desktop.command` to each DMG after Tauri pa
 
 ## 3. Set the Version
 
-`package.json` is the single source of truth. Set the release version and
-update the lockfiles, desktop metadata, and README with:
+`package.json` is the single source of truth. For a routine release, bump the
+version and update the lockfiles, desktop metadata, README, and CHANGELOG section
+in one step (the command verifies its own output):
 
 ```bash
-npm run version:set -- <version>
-npm run version:check
+npm run version:next             # 0.85.1-alpha.14 -> 0.85.1-alpha.15
+npm run version:set -- <version> # instead, when the next version is not a simple increment
+npm run version:check            # only needed after version:set
 git commit -m "Release v<version>"
 ```
+
+The bump command inserts `## [<version>] - <date>` plus the standard
+version-unification note when that section is missing, and ends with
+`Verified application version <version>`. Existing sections are historical and
+never rewritten, so add the release notes to the new section by hand before
+committing.
 
 ## 4. Tag and Push
 
@@ -69,7 +77,7 @@ git log --format='%h%x09%s%n%b' v<previous>..v<version>
 git diff --stat v<previous>..v<version>
 ```
 
-Write the release notes from those commits, not from memory. Include both Chinese and English sections. Keep commit hashes next to each item when useful.
+Write the release notes from those commits, not from memory. Include both Chinese and English sections. Keep commit hashes next to each item when useful, and mirror the summary into the `## [<version>]` section of `CHANGELOG.md`.
 
 Suggested structure:
 
