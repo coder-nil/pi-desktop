@@ -424,6 +424,10 @@ export class AgentSessionWrapper {
     return this._alive && (this.pendingPromptCount > 0 || this.inner.isStreaming || this.inner.isCompacting || this.inner.isBashRunning);
   }
 
+  hasPendingUiRequests(): boolean {
+    return this._alive && this.pendingUiRequests.size > 0;
+  }
+
   start(): void {
     this.unsubscribe = this.inner.subscribe((event: AgentEvent) => {
       this.logEventDiagnostic(event);
@@ -432,7 +436,13 @@ export class AgentSessionWrapper {
       }
       if (IDLE_RESET_EVENT_TYPES.has(event.type)) this.resetIdleTimer();
       this.emit(event);
-      if (RUNNING_STATE_EVENT_TYPES.has(event.type)) notifyRunningChange();
+      if (
+        RUNNING_STATE_EVENT_TYPES.has(event.type)
+        || event.type === "extension_ui_request"
+        || event.type === "extension_ui_resolved"
+      ) {
+        notifyRunningChange();
+      }
     });
     this.resetIdleTimer();
     notifyRunningChange();
@@ -1750,11 +1760,16 @@ export class AgentSessionWrapper {
 // Session registry
 // ============================================================================
 
+export interface RunningSessionsSnapshot {
+  runningSessionIds: string[];
+  pendingUiSessionIds: string[];
+}
+
 declare global {
   var __piSessions: Map<string, AgentSessionWrapper> | undefined;
   var __piStartLocks: Map<string, Promise<{ session: AgentSessionWrapper; realSessionId: string }>> | undefined;
   var __piStartingSessionCwds: Map<string, number> | undefined;
-  var __piRunningListeners: Set<(ids: string[]) => void> | undefined;
+  var __piRunningListeners: Set<(snapshot: RunningSessionsSnapshot) => void> | undefined;
 }
 
 function getRegistry(): Map<string, AgentSessionWrapper> {
@@ -1885,30 +1900,43 @@ export async function destroyRpcSessionsForCwd(cwd: string): Promise<number> {
   return sessions.length;
 }
 
-export function getRunningRpcSessionIds(): string[] {
-  const ids = new Set<string>();
+export function getRunningRpcSessionsSnapshot(): RunningSessionsSnapshot {
+  const running = new Set<string>();
+  const pendingUi = new Set<string>();
   for (const [sessionId, session] of getRegistry()) {
-    if (session.isRunning()) ids.add(session.sessionId || sessionId);
+    const id = session.sessionId || sessionId;
+    if (session.isRunning()) running.add(id);
+    if (session.hasPendingUiRequests()) pendingUi.add(id);
   }
-  return [...ids];
+  return {
+    runningSessionIds: [...running],
+    pendingUiSessionIds: [...pendingUi],
+  };
+}
+
+export function getRunningRpcSessionIds(): string[] {
+  return getRunningRpcSessionsSnapshot().runningSessionIds;
+}
+
+export function getPendingUiRpcSessionIds(): string[] {
+  return getRunningRpcSessionsSnapshot().pendingUiSessionIds;
 }
 
 // ----------------------------------------------------------------------------
 // Running-status broadcaster
 //
-// Pushes the current set of running session ids to subscribers whenever any
-// session's running state may have changed. This lets the sidebar receive live
-// updates over SSE instead of polling. Listeners live on globalThis so they
-// survive Next.js hot-reload.
+// Pushes running state and pending user prompts to subscribers whenever either
+// may have changed. This lets the sidebar receive live updates over SSE instead
+// of polling. Listeners live on globalThis so they survive Next.js hot-reload.
 // ----------------------------------------------------------------------------
 
-function getRunningListeners(): Set<(ids: string[]) => void> {
+function getRunningListeners(): Set<(snapshot: RunningSessionsSnapshot) => void> {
   if (!globalThis.__piRunningListeners) globalThis.__piRunningListeners = new Set();
   return globalThis.__piRunningListeners;
 }
 
-/** Subscribe to running-session-id changes. Returns an unsubscribe function. */
-export function subscribeRunningSessions(listener: (ids: string[]) => void): () => void {
+/** Subscribe to running/pending-ui snapshot changes. Returns an unsubscribe function. */
+export function subscribeRunningSessions(listener: (snapshot: RunningSessionsSnapshot) => void): () => void {
   const listeners = getRunningListeners();
   listeners.add(listener);
   return () => { listeners.delete(listener); };
@@ -1917,7 +1945,7 @@ export function subscribeRunningSessions(listener: (ids: string[]) => void): () 
 let lastRunningSnapshot = "";
 
 /**
- * Recompute the running-session-id set and, if it changed since the last
+ * Recompute the running/pending-ui snapshot and, if it changed since the last
  * notification, broadcast it to subscribers.
  */
 export function notifyRunningChange(): void {
@@ -1928,12 +1956,15 @@ export function notifyRunningChange(): void {
     lastRunningSnapshot = "";
     return;
   }
-  const ids = getRunningRpcSessionIds();
-  const snapshot = JSON.stringify([...ids].sort());
-  if (snapshot === lastRunningSnapshot) return;
-  lastRunningSnapshot = snapshot;
+  const snapshot = getRunningRpcSessionsSnapshot();
+  const serialized = JSON.stringify({
+    runningSessionIds: [...snapshot.runningSessionIds].sort(),
+    pendingUiSessionIds: [...snapshot.pendingUiSessionIds].sort(),
+  });
+  if (serialized === lastRunningSnapshot) return;
+  lastRunningSnapshot = serialized;
   for (const listener of listeners) {
-    try { listener(ids); } catch { /* ignore listener errors */ }
+    try { listener(snapshot); } catch { /* ignore listener errors */ }
   }
 }
 

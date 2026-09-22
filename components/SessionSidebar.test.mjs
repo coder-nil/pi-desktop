@@ -43,6 +43,17 @@ test("includes project activity counts in accessible labels", () => {
   );
 });
 
+test("surfaces pending ask_user prompts on the project selector", () => {
+  assert.match(source, /pendingUiSessionIds/);
+  assert.match(
+    source,
+    /getProjectActivity\(allSessions, runningSessionIds, unreadSessionIds, pendingUiSessionIds\)/,
+  );
+  assert.match(source, /title=\{t\("sidebar\.waitingForUser"\)\}/);
+  assert.match(source, /aria-label=\{`\$\{t\("sidebar\.waitingForUser"\)\} \(\$\{activity\.awaiting\}\)`\}/);
+  assert.match(source, /<Speech size=\{10\} strokeWidth=\{2\.5\}/);
+});
+
 test("does not persist an unchanged fallback title ending in whitespace", () => {
   assert.match(
     sessionItemSource,

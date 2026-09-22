@@ -25,22 +25,30 @@ export function getRecentProjects(sessions: readonly SessionInfo[]): RecentProje
     .map(([key, { root }]) => ({ key, root }));
 }
 
+export interface ProjectActivity {
+  running: number;
+  unread: number;
+  awaiting: number;
+}
+
 export function getProjectActivity(
   sessions: readonly SessionInfo[],
   runningSessionIds: ReadonlySet<string>,
   unreadSessionIds: ReadonlySet<string>,
-): Map<string, { running: number; unread: number }> {
-  const counts = new Map<string, { running: number; unread: number }>();
+  pendingUiSessionIds: ReadonlySet<string> = new Set(),
+): Map<string, ProjectActivity> {
+  const counts = new Map<string, ProjectActivity>();
   for (const session of sessions) {
     const key = workspaceKeyOf(session);
     if (!key) continue;
     let entry = counts.get(key);
     if (!entry) {
-      entry = { running: 0, unread: 0 };
+      entry = { running: 0, unread: 0, awaiting: 0 };
       counts.set(key, entry);
     }
     if (runningSessionIds.has(session.id)) entry.running++;
     if (unreadSessionIds.has(session.id)) entry.unread++;
+    if (pendingUiSessionIds.has(session.id)) entry.awaiting++;
   }
   return counts;
 }

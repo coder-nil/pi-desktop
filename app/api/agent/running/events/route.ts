@@ -1,10 +1,10 @@
-import { getRunningRpcSessionIds, subscribeRunningSessions } from "@/lib/rpc-manager";
+import { getRunningRpcSessionsSnapshot, subscribeRunningSessions } from "@/lib/rpc-manager";
 
 export const dynamic = "force-dynamic";
 
-// GET /api/agent/running/events - SSE stream of the set of currently-running
-// session ids. Pushes an update whenever any session starts or stops working,
-// so the sidebar never has to poll.
+// GET /api/agent/running/events - SSE stream of running sessions and pending
+// user prompts. Pushes an update whenever either set may have changed, so the
+// sidebar never has to poll.
 export async function GET(req: Request) {
   const stream = new ReadableStream({
     start(controller) {
@@ -16,9 +16,9 @@ export async function GET(req: Request) {
 
       // Subscribe BEFORE taking the initial snapshot so no state change can slip
       // through the gap between snapshot and subscription.
-      const unsubscribe = subscribeRunningSessions((ids) => {
+      const unsubscribe = subscribeRunningSessions((snapshot) => {
         try {
-          encode({ type: "running", runningSessionIds: ids });
+          encode({ type: "running", ...snapshot });
         } catch {
           // controller already closed
         }
@@ -26,7 +26,7 @@ export async function GET(req: Request) {
 
       // Initial snapshot so the client renders the correct state immediately.
       // (A duplicate frame here is harmless: the client just sets the same set.)
-      encode({ type: "running", runningSessionIds: getRunningRpcSessionIds() });
+      encode({ type: "running", ...getRunningRpcSessionsSnapshot() });
 
       // Heartbeat to keep the connection alive through proxies/timeouts.
       const heartbeat = setInterval(() => {

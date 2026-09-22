@@ -356,6 +356,7 @@ export const enLocale: LocalePlugin = {
     "sidebar.noMatchingSessions": "No matching conversations",
     "sidebar.searchFailed": "Conversation search failed",
     "sidebar.agentRunning": "Agent running…",
+    "sidebar.waitingForUser": "Waiting for your answer",
     "sidebar.newActivity": "New activity",
     "sidebar.newSessionActivity": "New session activity",
     "sidebar.deleteSession": "Delete {title}?",

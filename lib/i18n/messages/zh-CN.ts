@@ -356,6 +356,7 @@ export const zhCNLocale: LocalePlugin = {
     "sidebar.noMatchingSessions": "没有匹配的对话",
     "sidebar.searchFailed": "对话搜索失败",
     "sidebar.agentRunning": "Agent 运行中…",
+    "sidebar.waitingForUser": "等待你的回答",
     "sidebar.newActivity": "有新活动",
     "sidebar.newSessionActivity": "会话有新活动",
     "sidebar.deleteSession": "删除 {title}？",

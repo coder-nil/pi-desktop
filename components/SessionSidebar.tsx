@@ -2,6 +2,7 @@
 
 import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { Speech } from "lucide-react";
 import type { SessionInfo } from "@/lib/types";
 import type { AppUpdateResponse } from "@/lib/api-types";
 import { loadExplorerOpen, saveExplorerOpen } from "@/lib/file-explorer-state";
@@ -489,6 +490,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [sessionRefreshDone, setSessionRefreshDone] = useState(false);
   const [explorerRefreshDone, setExplorerRefreshDone] = useState(false);
   const [runningSessionIds, setRunningSessionIds] = useState<Set<string>>(() => new Set());
+  const [pendingUiSessionIds, setPendingUiSessionIds] = useState<Set<string>>(() => new Set());
   const [unreadSessionIds, setUnreadSessionIds] = useState<Set<string>>(() => loadUnreadSessionIds());
   const previousRunningSessionIdsRef = useRef<Set<string>>(new Set());
   // Once polling has delivered a snapshot it is the source of truth for
@@ -518,12 +520,13 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         cache: "no-store",
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json() as { sessions: SessionInfo[]; runningSessionIds?: string[] };
+      const data = await res.json() as { sessions: SessionInfo[]; runningSessionIds?: string[]; pendingUiSessionIds?: string[] };
       setAllSessions(data.sessions);
       // Treat the fetched running set as an initial fallback only. Once the
       // lightweight poll is live, a slow session-list fetch cannot overwrite it.
       if (!runningPollAuthoritativeRef.current) {
         setRunningSessionIds(new Set(data.runningSessionIds ?? []));
+        setPendingUiSessionIds(new Set(data.pendingUiSessionIds ?? []));
       }
       // Drop unread markers for sessions that no longer exist (e.g. deleted).
       const existingIds = new Set(data.sessions.map((s) => s.id));
@@ -594,10 +597,11 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           signal: current.signal,
         });
         if (!res.ok) return;
-        const data = await res.json() as { runningSessionIds?: string[] };
+        const data = await res.json() as { runningSessionIds?: string[]; pendingUiSessionIds?: string[] };
         if (stopped || controller !== current) return;
         runningPollAuthoritativeRef.current = true;
         setRunningSessionIds(new Set(data.runningSessionIds ?? []));
+        setPendingUiSessionIds(new Set(data.pendingUiSessionIds ?? []));
       } catch {
         // Keep the last known state; the next visible-tab poll retries.
       } finally {
@@ -632,8 +636,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     const events = new EventSource("/api/agent/running/events");
     events.onmessage = (event) => {
       try {
-        const data = JSON.parse(event.data) as { runningSessionIds?: string[] };
+        const data = JSON.parse(event.data) as { runningSessionIds?: string[]; pendingUiSessionIds?: string[] };
+        runningPollAuthoritativeRef.current = true;
         setRunningSessionIds(new Set(data.runningSessionIds ?? []));
+        setPendingUiSessionIds(new Set(data.pendingUiSessionIds ?? []));
       } catch {
         // Ignore malformed frames; EventSource reconnects after transient failures.
       }
@@ -1213,16 +1219,22 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   // Sessions of every worktree in the selected project are shown together
   const selectedProject = projectFor(selectedCwd);
 
-  // Per-project activity counts (running / unread) for the workspace selector.
-  // Uses the same stable server key as the project list and filtering.
+  // Per-project activity counts (running / unread / waiting for an answer) for
+  // the workspace selector. Uses the same stable server key as the project list
+  // and filtering.
   const projectActivity = useMemo(
-    () => getProjectActivity(allSessions, runningSessionIds, unreadSessionIds),
-    [allSessions, runningSessionIds, unreadSessionIds],
+    () => getProjectActivity(allSessions, runningSessionIds, unreadSessionIds, pendingUiSessionIds),
+    [allSessions, runningSessionIds, unreadSessionIds, pendingUiSessionIds],
+  );
+
+  const totalAwaitingCount = useMemo(
+    () => [...projectActivity.values()].reduce((total, activity) => total + activity.awaiting, 0),
+    [projectActivity],
   );
 
   // Any activity in a project other than the one currently selected — shown as
   // a dot on the (collapsed) selector button so it is visible without opening
-  // the dropdown.
+  // the dropdown. Pending questions have their own speech badge above.
   const hasOtherWorkspaceActivity = useMemo(
     () => [...projectActivity.entries()].some(
       ([key, { running, unread }]) => key !== selectedProject?.key && (running > 0 || unread > 0),
@@ -1398,6 +1410,25 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 }}
               >
                  {initialSessionId && !restoredRef.current ? "" : t("sidebar.selectProject")}
+              </span>
+            )}
+            {totalAwaitingCount > 0 && (
+              <span
+                title={t("sidebar.waitingForUser")}
+                aria-label={`${t("sidebar.waitingForUser")} (${totalAwaitingCount})`}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 3,
+                  flexShrink: 0,
+                  marginLeft: 6,
+                  color: "#d97706",
+                  fontSize: 10,
+                  fontFamily: "var(--font-mono)",
+                }}
+              >
+                <Speech size={11} strokeWidth={2.4} aria-hidden="true" />
+                {totalAwaitingCount}
               </span>
             )}
             {hasOtherWorkspaceActivity && (
@@ -2644,17 +2675,28 @@ function UnreadSessionIndicator() {
 
 /**
  * Compact per-project activity badges for the workspace selector dropdown items:
- * a spinning running icon + count and an unread dot + count. Renders nothing
- * when the project has no activity. Counts share the accent / unread colors of
- * the per-session indicators so the two stay visually consistent.
+ * a speech (person speaking) + count when a session is waiting for an answer,
+ * a spinning running icon + count, and an unread dot + count. Renders nothing when the
+ * project has no activity. Counts share the accent / unread colors of the
+ * per-session indicators so the two stay visually consistent.
  */
 function showProjectActivity(
-  activity: { running: number; unread: number } | undefined,
+  activity: { running: number; unread: number; awaiting: number } | undefined,
   t: (key: string) => string,
 ): ReactNode {
-  if (!activity || (activity.running === 0 && activity.unread === 0)) return null;
+  if (!activity || (activity.awaiting === 0 && activity.running === 0 && activity.unread === 0)) return null;
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 5, flexShrink: 0, marginLeft: 6 }}>
+      {activity.awaiting > 0 && (
+        <span
+          title={t("sidebar.waitingForUser")}
+          aria-label={`${t("sidebar.waitingForUser")} (${activity.awaiting})`}
+          style={{ display: "inline-flex", alignItems: "center", gap: 3, color: "#d97706", fontSize: 10, fontFamily: "var(--font-mono)" }}
+        >
+          <Speech size={10} strokeWidth={2.5} aria-hidden="true" />
+          {activity.awaiting}
+        </span>
+      )}
       {activity.running > 0 && (
         <span
           title={t("sidebar.agentRunning")}
