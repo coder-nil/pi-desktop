@@ -1,6 +1,8 @@
 import {
   createBashToolDefinition,
   createLocalBashOperations,
+  createLocalPowerShellOperations,
+  createPowerShellToolDefinition,
   getAgentDir,
   type BashOperations,
   type InlineExtension,
@@ -11,6 +13,7 @@ import { userInfo } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { createCredentialBrokerOperations } from "./credential-broker";
+import { resolveShellSelection, type DesktopShellSelection } from "./shell-tool";
 
 const execFileAsync = promisify(execFile);
 const USER_ENVIRONMENT_MARKER = "__PI_DESKTOP_USER_ENVIRONMENT__";
@@ -19,6 +22,8 @@ const USER_ENVIRONMENT_MAX_BUFFER = 4 * 1024 * 1024;
 
 const HOST_EXTENSION_NAME = "pi-desktop-project-command-environment";
 const HOST_EXTENSION_PATH = `<inline:${HOST_EXTENSION_NAME}>`;
+const HOST_OVERRIDDEN_TOOL_NAMES = ["bash", "powershell"] as const;
+const CREDENTIAL_PROMPT_GUIDELINE = "When Git, SSH, or another command requests a username, password, passphrase, token, or verification code, run the normal command and wait for Pi Desktop's secure credential prompt. Never ask the user to paste secrets into chat or pass secrets through ask_user.";
 
 type ProjectShellSettings = {
   getShellCommandPrefix(): string | undefined;
@@ -193,29 +198,49 @@ export function createProjectCommandBashOperations(
 export function createProjectCommandBashExtension(options: {
   cwd: string;
   settings: ProjectShellSettings;
+  shellSelection?: DesktopShellSelection;
 }): InlineExtension {
   return {
     name: HOST_EXTENSION_NAME,
     hidden: true,
     factory: (pi) => {
+      const selection = options.shellSelection ?? resolveShellSelection(options.settings);
       const displayDefinition = createBashToolDefinition(options.cwd);
       pi.registerTool({
         ...displayDefinition,
         promptGuidelines: [
           ...(displayDefinition.promptGuidelines ?? []),
-          "When Git, SSH, or another command requests a username, password, passphrase, token, or verification code, run the normal command and wait for Pi Desktop's secure credential prompt. Never ask the user to paste secrets into chat or pass secrets through ask_user.",
+          CREDENTIAL_PROMPT_GUIDELINE,
         ],
         execute(toolCallId, params, signal, onUpdate, context) {
           const executionDefinition = createBashToolDefinition(options.cwd, {
             commandPrefix: options.settings.getShellCommandPrefix(),
             operations: createProjectCommandBashOperations({
-              shellPath: options.settings.getShellPath(),
-              requestCredential: async (prompt, sensitive) => {
-                const inputUi = context.ui as unknown as {
-                  input: (title: string, placeholder?: string, options?: { sensitive?: boolean }) => Promise<string | undefined>;
-                };
-                return inputUi.input("安全凭据", prompt, { sensitive });
-              },
+              shellPath: selection.shellPath,
+              requestCredential: credentialPrompter(context),
+            }),
+          });
+          return executionDefinition.execute(toolCallId, params, signal, onUpdate, context);
+        },
+      });
+
+      if (selection.tool !== "powershell") return;
+
+      // Windows without Git Bash runs commands through PowerShell. Register a
+      // host override so the tool keeps the sanitized project environment and
+      // the Desktop credential hook instead of dropping to pi's bare builtin.
+      const powerShellDefinition = createPowerShellToolDefinition(options.cwd);
+      pi.registerTool({
+        ...powerShellDefinition,
+        promptGuidelines: [
+          ...(powerShellDefinition.promptGuidelines ?? []),
+          CREDENTIAL_PROMPT_GUIDELINE,
+        ],
+        execute(toolCallId, params, signal, onUpdate, context) {
+          const executionDefinition = createPowerShellToolDefinition(options.cwd, {
+            operations: createProjectCommandBashOperations({
+              localOperations: createLocalPowerShellOperations(),
+              requestCredential: credentialPrompter(context),
             }),
           });
           return executionDefinition.execute(toolCallId, params, signal, onUpdate, context);
@@ -229,17 +254,28 @@ export function preferUserBashExtension(base: LoadExtensionsResult): LoadExtensi
   const hostExtensionIndex = base.extensions.findIndex((extension) => extension.path === HOST_EXTENSION_PATH);
   if (hostExtensionIndex < 0) return base;
 
-  const userBashOwner = base.extensions
+  const userShellOwner = base.extensions
     .slice(0, hostExtensionIndex)
-    .find((extension) => extension.tools.has("bash"));
-  if (!userBashOwner) return base;
+    .find((extension) => HOST_OVERRIDDEN_TOOL_NAMES.some((name) => extension.tools.has(name)));
+  if (!userShellOwner) return base;
 
   return {
     ...base,
     extensions: base.extensions.filter((_, index) => index !== hostExtensionIndex),
     errors: base.errors.filter((error) => !(
       error.path === HOST_EXTENSION_PATH
-      && error.error === `Tool "bash" conflicts with ${userBashOwner.path}`
+      && HOST_OVERRIDDEN_TOOL_NAMES.some((name) => error.error === `Tool "${name}" conflicts with ${userShellOwner.path}`)
     )),
+  };
+}
+
+function credentialPrompter(context: unknown): (prompt: string, sensitive: boolean) => Promise<string | undefined> {
+  return (prompt, sensitive) => {
+    const inputUi = (context as {
+      ui: {
+        input: (title: string, placeholder?: string, options?: { sensitive?: boolean }) => Promise<string | undefined>;
+      };
+    }).ui;
+    return inputUi.input("安全凭据", prompt, { sensitive });
   };
 }

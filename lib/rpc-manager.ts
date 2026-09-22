@@ -1,6 +1,6 @@
 import type { StreamFn, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { FetchFunction } from "@earendil-works/pi-ai";
-import { createAgentSessionFromServices, createAgentSessionServices, getAgentDir, initTheme, SessionManager, SettingsManager, Theme } from "@earendil-works/pi-coding-agent";
+import { createAgentSessionFromServices, createAgentSessionServices, createLocalPowerShellOperations, getAgentDir, initTheme, SessionManager, SettingsManager, Theme } from "@earendil-works/pi-coding-agent";
 import { KeybindingsManager as TuiKeybindingsManager, TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
 import { randomUUID } from "crypto";
 import { existsSync, realpathSync, writeFileSync } from "fs";
@@ -18,6 +18,7 @@ import { createSystemTimeExtension } from "./system-time-tool";
 import { createAskUserExtension } from "./ask-user-tool";
 import { createTaskProgressExtension } from "./task-progress-tool";
 import { cacheSessionPath, invalidateSessionListCache } from "./session-reader";
+import { applyShellTool, normalizeActiveShellTool, resolveShellSelection } from "./shell-tool";
 import { getProjectTrustStatus, projectTrustReloadOptions } from "./project-trust";
 import { persistExplicitStartupPreferences } from "./startup-preferences";
 import { findSkillInvocation, recordSkillUsage } from "./skills-store";
@@ -269,7 +270,7 @@ function createLanguagePromptExtension(locale: { value: UiLocale; forceEmpty: bo
   };
 }
 
-const CODING_TOOL_NAMES = ["read", "bash", "edit", "write", "grep", "find", "ls"];
+const CODING_TOOL_NAMES = ["read", "bash", "powershell", "edit", "write", "grep", "find", "ls"];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -1057,8 +1058,9 @@ export class AgentSessionWrapper {
 
       case "set_tools": {
         const toolNames = command.toolNames as string[];
+        const resolvedToolNames = applyShellTool(toolNames, resolveShellSelection(this.inner.settingsManager).tool);
         this.setForceEmptySystemPrompt(toolNames.length === 0);
-        this.inner.setActiveToolsByName(withExtensionTools(this.inner, toolNames));
+        this.inner.setActiveToolsByName(withExtensionTools(this.inner, resolvedToolNames));
         this.applyForcedEmptySystemPrompt();
         this.applyLanguageSystemPrompt();
         return null;
@@ -1103,13 +1105,15 @@ export class AgentSessionWrapper {
         if (this.pendingPromptCount > 0 || this.inner.isStreaming || this.inner.isCompacting || this.inner.isBashRunning) {
           throw new Error("Cannot run a shell command while the session is busy");
         }
+        const shellSelection = resolveShellSelection(this.inner.settingsManager);
         const execution = this.inner.executeBash(
           command.command as string,
           undefined,
           {
             excludeFromContext: command.excludeFromContext as boolean | undefined,
             operations: createProjectCommandBashOperations({
-              shellPath: this.inner.settingsManager.getShellPath(),
+              ...(shellSelection.tool === "bash" ? { shellPath: shellSelection.shellPath } : {}),
+              ...(shellSelection.tool === "powershell" ? { localOperations: createLocalPowerShellOperations() } : {}),
             }),
           },
         );
@@ -1991,6 +1995,10 @@ export async function startRpcSession(
     // its .pi/extensions code automatically (see lib/project-trust.ts, #236).
     const trustReloadOptions = projectTrustReloadOptions(sessionCwd, agentDir);
     const settingsManager = SettingsManager.create(sessionCwd, agentDir);
+    // On Windows without Git Bash, expose PowerShell through the same preset
+    // slot instead of letting every bash call fail with "No bash shell found".
+    const shellSelection = resolveShellSelection(settingsManager);
+    const shellTool = shellSelection.tool;
     const modelRuntime = await createDesktopModelRuntime({
       authPath: `${agentDir}/auth.json`,
       modelsPath: `${agentDir}/models.json`,
@@ -2009,6 +2017,7 @@ export async function startRpcSession(
           createProjectCommandBashExtension({
             cwd: sessionCwd,
             settings: settingsManager,
+            shellSelection,
           }),
         ],
         extensionsOverride: preferUserBashExtension,
@@ -2068,7 +2077,16 @@ export async function startRpcSession(
     // requested builtin coding tools PLUS all extension/package tools, so installed
     // extensions stay usable in Pi Desktop just like in the `pi` CLI.
     if (toolNames && toolNames.length > 0) {
-      inner.setActiveToolsByName(withExtensionTools(inner, toolNames));
+      inner.setActiveToolsByName(withExtensionTools(inner, applyShellTool(toolNames, shellTool)));
+    } else if (toolNames === undefined) {
+      // Existing sessions are opened without toolNames and inherit pi's bash
+      // default (plus PowerShell accidentally surfaced as an extension tool).
+      // Normalize that inherited set so an already-created session also recovers.
+      const activeToolNames = inner.getActiveToolNames();
+      const normalizedToolNames = normalizeActiveShellTool(activeToolNames, shellTool);
+      const changed = normalizedToolNames.length !== activeToolNames.length
+        || normalizedToolNames.some((name, index) => name !== activeToolNames[index]);
+      if (changed) inner.setActiveToolsByName(normalizedToolNames);
     }
 
     const wrapper = new AgentSessionWrapper(
