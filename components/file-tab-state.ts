@@ -5,6 +5,8 @@ interface OpenFileTabInput {
   fileName: string;
   filePath: string;
   modeHint?: "diff";
+  /** 1-based line the link pointed at, revealed once by the viewer. */
+  line?: number;
   sourceSessionId?: string | null;
   tabId: string;
 }
@@ -19,6 +21,7 @@ export function openFileTab(tabs: Tab[], input: OpenFileTabInput): Tab[] {
       kind: "file",
       sourceSessionId: input.sourceSessionId,
       initialDisplayMode: input.modeHint,
+      revealLine: input.line,
       viewerState: input.modeHint ? {
         displayMode: input.modeHint,
         wrapLines: false,
@@ -32,8 +35,8 @@ export function openFileTab(tabs: Tab[], input: OpenFileTabInput): Tab[] {
   const sourceChanged = Boolean(
     input.sourceSessionId && existing.sourceSessionId !== input.sourceSessionId,
   );
-  const sourceUnchanged = !sourceChanged;
-  if (sourceUnchanged && !input.modeHint) return tabs;
+  const wantsReveal = input.line !== undefined;
+  if (!sourceChanged && !input.modeHint && !wantsReveal) return tabs;
 
   return tabs.map((tab) => {
     if (tab.id !== input.tabId) return tab;
@@ -47,12 +50,25 @@ export function openFileTab(tabs: Tab[], input: OpenFileTabInput): Tab[] {
         scrollTop: 0,
         scrollLeft: 0,
       };
-      next.viewerRevision = (tab.viewerRevision ?? 0) + 1;
-    } else if (sourceChanged) {
+    }
+    if (wantsReveal) next.revealLine = input.line;
+    // 定位要用新的初始行重挂载一次；单纯换数据源或切换模式也要重建。
+    if (sourceChanged || input.modeHint || wantsReveal) {
       next.viewerRevision = (tab.viewerRevision ?? 0) + 1;
     }
     return next;
   });
+}
+
+/** 查看器已经跳到目标行，丢掉待跳标记，这样切走再切回来不会重复跳。 */
+export function markFileTabRevealHandled(tabs: Tab[], tabId: string): Tab[] {
+  const index = tabs.findIndex((tab) => tab.id === tabId);
+  if (index === -1 || tabs[index].revealLine === undefined) return tabs;
+  const next = [...tabs];
+  const tab = { ...next[index] };
+  delete tab.revealLine;
+  next[index] = tab;
+  return next;
 }
 
 export function saveFileViewerState(

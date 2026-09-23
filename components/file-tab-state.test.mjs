@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { openFileTab, saveFileViewerState } from "./file-tab-state.ts";
+import { openFileTab, markFileTabRevealHandled, saveFileViewerState } from "./file-tab-state.ts";
 
 const tabA = {
   id: "file:/repo/a.ts",
@@ -102,4 +102,29 @@ test("a remounted viewer ignores the previous revision's late cleanup", () => {
   const stale = saveFileViewerState(reopened, tabA.id, 0, tabA.viewerState);
   assert.strictEqual(stale, reopened);
   assert.equal(stale[0].viewerState.displayMode, "diff");
+});
+
+test("a linked line is revealed once, then dropped from the tab", () => {
+  const opened = openFileTab([], { ...openA, line: 42 });
+  assert.equal(opened[0].revealLine, 42);
+  assert.equal(opened[0].viewerRevision, 0);
+
+  // 同一文件再点另一行：换目标行并重建查看器，否则初始行不会重新生效。
+  const relocated = openFileTab(opened, { ...openA, line: 77 });
+  assert.equal(relocated[0].revealLine, 77);
+  assert.equal(relocated[0].viewerRevision, 1);
+  assert.equal(relocated[0].viewerState, undefined);
+
+  // 查看器完成定位后标记被清掉，切回标签页不会重复跳。
+  const handled = markFileTabRevealHandled(relocated, openA.tabId);
+  assert.equal(handled[0].revealLine, undefined);
+  assert.equal(handled[0].viewerRevision, 1);
+  assert.strictEqual(markFileTabRevealHandled(handled, openA.tabId), handled);
+  assert.strictEqual(markFileTabRevealHandled(handled, "file:/repo/missing.ts"), handled);
+});
+
+test("opening a file without a line keeps the tab untouched", () => {
+  const tabs = [tabA, tabB];
+  assert.strictEqual(openFileTab(tabs, openA), tabs);
+  assert.equal(openFileTab([tabA], openA)[0].revealLine, undefined);
 });

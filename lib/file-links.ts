@@ -13,8 +13,37 @@ function normalizeFilePathSlashes(filePath: string): string {
   return filePath;
 }
 
-function stripLineSuffix(filePath: string): string {
-  return filePath.replace(/:\d+(?::\d+)?$/, "");
+/** Where in a file a link points, when it carried `:12`, `:12:5` or `#L12`. */
+export interface FileOpenLocation {
+  /** 1-based line number. */
+  line?: number;
+  /** 1-based column, when the link carried one. */
+  column?: number;
+}
+
+/** A resolved local file link: the path plus the optional source location. */
+export interface FileLinkTarget extends FileOpenLocation {
+  filePath: string;
+}
+
+function parseLocationSuffix(filePath: string): { filePath: string } & FileOpenLocation {
+  const match = filePath.match(/^(.*?):(\d+)(?::(\d+))?$/);
+  if (!match || !match[1]) return { filePath };
+  return {
+    filePath: match[1],
+    line: Number(match[2]),
+    ...(match[3] ? { column: Number(match[3]) } : {}),
+  };
+}
+
+/** GitHub-style fragments: `#L42`, `#L42C7`, `#L42-L60`, `#L42C7-L60`. */
+function parseHashLocation(hash: string): FileOpenLocation {
+  const match = hash.match(/^#l(\d+)(?:c(\d+))?(?:-l?(\d+)(?:c(\d+))?)?$/i);
+  if (!match) return {};
+  return {
+    line: Number(match[1]),
+    ...(match[2] ? { column: Number(match[2]) } : {}),
+  };
 }
 
 function normalizeLocalPath(filePath: string): string {
@@ -74,14 +103,19 @@ function fileUrlToPath(href: string): string | null {
   }
 }
 
-export function resolveLocalFileHref(
+export function resolveLocalFileTarget(
   href: string | undefined,
   baseDir?: string,
   relativeRoot = baseDir,
-): string | null {
+): FileLinkTarget | null {
   if (!href) return null;
 
-  const cleanHref = href.split("#", 1)[0].split("?", 1)[0].trim();
+  const trimmedHref = href.trim();
+  const hashIndex = trimmedHref.indexOf("#");
+  const hashLocation = hashIndex >= 0 ? parseHashLocation(trimmedHref.slice(hashIndex)) : {};
+  const cleanHref = (hashIndex >= 0 ? trimmedHref.slice(0, hashIndex) : trimmedHref)
+    .split("?", 1)[0]
+    .trim();
   if (!cleanHref) return null;
 
   let candidate: string | null = null;
@@ -113,9 +147,27 @@ export function resolveLocalFileHref(
 
   if (!candidate) return null;
 
-  const filePath = stripLineSuffix(normalizeLocalPath(candidate));
+  const located = parseLocationSuffix(normalizeLocalPath(candidate));
+  const filePath = located.filePath;
   if (candidateKind === "relative" && relativeRoot && !isPathInside(filePath, relativeRoot)) return null;
-  return filePath;
+  return {
+    filePath,
+    ...(located.line ?? hashLocation.line
+      ? { line: located.line ?? hashLocation.line }
+      : {}),
+    ...(located.column ?? hashLocation.column
+      ? { column: located.column ?? hashLocation.column }
+      : {}),
+  };
+}
+
+/** Path-only view of {@link resolveLocalFileTarget}, for callers that ignore line numbers. */
+export function resolveLocalFileHref(
+  href: string | undefined,
+  baseDir?: string,
+  relativeRoot = baseDir,
+): string | null {
+  return resolveLocalFileTarget(href, baseDir, relativeRoot)?.filePath ?? null;
 }
 
 /** Resolve a filesystem path without applying URL or source-location syntax. */

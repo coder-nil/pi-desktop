@@ -441,7 +441,7 @@ function PiWebTitle({ onAboutClick }: { onAboutClick?: () => void }) {
       >
         {display}
       </button>
-      {showVersion && onAboutClick && <AboutButton onClick={onAboutClick} variant="plain" />}
+      {showVersion && onAboutClick && <AboutButton onClick={onAboutClick} />}
     </span>
   );
 }

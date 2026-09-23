@@ -2,7 +2,7 @@
 
 import { useMemo, type MouseEvent } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
-import { resolveLocalFileHref } from "@/lib/file-links";
+import { resolveLocalFileTarget, type FileOpenLocation } from "@/lib/file-links";
 import { encodeFilePathForApi } from "@/lib/file-paths";
 import {
   markdownRehypePlugins,
@@ -17,7 +17,7 @@ interface MarkdownBodyProps {
   className?: string;
   isStreaming?: boolean;
   cwd?: string;
-  onOpenFile?: (filePath: string) => void;
+  onOpenFile?: (filePath: string, location?: FileOpenLocation) => void;
   allowHtml?: boolean;
 }
 
@@ -55,9 +55,9 @@ export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile
     a({ href, children, ...props }) {
       // `node` is react-markdown metadata, not a DOM attribute.
       delete props.node;
-      const filePath = onOpenFile ? resolveLocalFileHref(href, cwd) : null;
+      const fileTarget = onOpenFile ? resolveLocalFileTarget(href, cwd) : null;
       const openFile = onOpenFile;
-      if (!filePath || !openFile) {
+      if (!fileTarget || !openFile) {
         return (
           <a href={href} {...props} target="_blank" rel="noopener noreferrer">
             {children}
@@ -71,7 +71,7 @@ export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile
         const target = event.currentTarget.getAttribute("target");
         if (target && target !== "_self") return;
         event.preventDefault();
-        openFile(filePath);
+        openFile(fileTarget.filePath, { line: fileTarget.line, column: fileTarget.column });
       };
 
       return (
@@ -82,7 +82,7 @@ export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile
     },
     img({ src, alt, ...props }) {
       delete props.node;
-      const filePath = typeof src === "string" ? resolveLocalFileHref(src, cwd) : null;
+      const filePath = typeof src === "string" ? resolveLocalFileTarget(src, cwd)?.filePath ?? null : null;
       const imageSrc = filePath
         ? `/api/files/${encodeFilePathForApi(filePath)}?type=read`
         : src;

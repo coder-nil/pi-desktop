@@ -18,7 +18,7 @@ import {
   isImagePath,
 } from "@/lib/file-types";
 import { encodeFilePathForApi, getFileDirectory, getFileName, getRelativeFilePath } from "@/lib/file-paths";
-import { resolveLocalFileHref } from "@/lib/file-links";
+import { resolveLocalFileTarget, type FileOpenLocation } from "@/lib/file-links";
 import { parseFrontmatter } from "@/lib/frontmatter";
 import { markdownPreviewRehypePlugins, markdownPreviewRemarkPlugins, normalizeDisplayMath } from "@/lib/markdown";
 import { CodeBlock, MermaidBlock } from "./MermaidBlock";
@@ -39,13 +39,17 @@ interface Props {
   filePath: string;
   cwd?: string;
   sourceSessionId?: string | null;
-  onOpenFile?: (filePath: string) => void;
+  onOpenFile?: (filePath: string, location?: FileOpenLocation) => void;
   onMentionLines?: (relativePath: string, startLine: number, endLine: number) => void;
   /** Insert this file's relative path into the chat input (@ mention). */
   onAtMention?: (relativePath: string, isDir: boolean) => void;
   gitRefreshKey?: number;
   initialDisplayMode?: DisplayMode;
   initialState?: FileViewerState;
+  /** 1-based line to reveal once the file loads (from a `path:12` style link). */
+  initialLine?: number;
+  /** Called after the initial line was revealed, so the caller can drop it. */
+  onRevealHandled?: () => void;
   onStateChange?: (state: FileViewerState) => void;
   watchEnabled?: boolean;
 }
@@ -92,6 +96,7 @@ const FILE_LINE_NUMBER_STYLE: CSSProperties = {
 
 type SourceCodeRendererProps = Parameters<NonNullable<SyntaxHighlighterProps["renderer"]>>[0] & {
   wrapLines: boolean;
+  flashLine?: number | null;
 };
 
 interface SelectedLineRange {
@@ -196,7 +201,7 @@ function copyFileViewerSelectionWithoutGutters(event: ReactClipboardEvent<HTMLEl
   event.preventDefault();
 }
 
-function SourceCodeRenderer({ rows, stylesheet, useInlineStyles, wrapLines }: SourceCodeRendererProps) {
+function SourceCodeRenderer({ rows, stylesheet, useInlineStyles, wrapLines, flashLine }: SourceCodeRendererProps) {
   return rows.map((row, lineIndex) => {
     const children = row.children ?? [];
     const firstChildClasses = children[0]?.properties?.className;
@@ -204,13 +209,22 @@ function SourceCodeRenderer({ rows, stylesheet, useInlineStyles, wrapLines }: So
       && firstChildClasses.includes("react-syntax-highlighter-line-number");
     const lineNumberNode = hasLineNumber ? children[0] : null;
     const contentNodes = hasLineNumber ? children.slice(1) : children;
+    const isFlashLine = flashLine === lineIndex + 1;
 
     return (
       <span
         className="file-source-line"
         data-line-number={lineIndex + 1}
+        data-flash-line={isFlashLine ? "true" : undefined}
         key={`source-line-${lineIndex}`}
-        style={{ display: "flex", minWidth: "100%" }}
+        style={{
+          display: "flex",
+          minWidth: "100%",
+          ...(isFlashLine ? {
+            background: "rgba(37,99,235,0.14)",
+            boxShadow: "inset 3px 0 0 var(--accent)",
+          } : {}),
+        }}
       >
         {lineNumberNode && <span className="file-viewer-copy-excluded" aria-hidden="true" style={{ display: "contents", userSelect: "none", WebkitUserSelect: "none" }}>{renderSyntaxNode({
           node: lineNumberNode,
@@ -951,6 +965,8 @@ export function FileViewer({
   gitRefreshKey,
   initialDisplayMode,
   initialState,
+  initialLine,
+  onRevealHandled,
   onStateChange,
   watchEnabled = true,
 }: Props) {
@@ -974,6 +990,8 @@ export function FileViewer({
       gitRefreshKey={gitRefreshKey}
       initialDisplayMode={initialDisplayMode}
       initialState={initialState}
+      initialLine={initialLine}
+      onRevealHandled={onRevealHandled}
       onStateChange={onStateChange}
       watchEnabled={watchEnabled}
     />
@@ -990,6 +1008,8 @@ function TextFileViewer({
   gitRefreshKey,
   initialDisplayMode,
   initialState,
+  initialLine,
+  onRevealHandled,
   onStateChange,
   watchEnabled = true,
 }: Props) {
@@ -1024,9 +1044,15 @@ function TextFileViewer({
     scrollLeft: initialScrollLeft,
   });
   const onStateChangeRef = useRef(onStateChange);
+  const onRevealHandledRef = useRef(onRevealHandled);
   const [selectedLineRange, setSelectedLineRange] = useState<SelectedLineRange | null>(null);
+  const [flashLine, setFlashLine] = useState<number | null>(null);
+  // 待定位的行在加载完成后消费一次；消费前不会被当成普通滚动状态写回。
+  // 首次挂载即带入，重挂载（切文件/再点一次链接）由 AppShell 的 key 触发。
+  const pendingRevealLineRef = useRef<number | null>(initialLine ?? null);
 
   onStateChangeRef.current = onStateChange;
+  onRevealHandledRef.current = onRevealHandled;
 
   const updateDisplayMode = useCallback((nextDisplayMode: DisplayMode) => {
     viewerStateRef.current.displayMode = nextDisplayMode;
@@ -1052,6 +1078,7 @@ function TextFileViewer({
     viewerStateRef.current = nextState;
     scrollRestorePendingRef.current = true;
     autoDiffAppliedRef.current = false;
+    setFlashLine(null);
     setDisplayMode(requestedInitialDisplayMode);
     setWrapLines(initialWrapLines);
 
@@ -1287,6 +1314,32 @@ function TextFileViewer({
     requestedInitialDisplayMode,
   ]);
 
+  // 链接带行号时：加载完成后滚到该行并短暂高亮。只在源码视图生效，
+  // 因为预览/差异视图没有与之对应的行号坐标系。
+  useEffect(() => {
+    const targetLine = pendingRevealLineRef.current;
+    if (targetLine === null || loading || displayMode !== "source") return;
+
+    const content = contentRef.current;
+    if (!content) return;
+    const row = content.querySelector<HTMLElement>(`[data-line-number="${targetLine}"]`);
+    if (!row) return;
+
+    pendingRevealLineRef.current = null;
+    const contentRect = content.getBoundingClientRect();
+    const rowRect = row.getBoundingClientRect();
+    content.scrollTop += rowRect.top - contentRect.top - content.clientHeight / 2 + rowRect.height / 2;
+    viewerStateRef.current.scrollTop = content.scrollTop;
+    setFlashLine(targetLine);
+    onRevealHandledRef.current?.();
+  }, [data?.content, displayMode, loading, wrapLines]);
+
+  useEffect(() => {
+    if (flashLine === null) return;
+    const timer = setTimeout(() => setFlashLine(null), 2000);
+    return () => clearTimeout(timer);
+  }, [flashLine]);
+
   if (loading || (requestedInitialDisplayMode === "diff" && gitDiffLoading && !data)) {
     return (
       <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", fontSize: 13 }}>
@@ -1492,7 +1545,7 @@ function TextFileViewer({
                 a({ href, children, ...props }) {
                   delete props.node;
                   const linkedFile = onOpenFile
-                    ? resolveLocalFileHref(href, markdownDirectory, cwd ?? markdownDirectory)
+                    ? resolveLocalFileTarget(href, markdownDirectory, cwd ?? markdownDirectory)
                     : null;
                   if (!linkedFile || !onOpenFile) {
                     return <a href={href} {...props}>{children}</a>;
@@ -1502,7 +1555,7 @@ function TextFileViewer({
                     if (event.defaultPrevented || event.button !== 0) return;
                     if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
                     event.preventDefault();
-                    onOpenFile(linkedFile);
+                    onOpenFile(linkedFile.filePath, { line: linkedFile.line, column: linkedFile.column });
                   };
 
                   return <a href={href} {...props} onClick={handleClick}>{children}</a>;
@@ -1510,7 +1563,7 @@ function TextFileViewer({
                 img({ src, alt, ...props }) {
                   delete props.node;
                   const imagePath = typeof src === "string"
-                    ? resolveLocalFileHref(src, markdownDirectory, cwd ?? markdownDirectory)
+                    ? resolveLocalFileTarget(src, markdownDirectory, cwd ?? markdownDirectory)?.filePath ?? null
                     : null;
                   const imageSrc = imagePath
                     ? getFileApiUrl(imagePath, "read", sourceSessionId)
@@ -1551,7 +1604,7 @@ function TextFileViewer({
               },
             }}
             renderer={(rendererProps) => (
-              <SourceCodeRenderer {...rendererProps} wrapLines={wrapLines} />
+              <SourceCodeRenderer {...rendererProps} wrapLines={wrapLines} flashLine={flashLine} />
             )}
             wrapLongLines={wrapLines}
           >

@@ -14,6 +14,15 @@ test("keeps all settings resources inside one navigable dialog", () => {
   assert.doesNotMatch(source, /onOpenModels|onOpenSkills|onOpenPlugins/);
 });
 
+test("the settings overlay sits above every other layer", () => {
+  // 设置是最高的弹层：高于关于对话框(1200)、SelectPicker 下拉(1201)、
+  // Git 面板与各确认框(1100/1200)，同时内嵌子对话框仍靠面板自己的层叠上下文。
+  const match = source.match(/position: "fixed", inset: 0, zIndex: (\d+)/);
+  assert.ok(match, "settings overlay should be a fixed layer with an explicit zIndex");
+  assert.ok(Number(match[1]) > 1201, `settings zIndex ${match[1]} must exceed every other layer`);
+  assert.match(source, /<AboutDialog embedded onClose=\{\(\) => setAboutOpen\(false\)\} \/>/);
+});
+
 test("retains visited settings sections and supports the mobile back flow", () => {
   assert.match(source, /const \[visitedSections, setVisitedSections\]/);
   assert.match(source, /updated\.add\(next\)/);
@@ -27,6 +36,9 @@ test("groups interface preferences under General", () => {
   assert.match(source, /renderLanguageRow\(\)/);
   assert.match(source, /t\("settings\.completionSound"\)/);
   assert.match(source, /t\("settings\.showBanner"\)/);
+  // 「关于」固定在常规页的最后一行，并且整行可点（设置里不再放 ⓘ）。
+  assert.ok(source.indexOf("{renderAboutRow()}") > source.indexOf('t("settings.showBanner")'));
+  assert.match(source, /const renderAboutRow = \(\) => \(\s*<button/);
 });
 
 test("renders a read-only keyboard shortcut section from the shared catalog", () => {

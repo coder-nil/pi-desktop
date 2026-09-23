@@ -14,14 +14,12 @@ import {
 } from "@/lib/changelog";
 
 /**
- * 版本信息图标。侧边栏标题行与设置 → 常规 共用，点击后由上层打开
- * `AboutDialog`——图标本身不持有对话框状态，这样两个入口能复用同一个实例。
- *
- * `outline` 是设置里的圆形描边按钮；`plain` 只有图标本身，给侧边栏标题行用。
+ * 版本信息图标（无边框的 ⓘ）。侧边栏标题行翻出版本号时显示，点击后由上层
+ * 打开 `AboutDialog`——图标本身不持有对话框状态。设置里的「关于」行不用它，
+ * 那一行整行可点，避免同一行出现两个入口。
  */
-export function AboutButton({ onClick, size = 20, variant = "outline" }: { onClick: () => void; size?: number; variant?: "outline" | "plain" }) {
+export function AboutButton({ onClick, size = 20 }: { onClick: () => void; size?: number }) {
   const { t } = useI18n();
-  const plain = variant === "plain";
 
   return (
     <button
@@ -33,28 +31,14 @@ export function AboutButton({ onClick, size = 20, variant = "outline" }: { onCli
         flexShrink: 0,
         display: "inline-flex", alignItems: "center", justifyContent: "center",
         width: size, height: size, padding: 0,
-        border: plain ? "none" : "1px solid var(--border)",
-        borderRadius: plain ? 5 : "50%",
+        border: "none", borderRadius: 5,
         background: "transparent", color: "var(--text-muted)",
         cursor: "pointer",
       }}
-      onMouseEnter={(event) => {
-        event.currentTarget.style.color = "var(--text)";
-        if (!plain) event.currentTarget.style.borderColor = "var(--text-dim)";
-      }}
-      onMouseLeave={(event) => {
-        event.currentTarget.style.color = "var(--text-muted)";
-        if (!plain) event.currentTarget.style.borderColor = "var(--border)";
-      }}
+      onMouseEnter={(event) => { event.currentTarget.style.color = "var(--text)"; }}
+      onMouseLeave={(event) => { event.currentTarget.style.color = "var(--text-muted)"; }}
     >
-      {plain ? (
-        <Info size={Math.round(size * 0.8)} strokeWidth={2} aria-hidden="true" />
-      ) : (
-        <svg width={Math.round(size * 0.55)} height={Math.round(size * 0.55)} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <line x1="12" y1="11" x2="12" y2="17" />
-          <circle cx="12" cy="7.4" r="0.6" fill="currentColor" stroke="none" />
-        </svg>
-      )}
+      <Info size={Math.round(size * 0.8)} strokeWidth={2} aria-hidden="true" />
     </button>
   );
 }

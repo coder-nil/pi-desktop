@@ -7,7 +7,7 @@ import { useGlobalKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { SessionSidebar } from "./SessionSidebar";
 import { ChatWindow } from "./ChatWindow";
 import { TabBar, type Tab } from "./TabBar";
-import { openFileTab, saveFileViewerState } from "./file-tab-state";
+import { openFileTab, markFileTabRevealHandled, saveFileViewerState } from "./file-tab-state";
 import { ProjectTrustDialog } from "./ProjectTrustDialog";
 import { SettingsPanel } from "./SettingsPanel";
 import { AboutDialog } from "./AboutDialog";
@@ -22,6 +22,7 @@ import { useAudio } from "@/hooks/useAudio";
 import { copyText } from "@/lib/clipboard";
 import { getBannerEnabled, setBannerEnabled } from "@/lib/banner-preference";
 import { getFileName } from "@/lib/file-paths";
+import type { FileOpenLocation } from "@/lib/file-links";
 import { buildAtMentionText, buildFileAtMentionsText, buildFileLineMentionText } from "@/lib/file-fuzzy";
 import {
   claimExtensionAttentionNotification,
@@ -971,7 +972,7 @@ export function AppShell() {
   const handleOpenFile = useCallback((
     filePath: string,
     fileName: string,
-    options?: { sourceSessionId?: string | null; modeHint?: "diff" },
+    options?: { sourceSessionId?: string | null; modeHint?: "diff"; line?: number },
   ) => {
     if (!rightPanelOpen && !isMobile && window.matchMedia("(min-width: 960px)").matches) {
       cancelChatScrollPreservationRef.current?.();
@@ -982,11 +983,13 @@ export function AppShell() {
     }
     const sourceSessionId = options?.sourceSessionId;
     const modeHint = options?.modeHint;
+    const line = options?.line;
     const tabId = `file:${filePath}`;
     setFileTabs((prev) => openFileTab(prev, {
       fileName,
       filePath,
       modeHint,
+      line,
       sourceSessionId,
       tabId,
     }));
@@ -996,8 +999,11 @@ export function AppShell() {
     if (isMobile) setSidebarOpen(false);
   }, [isMobile, rightPanelOpen]);
 
-  const handleOpenLinkedFile = useCallback((filePath: string) => {
-    handleOpenFile(filePath, getFileName(filePath), { sourceSessionId: selectedSession?.id ?? null });
+  const handleOpenLinkedFile = useCallback((filePath: string, location?: FileOpenLocation) => {
+    handleOpenFile(filePath, getFileName(filePath), {
+      sourceSessionId: selectedSession?.id ?? null,
+      line: location?.line,
+    });
   }, [handleOpenFile, selectedSession?.id]);
 
   const handleOpenConsole = useCallback(() => {
@@ -2467,6 +2473,8 @@ export function AppShell() {
               gitRefreshKey={explorerRefreshKey}
               initialDisplayMode={activeFileTab.initialDisplayMode}
               initialState={activeFileTab.viewerState}
+              initialLine={activeFileTab.revealLine}
+              onRevealHandled={() => setFileTabs((prev) => markFileTabRevealHandled(prev, activeFileTab.id))}
               watchEnabled={rightPanelOpen}
               onStateChange={(viewerState) => handleFileViewerStateChange(
                 activeFileTab.id,
@@ -2475,10 +2483,10 @@ export function AppShell() {
               )}
               onMentionLines={rightPanelOpen ? handleFileLineMention : undefined}
               onAtMention={handleAtMention}
-              onOpenFile={(filePath) => handleOpenFile(
+              onOpenFile={(filePath, location) => handleOpenFile(
                 filePath,
                 getFileName(filePath),
-                { sourceSessionId: activeFileTab.sourceSessionId },
+                { sourceSessionId: activeFileTab.sourceSessionId, line: location?.line },
               )}
             />
           ) : (

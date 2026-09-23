@@ -40,19 +40,24 @@ test("shows the app version, the pi version and the platform", () => {
 });
 
 test("the info icon opens the dialog instead of the dialog owning state", () => {
-  // 对话框状态在 AppShell，侧边栏与设置里只发一个回调，两处共用同一个实例。
+  // 对话框状态在 AppShell，侧边栏只发一个回调。
   const html = render(React.createElement(AboutButton, { onClick() {} }));
   assert.match(html, /aria-label="Version info"/);
-  assert.match(html, /border-radius:50%/);
-  assert.match(sidebarSource, /\{onAboutClick && \(\s*<AboutButton onClick=\{onAboutClick\} \/>/);
+  // 图标是干净的 lucide ⓘ：没有描边圆框。
+  assert.match(aboutSource, /import \{ Info \} from "lucide-react"/);
+  assert.doesNotMatch(html, /border-radius:50%/);
+  // 侧边栏的 ⓘ 由标题组件自己渲染，且只在标题翻成版本号时出现。
+  assert.match(sidebarSource, /<PiWebTitle onAboutClick=\{onAboutClick\} \/>/);
+  assert.match(sidebarSource, /\{showVersion && onAboutClick && <AboutButton onClick=\{onAboutClick\} \/>\}/);
   assert.match(appShellSource, /onAboutClick=\{\(\) => setAboutOpen\(true\)\}/);
   assert.match(appShellSource, /\{aboutOpen && !settingsOpen && \(\s*<AboutDialog onClose=\{\(\) => setAboutOpen\(false\)\} \/>/);
 });
 
 test("the settings row shows both versions and hosts an embedded dialog", () => {
-  // 常规页里的版本行直接显示版本号，ⓘ 才把变更记录叫出来。
+  // 常规页的版本行直接显示版本号，整行可点打开变更记录；那一行没有 ⓘ。
   assert.match(settingsSource, /t\("settings\.aboutDescription", \{ version: APPLICATION_VERSION, piVersion: PI_VERSION \}\)/);
   assert.match(settingsSource, /\{renderAboutRow\(\)\}/);
+  assert.doesNotMatch(settingsSource, /AboutButton/);
   assert.match(settingsSource, /<AboutDialog embedded onClose=\{\(\) => setAboutOpen\(false\)\} \/>/);
 });
 

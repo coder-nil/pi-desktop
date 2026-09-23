@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -36,6 +37,19 @@ test("keeps local file markdown links in the app", () => {
 
   assert.match(html, /<a href="components\/MarkdownBody\.tsx">file<\/a>/);
   assert.doesNotMatch(html, /target=|rel=|\snode=/);
+});
+
+test("hands the linked line number to the file opener", async () => {
+  const source = await readFile(new URL("./MarkdownBody.tsx", import.meta.url), "utf8");
+
+  // 行号由 file-links 解析，点击时随路径一起交给文件面板。
+  assert.match(source, /resolveLocalFileTarget\(href, cwd\)/);
+  assert.match(source, /openFile\(fileTarget\.filePath, \{ line: fileTarget\.line, column: fileTarget\.column \}\)/);
+
+  // 带行号的本地链接仍然是应用内链接。
+  const html = renderMarkdown("[line](components/AppShell.tsx:42)");
+  assert.match(html, /<a href="components\/AppShell\.tsx:42">line<\/a>/);
+  assert.doesNotMatch(html, /target=|rel=/);
 });
 
 test("renders user XML snippets as literal text", () => {

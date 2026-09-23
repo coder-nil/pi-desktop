@@ -7,6 +7,7 @@ import { normalizeCustomPanelLines, parseAnsiLine } from "@/lib/ansi";
 import { asBracketedPaste, toTerminalKeyData } from "@/lib/terminal-input";
 import { countToolCallBlocks, getAssistantErrorMessage, getDisplayableAssistantBlocks, splitFinalAssistantBlocks } from "@/lib/message-display";
 import { extractTurnWrittenFiles, type WrittenFile } from "@/lib/turn-written-files";
+import type { FileOpenLocation } from "@/lib/file-links";
 import { MessageView } from "./MessageView";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
@@ -49,7 +50,7 @@ interface Props {
    */
   minimapHost?: HTMLDivElement | null;
   onMinimapStateChange?: (state: { visible: boolean; previewOpen: boolean }) => void;
-  onOpenFile?: (filePath: string) => void;
+  onOpenFile?: (filePath: string, location?: FileOpenLocation) => void;
   onOpenConsole?: () => void;
   consoleActive?: boolean;
   /** Completion sound state + controls, owned by AppShell so tasks finishing in

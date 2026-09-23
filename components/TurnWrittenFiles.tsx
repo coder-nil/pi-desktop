@@ -3,6 +3,7 @@
 import { useI18n } from "@/hooks/useI18n";
 import { getFileName } from "@/lib/file-paths";
 import type { WrittenFile } from "@/lib/turn-written-files";
+import type { FileOpenLocation } from "@/lib/file-links";
 import { getFileIcon } from "./FileIcons";
 
 /**
@@ -12,7 +13,7 @@ import { getFileIcon } from "./FileIcons";
  */
 export function TurnWrittenFiles({ files, onOpenFile }: {
   files: WrittenFile[];
-  onOpenFile?: (filePath: string) => void;
+  onOpenFile?: (filePath: string, location?: FileOpenLocation) => void;
 }) {
   const { t } = useI18n();
   if (files.length === 0) return null;

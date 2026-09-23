@@ -8,7 +8,7 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { APPLICATION_VERSION, PI_VERSION } from "@/lib/changelog";
 import { MCP_CATALOG, type McpCatalogEntry } from "@/lib/mcp-catalog";
 import { KEYBOARD_SHORTCUT_GROUPS, KEYBOARD_SHORTCUTS } from "@/lib/keyboard-shortcuts";
-import { AboutButton, AboutDialog } from "./AboutDialog";
+import { AboutDialog } from "./AboutDialog";
 import { ModelsConfig } from "./ModelsConfig";
 import { MobileAccessSettings } from "./MobileAccessSettings";
 import { PluginsConfig } from "./PluginsConfig";
@@ -293,9 +293,21 @@ export function SettingsPanel({ cwd, hasProject, projectTrusted, sessionId, onCl
     </div>
   );
 
-  // 版本信息行：版本号本身在设置里总是可见的，ⓘ 只是把变更记录叫出来。
+  // 版本信息行：版本号本身在设置里总是可见的，整行可点打开嵌入的变更记录。
+  // 这里的 ⓘ 已去掉——那个图标只属于侧边栏标题行的弹窗入口。
   const renderAboutRow = () => (
-    <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 10px", borderBottom: "1px solid var(--border)", marginBottom: 4 }}>
+    <button
+      type="button"
+      onClick={() => setAboutOpen(true)}
+      title={t("about.title")}
+      style={{
+        width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "11px 10px",
+        border: "none", borderBottom: "1px solid var(--border)", marginBottom: 4,
+        background: "transparent", color: "var(--text)", textAlign: "left", cursor: "pointer",
+      }}
+      onMouseEnter={(event) => { event.currentTarget.style.background = "var(--bg-hover)"; }}
+      onMouseLeave={(event) => { event.currentTarget.style.background = "transparent"; }}
+    >
       <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, flexShrink: 0, borderRadius: 7, background: "var(--bg-hover)", color: "var(--text-muted)" }}>
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <circle cx="12" cy="12" r="9" />
@@ -309,8 +321,7 @@ export function SettingsPanel({ cwd, hasProject, projectTrusted, sessionId, onCl
           {t("settings.aboutDescription", { version: APPLICATION_VERSION, piVersion: PI_VERSION })}
         </span>
       </span>
-      <AboutButton onClick={() => setAboutOpen(true)} size={24} />
-    </div>
+    </button>
   );
 
   const visibleMcpServers = MCP_CATALOG.filter((preset) => {
@@ -355,7 +366,9 @@ export function SettingsPanel({ cwd, hasProject, projectTrusted, sessionId, onCl
         if (event.target === event.currentTarget) onClose();
       }}
       style={{
-        position: "fixed", inset: 0, zIndex: 1050, display: "flex", alignItems: "center", justifyContent: "center",
+        // 设置面板是全局最高层：必须压过关于对话框(1200)、SelectPicker(1201)、
+        // Git 面板与各确认框(1100/1200)，否则聊天区里残留的下拉或面板会盖在它上面。
+        position: "fixed", inset: 0, zIndex: 1300, display: "flex", alignItems: "center", justifyContent: "center",
         padding: isMobile ? 8 : 16, background: "rgba(0,0,0,0.32)",
       }}
     >
@@ -450,7 +463,6 @@ export function SettingsPanel({ cwd, hasProject, projectTrusted, sessionId, onCl
                 <div style={{ width: "min(720px, 100%)", padding: "8px 10px 18px" }}>
                   {renderThemeRow()}
                   {renderLanguageRow()}
-                  {renderAboutRow()}
                   <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 10px", borderBottom: "1px solid var(--border)", marginBottom: 4 }}>
                     <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, flexShrink: 0, borderRadius: 7, background: "var(--bg-hover)", color: "var(--text-muted)" }}>
                       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" /><path d="M15.54 8.46a5 5 0 0 1 0 7.07" /></svg>
@@ -475,6 +487,8 @@ export function SettingsPanel({ cwd, hasProject, projectTrusted, sessionId, onCl
                       <span style={{ display: "block", width: 18, height: 18, borderRadius: "50%", background: "white", transform: bannerEnabled ? "translateX(16px)" : "translateX(0)", transition: "transform 0.15s" }} />
                     </button>
                   </div>
+                  {/* 「关于」固定在常规页最底部。 */}
+                  {renderAboutRow()}
                 </div>
               </section>
             )}

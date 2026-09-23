@@ -74,3 +74,13 @@ test("the active viewer restores tab state and saves it with a revision", () => 
 test("closing the file panel pauses the active viewer watcher", () => {
   assert.match(fileContentBlock(), /watchEnabled=\{rightPanelOpen\}/);
 });
+
+test("routes a linked line number into the opened file tab", () => {
+  // 聊天里的 `path:12` 链接带着行号到达文件面板，标签页重挂载一次以执行定位。
+  assert.match(source, /const handleOpenLinkedFile = useCallback\(\(filePath: string, location\?: FileOpenLocation\)/);
+  assert.match(source, /sourceSessionId: selectedSession\?\.id \?\? null,\s*\n\s*line: location\?\.line,/);
+  assert.match(source, /const line = options\?\.line;/);
+  assert.match(source, /modeHint,\s*\n\s*line,\s*\n\s*sourceSessionId,/);
+  assert.match(source, /initialLine=\{activeFileTab\.revealLine\}/);
+  assert.match(source, /onRevealHandled=\{\(\) => setFileTabs\(\(prev\) => markFileTabRevealHandled\(prev, activeFileTab\.id\)\)\}/);
+});

@@ -12,6 +12,8 @@ export interface Tab {
   kind?: "file" | "console";
   sourceSessionId?: string | null;
   initialDisplayMode?: FileViewerDisplayMode;
+  /** 链接指定的行：查看器首次加载后跳到这里。 */
+  revealLine?: number;
   viewerState?: FileViewerState;
   viewerRevision?: number;
 }

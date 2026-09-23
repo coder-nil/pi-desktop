@@ -89,3 +89,20 @@ test("markdown table tokens stay inline despite Tailwind's table utility", () =>
   assert.match(html, /class="token table[ "]/);
   assert.match(cssSource, /span\.token\.table\s*\{[^}]*display:\s*inline;/);
 });
+
+test("TextFileViewer reveals the line a file link pointed at", () => {
+  const block = functionBlock("TextFileViewer", null);
+
+  assert.match(block, /pendingRevealLineRef = useRef<number \| null>\(initialLine \?\? null\)/);
+  assert.match(block, /content\.querySelector<HTMLElement>\(`\[data-line-number="\$\{targetLine\}"\]`\)/);
+  // 定位后把滚动位置写回 tab 状态，否则切回标签页会回到旧位置。
+  assert.match(block, /viewerStateRef\.current\.scrollTop = content\.scrollTop/);
+  assert.match(block, /setFlashLine\(targetLine\)/);
+  assert.match(block, /onRevealHandledRef\.current\?\.\(\)/);
+
+  // 高亮行由行渲染器打标记，预览/差异视图没有对应的行号坐标系。
+  assert.match(source, /data-flash-line=\{isFlashLine \? "true" : undefined\}/);
+  assert.match(block, /displayMode !== "source"/);
+  assert.match(source, /initialLine=\{initialLine\}/);
+  assert.match(source, /onRevealHandled=\{onRevealHandled\}/);
+});
