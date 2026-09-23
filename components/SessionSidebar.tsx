@@ -17,6 +17,7 @@ import {
 import { getFileName } from "@/lib/file-paths";
 import type { SessionSearchMatch } from "@/lib/session-search";
 import { useI18n } from "@/hooks/useI18n";
+import { AboutButton } from "./AboutDialog";
 import { DirectoryPicker } from "./DirectoryPicker";
 import { FileExplorer, type FileExplorerHandle } from "./FileExplorer";
 import { BranchPicker } from "./BranchPicker";
@@ -121,6 +122,8 @@ interface Props {
   /** Update notification shown in the sidebar title row */
   appUpdate?: AppUpdateResponse | null;
   onAppUpdateClick?: () => void;
+  /** 版本信息（ⓘ）：标题后的小图标，点击打开关于对话框。 */
+  onAboutClick?: () => void;
   onHideSidebar?: () => void;
   openDirectoryRequest?: number;
 }
@@ -391,9 +394,10 @@ function useScramble(target: string, running: boolean): string {
   return display;
 }
 
-function PiWebTitle() {
+function PiWebTitle({ onAboutClick }: { onAboutClick?: () => void }) {
   const [showVersion, setShowVersion] = useState(false);
   const [scrambling, setScrambling] = useState(false);
+  const [hovered, setHovered] = useState(false);
   const revertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const target = showVersion ? (process.env.NEXT_PUBLIC_APP_VERSION ?? "dev") : "Pi Desktop";
@@ -407,34 +411,42 @@ function PiWebTitle() {
 
   const handleClick = useCallback(() => {
     if (revertTimerRef.current) clearTimeout(revertTimerRef.current);
-
-    const next = !showVersion;
-    triggerScramble(next);
-
-    if (next) {
-      revertTimerRef.current = setTimeout(() => triggerScramble(false), 3000);
-    }
+    triggerScramble(!showVersion);
   }, [showVersion, triggerScramble]);
 
-  useEffect(() => () => { if (revertTimerRef.current) clearTimeout(revertTimerRef.current); }, []);
+  // 版本号 3 秒后退回标题；鼠标停在标题行上（正在看版本号、准备点 ⓘ）时不退回。
+  useEffect(() => {
+    if (!showVersion || hovered) return;
+    revertTimerRef.current = setTimeout(() => triggerScramble(false), 3000);
+    return () => {
+      if (revertTimerRef.current) clearTimeout(revertTimerRef.current);
+    };
+  }, [showVersion, hovered, triggerScramble]);
 
   return (
-    <button
-      onClick={handleClick}
-      style={{
-        background: "none", border: "none", padding: 0, cursor: "default",
-        fontWeight: 700, fontSize: 15, letterSpacing: "-0.01em",
-        color: showVersion ? "var(--accent)" : "var(--text)",
-        fontFamily: "var(--font-mono)",
-        minWidth: "6ch",
-      }}
+    <span
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{ display: "inline-flex", alignItems: "center", gap: 6, minWidth: 0 }}
     >
-      {display}
-    </button>
+      <button
+        onClick={handleClick}
+        style={{
+          background: "none", border: "none", padding: 0, cursor: "default",
+          fontWeight: 700, fontSize: 15, letterSpacing: "-0.01em",
+          color: showVersion ? "var(--accent)" : "var(--text)",
+          fontFamily: "var(--font-mono)",
+          minWidth: "6ch",
+        }}
+      >
+        {display}
+      </button>
+      {showVersion && onAboutClick && <AboutButton onClick={onAboutClick} variant="plain" />}
+    </span>
   );
 }
 
-export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onProjectGitStateChange, onGenerateTitle, titleGenerationStatus, appUpdate, onAppUpdateClick, onHideSidebar, openDirectoryRequest }: Props) {
+export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onProjectGitStateChange, onGenerateTitle, titleGenerationStatus, appUpdate, onAppUpdateClick, onAboutClick, onHideSidebar, openDirectoryRequest }: Props) {
   const { t } = useI18n();
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1316,7 +1328,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         }}
       >
         <div style={{ display: "flex", alignItems: "center", marginBottom: 10, gap: 6 }}>
-          <PiWebTitle />
+          <PiWebTitle onAboutClick={onAboutClick} />
           {appUpdate && onAppUpdateClick && appUpdate.updateAvailable && (
             <button
               type="button"

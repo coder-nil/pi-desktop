@@ -286,6 +286,39 @@ function SegmentedScope({
   );
 }
 
+function formatDownloadCount(value: number): string {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(value >= 10_000_000 ? 0 : 1)}M`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(value >= 100_000 ? 0 : 1)}K`;
+  return String(value);
+}
+
+function PluginUsageBadge({ plugin }: { plugin: PluginCatalogEntry }) {
+  const { t } = useI18n();
+  const monthly = plugin.monthlyDownloads;
+  const weekly = plugin.weeklyDownloads;
+  if (typeof monthly !== "number" && typeof weekly !== "number") return null;
+  const label = typeof monthly === "number"
+    ? t("i18n.pluginMonthlyInstalls", { count: formatDownloadCount(monthly) })
+    : t("i18n.pluginWeeklyInstalls", { count: formatDownloadCount(weekly as number) });
+  return (
+    <span
+      title={typeof monthly === "number"
+        ? t("i18n.pluginUsageTitle", { count: monthly.toLocaleString() })
+        : t("i18n.pluginUsageWeeklyTitle", { count: (weekly as number).toLocaleString() })}
+      style={{
+        display: "inline-flex", alignItems: "center", gap: 3, flexShrink: 0,
+        padding: "1px 5px", borderRadius: 4, fontSize: 10,
+        color: "var(--text-muted)", background: "var(--bg-hover)", border: "1px solid var(--border)",
+      }}
+    >
+      <svg width="9" height="9" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M8 2v8" /><path d="M4.5 7.5 8 11l3.5-3.5" /><path d="M2.5 13.5h11" />
+      </svg>
+      {label}
+    </span>
+  );
+}
+
 function PluginCatalogPanel({
   scope,
   onScopeChange,
@@ -472,6 +505,7 @@ function PluginCatalogPanel({
                   <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
                     <span style={{ fontFamily: "var(--font-mono)", fontSize: 13, fontWeight: 650, color: "var(--text)" }}>{plugin.name}</span>
                     {plugin.version && <span style={{ fontSize: 10, color: "var(--text-dim)" }}>v{plugin.version}</span>}
+                    <PluginUsageBadge plugin={plugin} />
                   </div>
                   <div style={{ marginTop: 5, fontSize: 12, color: "var(--text)", lineHeight: 1.45 }}>
                     {localizedDescription ?? (

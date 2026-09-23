@@ -10,6 +10,7 @@ import { TabBar, type Tab } from "./TabBar";
 import { openFileTab, saveFileViewerState } from "./file-tab-state";
 import { ProjectTrustDialog } from "./ProjectTrustDialog";
 import { SettingsPanel } from "./SettingsPanel";
+import { AboutDialog } from "./AboutDialog";
 import { BranchNavigator, ConversationBranchesIcon } from "./BranchNavigator";
 import { GitPanel } from "./GitPanel";
 import { useTheme, resolveTheme, setThemeState } from "@/hooks/useTheme";
@@ -157,6 +158,8 @@ export function AppShell() {
   const [explorerRefreshKey, setExplorerRefreshKey] = useState(0);
   const [modelsRefreshKey, setModelsRefreshKey] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  /** 版本信息（ⓘ）。侧边栏标题行与设置 → 常规 共用同一个对话框。 */
+  const [aboutOpen, setAboutOpen] = useState(false);
   const [bannerEnabled, setBannerEnabledState] = useState(true);
   const [gitPanelOpen, setGitPanelOpen] = useState(false);
   const [activeProjectIsGit, setActiveProjectIsGit] = useState<boolean | null>(null);
@@ -1150,6 +1153,7 @@ export function AppShell() {
         titleGenerationStatus={autoNameStatus.kind === "idle" ? null : autoNameStatus}
         appUpdate={appUpdate}
         onAppUpdateClick={openAppUpdate}
+        onAboutClick={() => setAboutOpen(true)}
         onHideSidebar={handleSidebarToggle}
         openDirectoryRequest={openDirectoryRequest}
       />
@@ -2518,6 +2522,10 @@ export function AppShell() {
         onLocaleChange={(next: string) => setLocale(next as typeof locale)}
         supportedLocales={supportedLocales.map((plugin) => ({ id: plugin.id, label: plugin.label }))}
       />
+    )}
+    {/* 独立入口：从侧边栏标题行的 ⓘ 打开（设置面板里另有一个嵌入实例）。 */}
+    {aboutOpen && !settingsOpen && (
+      <AboutDialog onClose={() => setAboutOpen(false)} />
     )}
     {projectTrustDialogOpen && projectTrustCwd && (
       <ProjectTrustDialog

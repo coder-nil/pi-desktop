@@ -12,6 +12,8 @@ const next = args.includes('--next');
 const setIndex = args.indexOf('--set');
 let requestedVersion = setIndex === -1 ? undefined : args[setIndex + 1];
 const problems = [];
+/** 上一次 `--check` 的 changelog 校验结果；JSON 的修复流程要等它之后才能收尾。 */
+let changelogOutOfDate = false;
 
 if (check && requestedVersion) throw new Error('Use either --check or --set, not both.');
 if (next && (check || setIndex !== -1)) throw new Error('Use --next on its own.');
@@ -105,12 +107,29 @@ for (const path of ['src-tauri/Cargo.toml', 'src-tauri/Cargo.lock']) {
 if (existsSync(resolve(root, 'CHANGELOG.md'))) {
   update('CHANGELOG.md', addChangelogSection, `CHANGELOG.md (missing section for ${version})`);
 }
+// `data/changelog.json` 是「关于」对话框读取的变更记录，由 CHANGELOG.md 生成。
+// 非 --check 时先同步一次（--set / --next 可能刚插入一个空的小节），再看它是否仍过期。
+const changelogCheck = () => spawnSync(
+  process.execPath,
+  [resolve(root, 'scripts/sync-changelog.mjs'), '--check'],
+  { encoding: 'utf8' },
+);
+if (existsSync(resolve(root, 'CHANGELOG.md'))) {
+  if (!check) spawnSync(process.execPath, [resolve(root, 'scripts/sync-changelog.mjs')], { stdio: 'inherit' });
+  if (changelogCheck().status !== 0) {
+    changelogOutOfDate = true;
+    if (check) problems.push('data/changelog.json (out of date)');
+  }
+}
 const tag = process.env.RELEASE_TAG || (process.env.GITHUB_REF_TYPE === 'tag' ? process.env.GITHUB_REF_NAME : undefined);
 if (check && tag && tag !== `v${version}`) problems.push(`release tag ${tag} (expected v${version})`);
 if (problems.length) {
   throw new Error(`Version mismatch: ${problems.join(', ')}. Run npm run version:sync.`);
 }
 console.log(`${check ? 'Verified' : 'Synchronized'} application version ${version}`);
+if (changelogOutOfDate) {
+  console.log('CHANGELOG.md: fill in the release notes, then run `npm run changelog:sync`.');
+}
 if (next) {
   console.log('CHANGELOG.md: add the release notes to the new section before committing.');
   const verify = spawnSync(process.execPath, [script, '--check'], { stdio: 'inherit', env: process.env });

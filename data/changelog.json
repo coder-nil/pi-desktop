@@ -1,0 +1,425 @@
+[
+  {
+    "version": "0.87.1-alpha.15",
+    "date": "2026-09-23",
+    "sections": [
+      {
+        "title": "Changed",
+        "kind": "changed",
+        "items": [
+          "Pi SDK 升级到 0.87.1（`@earendil-works/pi-agent-core` / `pi-ai` / `pi-coding-agent` / `pi-tui`，0.85.1 → 0.87.1）。",
+          "`agent.state.systemPrompt` 自 0.86 起变为只读 getter（改由会话 transcript 的首条 system 消息回放），赋值会抛 `TypeError`。改为在读取 `get_state` 与系统提示面板时计算生效值；界面语言指令仍通过 `before_agent_start` 扩展下发给模型，行为不变。",
+          "应用、npm、Tauri 和 Cargo 版本号统一为 `0.87.1-alpha.15`。"
+        ]
+      },
+      {
+        "title": "Fixed",
+        "kind": "fixed",
+        "items": [
+          "修复升级到 Pi 0.87 后无法创建会话的问题（写入只读的 `systemPrompt` 触发 `TypeError`）。",
+          "隐藏 Pi 0.86 起写入会话 transcript 的 `role: \"system\"` 条目（系统提示、工具清单与 sections 补丁）：不再出现在聊天记录、手机遥控页、滚动缩略图和分支导航的标签与预览中。"
+        ]
+      }
+    ]
+  },
+  {
+    "version": "0.85.1-alpha.14",
+    "date": "2026-09-22",
+    "sections": [
+      {
+        "title": "Added",
+        "kind": "added",
+        "items": [
+          "新增 `npm run version:next`：自动推导下一个版本号（`0.85.1-alpha.13` → `0.85.1-alpha.14`、`1.2.3` → `1.2.4`、`1.2.3-beta` → `1.2.3-beta.1`），同步全部派生版本字段后自动复跑一次校验。",
+          "侧边栏标记等待用户回答的项目：阻塞中的扩展 UI 请求（如 `ask_user`）随运行状态广播同步，项目选择框与下拉项目行显示人声图标与数量。",
+          "Windows 上没有 Git Bash 时回退到 PowerShell：bash 工具槽统一解析为实际可用的 shell，创建会话、切换工具预设与执行命令保持一致。"
+        ]
+      },
+      {
+        "title": "Changed",
+        "kind": "changed",
+        "items": [
+          "`version:next` / `version:set` / `version:sync` 在 `CHANGELOG.md` 缺少当前版本小节时插入 `## [<version>] - <date>` 与版本统一说明；已有小节保持只读，`version:check` 同步校验该小节是否存在。",
+          "应用、npm、Tauri 和 Cargo 版本号统一为 `0.85.1-alpha.14`。"
+        ]
+      },
+      {
+        "title": "Fixed",
+        "kind": "fixed",
+        "items": [
+          "修复 Git 面板同步计数颠倒：修正 ahead/behind 计算顺序，改用带图标的同步状态标签展示数量。",
+          "修复桌面前端静态导出时 `app/m` 动态页面导致的构建失败：导出前临时移出该目录、结束后恢复，并校验产物中不存在 `m` / `m.*`。",
+          "修复桌面前端构建残留旧路由表导致的 `TS2307`：构建前循环清理 `.next/dev` 与 `.next-desktop-dev/dev` 两个 dev 类型目录。"
+        ]
+      }
+    ]
+  },
+  {
+    "version": "0.85.1-alpha.13",
+    "date": "2026-09-22",
+    "sections": [
+      {
+        "title": "Added",
+        "kind": "added",
+        "items": [
+          "手机遥控页支持公网访问：新增公网入口开关、域名自动发现与隧道状态展示，桌面设置与手机配对共用同一个二维码，并支持已保存密码的掩码显示与访问日志查看。",
+          "手机在同 Wi-Fi 下自动切回局域网地址：新增服务端来源判定与一次性跳转页，外网访问保留继续入口。",
+          "Git 面板的提交信息改为流式生成并逐字显示：新增 NDJSON 流式响应（更新 / 完成 / 错误），生成过程中保留错误反馈。",
+          "「全部丢弃」改为真正恢复工作区：重置暂存区、还原已跟踪文件并清理未跟踪文件；确认框改为应用内对话框，按名单列出将被删除的未跟踪文件。",
+          "新增 `docs/mobile-public-access.md` 与中文版，说明 `/m` 从同一 Wi-Fi 扩展到任意网络的方案、安全项与 Cloudflare Tunnel 操作手册。"
+        ]
+      },
+      {
+        "title": "Changed",
+        "kind": "changed",
+        "items": [
+          "侧边栏会话项排版调整：会话行改为 50px 可视高度加 2px 间距，选中/删除态由 `border-left` 改为 `inset box-shadow`，悬浮操作按钮改为右侧浮层并用渐变遮罩替代硬边裁切。",
+          "移除侧边栏右侧边框，为会话列表补充上下内边距。",
+          "应用、npm、Tauri 和 Cargo 版本号统一为 `0.85.1-alpha.13`。"
+        ]
+      },
+      {
+        "title": "Fixed",
+        "kind": "fixed",
+        "items": [
+          "修复 Git 面板「全部丢弃」在没有可丢弃的已跟踪改动时仍然显示的问题。",
+          "修复手机查看入口的显示时机：会话未就绪时不再提前渲染入口按钮。"
+        ]
+      }
+    ]
+  },
+  {
+    "version": "0.85.1-alpha.12",
+    "date": "2026-09-20",
+    "sections": [
+      {
+        "title": "Added",
+        "kind": "added",
+        "items": [
+          "重做手机遥控页：同步、折叠、历史与「加载更早」重新实现，思考过程与工具调用按桌面措辞分组展示。",
+          "手机端扩展 UI 请求：`ask_user` 等阻塞请求可以同步到手机并在手机作答，与桌面共用同一份回答（谁先答谁生效）。",
+          "移动端悬浮工具栏恢复主题与语言入口；侧边栏更新按钮恢复版本号提示。"
+        ]
+      },
+      {
+        "title": "Changed",
+        "kind": "changed",
+        "items": [
+          "聊天最小化地图改为独立列：从聊天窗口内部挪到与侧边栏同级，宽度单独动画，聊天列用布局让出 36px。",
+          "优化最小地图节点布局算法。",
+          "应用、npm、Tauri 和 Cargo 版本号统一为 `0.85.1-alpha.12`。"
+        ]
+      },
+      {
+        "title": "Fixed",
+        "kind": "fixed",
+        "items": [
+          "修复 route 模块导出非 HTTP 方法导致的构建报错。",
+          "修正 5 处与实现脱节的断言。"
+        ]
+      }
+    ]
+  },
+  {
+    "version": "0.85.1-alpha.11",
+    "date": "2026-09-17",
+    "sections": [
+      {
+        "title": "Added",
+        "kind": "added",
+        "items": [
+          "模型目录支持 SDK 内置模型，并新增模型输入能力配置（文本 / 图片等）。"
+        ]
+      },
+      {
+        "title": "Changed",
+        "kind": "changed",
+        "items": [
+          "配置界面并入设置面板，移除独立的配置组件。",
+          "优化模型配置组件的类型定义与逻辑处理。",
+          "任务进度展示优化，并加载用户 Shell 环境。",
+          "应用、npm、Tauri 和 Cargo 版本号统一为 `0.85.1-alpha.11`。"
+        ]
+      },
+      {
+        "title": "Fixed",
+        "kind": "fixed",
+        "items": [
+          "修复 macOS 上按方向键时被当作功能键输入的问题。"
+        ]
+      }
+    ]
+  },
+  {
+    "version": "0.85.1-alpha.10",
+    "date": "2026-09-16",
+    "sections": [
+      {
+        "title": "Added",
+        "kind": "added",
+        "items": [
+          "新增桌面任务进度工具，可在桌面端看到 agent 的任务清单。",
+          "支持用户提示词（user prompts）与凭据代理（credential broker）。",
+          "Git 面板支持编辑远程仓库 URL。"
+        ]
+      },
+      {
+        "title": "Changed",
+        "kind": "changed",
+        "items": [
+          "改进 Git 面板与文件查看器交互。",
+          "应用、npm、Tauri 和 Cargo 版本号统一为 `0.85.1-alpha.10`。"
+        ]
+      }
+    ]
+  },
+  {
+    "version": "0.85.1-alpha.9",
+    "date": "2026-09-12",
+    "sections": [
+      {
+        "title": "Added",
+        "kind": "added",
+        "items": [
+          "流式输入栏重构为队列菜单，并新增队列发送模式快捷键。"
+        ]
+      },
+      {
+        "title": "Changed",
+        "kind": "changed",
+        "items": [
+          "预加载文件查看器与配置组件，减少首次打开等待。",
+          "应用、npm、Tauri 和 Cargo 版本号统一为 `0.85.1-alpha.9`。"
+        ]
+      },
+      {
+        "title": "Fixed",
+        "kind": "fixed",
+        "items": [
+          "修复文件查看器懒加载状态与面板切换时的显示问题。"
+        ]
+      }
+    ]
+  },
+  {
+    "version": "0.85.1-alpha.8",
+    "date": "2026-09-11",
+    "sections": [
+      {
+        "title": "Added",
+        "kind": "added",
+        "items": [
+          "集中式应用版本同步：`package.json` 成为唯一真源，`npm run version:sync` / `version:check` 统一派生字段。",
+          "新增 macOS DMG 启动修复辅助脚本。"
+        ]
+      },
+      {
+        "title": "Changed",
+        "kind": "changed",
+        "items": [
+          "应用、npm、Tauri 和 Cargo 版本号统一为 `0.85.1-alpha.8`。"
+        ]
+      }
+    ]
+  },
+  {
+    "version": "0.85.1-alpha.7",
+    "date": "2026-09-09",
+    "sections": [
+      {
+        "title": "Added",
+        "kind": "added",
+        "items": [
+          "新增文件定位功能：可从聊天里的文件引用直接跳到文件查看器对应位置。",
+          "新增版本同步脚本及其单元测试。"
+        ]
+      },
+      {
+        "title": "Changed",
+        "kind": "changed",
+        "items": [
+          "移除 Mermaid 区块的边框与阴影。",
+          "应用、npm、Tauri 和 Cargo 版本号统一为 `0.85.1-alpha.7`。"
+        ]
+      }
+    ]
+  },
+  {
+    "version": "0.84.2-alpha.6",
+    "date": "2026-09-09",
+    "sections": [
+      {
+        "title": "Added",
+        "kind": "added",
+        "items": [
+          "Git 面板新增「全部丢弃」操作。"
+        ]
+      },
+      {
+        "title": "Changed",
+        "kind": "changed",
+        "items": [
+          "优化 macOS 签名流程，并改进语法高亮主题。",
+          "应用、npm、Tauri 和 Cargo 版本号统一为 `0.84.2-alpha.6`。"
+        ]
+      },
+      {
+        "title": "Fixed",
+        "kind": "fixed",
+        "items": [
+          "修正 README 中的截图链接路径。"
+        ]
+      }
+    ]
+  },
+  {
+    "version": "0.84.2-alpha.5",
+    "date": "2026-09-08",
+    "sections": [
+      {
+        "title": "Added",
+        "kind": "added",
+        "items": [
+          "集成桌面终端，新增模拟控制台功能。",
+          "Git 面板新增「全部丢弃」入口，侧边栏加入主题与语言设置。",
+          "项目持久化与应用更新检查。"
+        ]
+      },
+      {
+        "title": "Changed",
+        "kind": "changed",
+        "items": [
+          "移除启动遮罩层，重新整理键盘快捷键。",
+          "应用、npm、Tauri 和 Cargo 版本号统一为 `0.84.2-alpha.5`。"
+        ]
+      },
+      {
+        "title": "Fixed",
+        "kind": "fixed",
+        "items": [
+          "修复最小地图定位与布局缝隙。",
+          "修复应用更新按钮的显示逻辑。",
+          "修复 Git 面板文件列表滚动与中文文案。",
+          "修复桌面版构建缺少运行时资源的问题。"
+        ]
+      }
+    ]
+  },
+  {
+    "version": "0.84.2-alpha.4",
+    "date": "2026-09-06",
+    "sections": [
+      {
+        "title": "Added",
+        "kind": "added",
+        "items": [
+          "AppShell 新增横幅显示控制。",
+          "系统提示词支持多语言，并支持禁用行号选择。"
+        ]
+      },
+      {
+        "title": "Changed",
+        "kind": "changed",
+        "items": [
+          "聊天输入组件结构重构（导入与布局）。",
+          "移除聊天输入栏中的声音切换与上下文压缩入口。",
+          "移除检查点恢复功能，优化技能菜单高度计算。",
+          "应用、npm、Tauri 和 Cargo 版本号统一为 `0.84.2-alpha.4`。"
+        ]
+      }
+    ]
+  },
+  {
+    "version": "0.84.2-alpha.3",
+    "date": "2026-09-01",
+    "sections": [
+      {
+        "title": "Added",
+        "kind": "added",
+        "items": [
+          "新增项目管理功能与通知系统。",
+          "新增设置面板，重构配置界面。",
+          "支持桌面通知。",
+          "新增系统时间工具扩展。",
+          "新增结构化诊断日志。",
+          "技能使用统计与缓存。"
+        ]
+      },
+      {
+        "title": "Changed",
+        "kind": "changed",
+        "items": [
+          "统一组件库，并补充键盘快捷键支持。",
+          "桌面开发环境支持与构建配置优化。",
+          "应用、npm、Tauri 和 Cargo 版本号统一为 `0.84.2-alpha.3`。"
+        ]
+      },
+      {
+        "title": "Fixed",
+        "kind": "fixed",
+        "items": [
+          "修复用户消息中的 XML / HTML 显示与快捷键逻辑。",
+          "修复会话路径缓存失效，并加入自动重试。"
+        ]
+      }
+    ]
+  },
+  {
+    "version": "0.84.2-alpha.2",
+    "date": "2026-08-27",
+    "sections": [
+      {
+        "title": "Added",
+        "kind": "added",
+        "items": [
+          "聊天最小化预览与会话搜索。",
+          "应用更新检查与访问认证。",
+          "支持手动触发指定标签的桌面构建。",
+          "技能使用统计和缓存。"
+        ]
+      },
+      {
+        "title": "Changed",
+        "kind": "changed",
+        "items": [
+          "项目名称由 Pi Web 统一为 Pi Desktop。",
+          "重构聊天输入组件，支持标签选择与命令分类。",
+          "README 改为引导从 Releases 安装，并保留原始仓库归属说明。"
+        ]
+      },
+      {
+        "title": "Fixed",
+        "kind": "fixed",
+        "items": [
+          "Windows 打包与 CI：按架构拆分构建、以目录形式打包运行时、用 tar 解压 Node 运行时、NSIS 打包重试。",
+          "侧边栏自定义路径默认回到用户主目录或当前项目。"
+        ]
+      }
+    ]
+  },
+  {
+    "version": "0.84.2-aphla.1",
+    "date": "2026-08-22",
+    "sections": [
+      {
+        "title": "Added",
+        "kind": "added",
+        "items": [
+          "Tauri 2 桌面外壳，集成 Next.js standalone 服务输出。",
+          "平台化图标与应用资源生成。",
+          "桌面启动错误处理与启动骨架屏。",
+          "Git 面板与检查点功能。",
+          "聊天窗口右侧边栏区域。",
+          "桌面构建流水线（macOS ARM64 / Intel、Windows x64、Linux x64）。"
+        ]
+      },
+      {
+        "title": "Changed",
+        "kind": "changed",
+        "items": [
+          "项目名称从 Pi Web 更新为 Pi Desktop。"
+        ]
+      }
+    ]
+  }
+]

@@ -13,6 +13,8 @@ const distDir = isDesktopFrontendBuild
     : ".next";
 let piVersion = "unknown";
 let packageVersion = "0.0.0";
+/** 仓库的发布页前缀，与 `src-tauri` 里 `open_release_url` 的白名单一致。 */
+const APP_RELEASES_PREFIX = "https://github.com/coder-nil/pi-desktop/releases";
 try {
   const piPkgPath = join(configDir, "node_modules/@earendil-works/pi-coding-agent/package.json");
   piVersion = (JSON.parse(readFileSync(piPkgPath, "utf8")) as { version: string }).version;
@@ -36,6 +38,10 @@ const nextConfig: NextConfig = {
       "node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/assets/*.png",
       "node_modules/@earendil-works/pi-coding-agent/dist/core/export-html/template.*",
       "node_modules/@earendil-works/pi-coding-agent/dist/core/export-html/vendor/*.js",
+      // `CHANGELOG.md` 在构建期解析成 `data/changelog.json` 并被打进包里，
+      // 但它是通过 JSON import 进来的，standalone 追踪不一定跟着复制，
+      // 缺了它关于对话框就只剩版本号。
+      "data/changelog.json",
     ],
   },
   images: { unoptimized: true },
@@ -74,10 +80,13 @@ const nextConfig: NextConfig = {
     ];
   },
   env: {
-    // Keep the UI's branded release label independent from the npm/Tauri semver.
+// Keep the UI's branded release label independent from the npm/Tauri semver.
     NEXT_PUBLIC_APP_VERSION: packageVersion,
     NEXT_PUBLIC_PACKAGE_VERSION: packageVersion,
     NEXT_PUBLIC_PI_VERSION: piVersion,
+    // 关于对话框里「版本信息」的数据源，与 POST /api/app-update 使用的
+    // `/api/app-update` 发布页地址保持一致。
+    NEXT_PUBLIC_APP_RELEASES_URL: `${APP_RELEASES_PREFIX}?per_page=20`,
   },
 };
 

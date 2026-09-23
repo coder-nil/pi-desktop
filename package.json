@@ -1,6 +1,6 @@
 {
   "name": "@coder-nil/pi-desktop",
-  "version": "0.85.1-alpha.14",
+  "version": "0.87.1-alpha.15",
   "description": "Desktop for the pi coding agent",
   "homepage": "https://github.com/coder-nil/pi-desktop#readme",
   "repository": {
@@ -53,7 +53,9 @@
     "version:next": "node scripts/sync-version.mjs --next",
     "version:set": "node scripts/sync-version.mjs --set",
     "version:sync": "node scripts/sync-version.mjs",
-    "version:check": "node scripts/sync-version.mjs --check"
+    "version:check": "node scripts/sync-version.mjs --check",
+    "changelog:sync": "node scripts/sync-changelog.mjs",
+    "changelog:check": "node scripts/sync-changelog.mjs --check"
   },
   "allowScripts": {
     "@google/genai@1.52.0": true,

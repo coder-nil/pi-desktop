@@ -5,8 +5,10 @@ import McpIcon from "@lobehub/icons/es/MCP/components/Mono";
 import { Blocks, Cpu, Keyboard, Layers3, Settings2, Smartphone } from "lucide-react";
 import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { APPLICATION_VERSION, PI_VERSION } from "@/lib/changelog";
 import { MCP_CATALOG, type McpCatalogEntry } from "@/lib/mcp-catalog";
 import { KEYBOARD_SHORTCUT_GROUPS, KEYBOARD_SHORTCUTS } from "@/lib/keyboard-shortcuts";
+import { AboutButton, AboutDialog } from "./AboutDialog";
 import { ModelsConfig } from "./ModelsConfig";
 import { MobileAccessSettings } from "./MobileAccessSettings";
 import { PluginsConfig } from "./PluginsConfig";
@@ -57,6 +59,7 @@ export function SettingsPanel({ cwd, hasProject, projectTrusted, sessionId, onCl
   const { t } = useI18n();
   const isMobile = useIsMobile();
   const [view, setView] = useState<SettingsView>("menu");
+  const [aboutOpen, setAboutOpen] = useState(false);
   const [visitedSections, setVisitedSections] = useState<Set<SettingsSection>>(() => new Set(["general"]));
   const [mcpQuery, setMcpQuery] = useState("");
   const [mcpServers, setMcpServers] = useState<Set<string>>(() => new Set());
@@ -76,14 +79,16 @@ export function SettingsPanel({ cwd, hasProject, projectTrusted, sessionId, onCl
       if (event.key !== "Escape") return;
       event.preventDefault();
       event.stopPropagation();
-      if (document.querySelector('[data-settings-subdialog="true"]')) return;
+      // 子对话框（关于变更记录）自己监听 Escape 并关闭自己。这里直接返回，
+      // 否则一次按键会连带把设置面板也退一层。
+      if (aboutOpen) return;
       if (view === "mcp-editor") setView("mcp");
       else if (isMobile && view !== "menu") setView("menu");
       else onClose();
     };
     document.addEventListener("keydown", handleKeyDown, true);
     return () => document.removeEventListener("keydown", handleKeyDown, true);
-  }, [isMobile, onClose, view]);
+  }, [aboutOpen, isMobile, onClose, view]);
 
   useEffect(() => {
     if (view !== "mcp" || !cwd) return;
@@ -288,6 +293,26 @@ export function SettingsPanel({ cwd, hasProject, projectTrusted, sessionId, onCl
     </div>
   );
 
+  // 版本信息行：版本号本身在设置里总是可见的，ⓘ 只是把变更记录叫出来。
+  const renderAboutRow = () => (
+    <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 10px", borderBottom: "1px solid var(--border)", marginBottom: 4 }}>
+      <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, flexShrink: 0, borderRadius: 7, background: "var(--bg-hover)", color: "var(--text-muted)" }}>
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="9" />
+          <line x1="12" y1="11" x2="12" y2="16.5" />
+          <circle cx="12" cy="7.8" r="0.7" fill="currentColor" stroke="none" />
+        </svg>
+      </span>
+      <span style={{ minWidth: 0, flex: 1 }}>
+        <span style={{ display: "block", fontSize: 13, fontWeight: 600 }}>{t("settings.about")}</span>
+        <span style={{ display: "block", marginTop: 2, color: "var(--text-muted)", fontSize: 11, lineHeight: 1.45, fontFamily: "var(--font-mono)" }}>
+          {t("settings.aboutDescription", { version: APPLICATION_VERSION, piVersion: PI_VERSION })}
+        </span>
+      </span>
+      <AboutButton onClick={() => setAboutOpen(true)} size={24} />
+    </div>
+  );
+
   const visibleMcpServers = MCP_CATALOG.filter((preset) => {
     const query = mcpQuery.trim().toLocaleLowerCase();
     if (!query) return true;
@@ -312,12 +337,13 @@ export function SettingsPanel({ cwd, hasProject, projectTrusted, sessionId, onCl
     setView(next);
   };
 
+  // 顺序只由这里决定；「插件」刻意放在「快捷键」下方。
   const settingsItems = [
     { id: "general", label: t("settings.general"), description: t("settings.generalDescription"), disabled: false },
     { id: "shortcuts", label: t("settings.shortcuts"), description: t("settings.shortcutsDescription"), disabled: false },
+    { id: "plugins", label: t("common.plugins"), description: t("settings.pluginsDescription"), disabled: !hasProject },
     { id: "models", label: t("common.models"), description: t("settings.modelsDescription"), disabled: false },
     { id: "skills", label: t("common.skills"), description: t("settings.skillsDescription"), disabled: !hasProject },
-    { id: "plugins", label: t("common.plugins"), description: t("settings.pluginsDescription"), disabled: !hasProject },
     { id: "mcp", label: t("settings.mcp"), description: t("settings.mcpDescription"), disabled: false },
     { id: "mobile", label: t("settings.mobile"), description: t("settings.mobileDescription"), disabled: false },
   ] satisfies Array<{ id: SettingsSection; label: string; description: string; disabled: boolean }>;
@@ -342,7 +368,7 @@ export function SettingsPanel({ cwd, hasProject, projectTrusted, sessionId, onCl
           height: isMobile ? "calc(100dvh - 16px)" : "min(780px, calc(100dvh - 32px))",
           border: "1px solid var(--border)", borderRadius: isMobile ? 8 : 10,
           background: "var(--bg)", boxShadow: "0 14px 40px rgba(0,0,0,0.24)", overflow: "hidden",
-          display: "flex", flexDirection: "column",
+          display: "flex", flexDirection: "column", position: "relative",
         }}
       >
         <header style={{ height: 48, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 14px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
@@ -424,6 +450,7 @@ export function SettingsPanel({ cwd, hasProject, projectTrusted, sessionId, onCl
                 <div style={{ width: "min(720px, 100%)", padding: "8px 10px 18px" }}>
                   {renderThemeRow()}
                   {renderLanguageRow()}
+                  {renderAboutRow()}
                   <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 10px", borderBottom: "1px solid var(--border)", marginBottom: 4 }}>
                     <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, flexShrink: 0, borderRadius: 7, background: "var(--bg-hover)", color: "var(--text-muted)" }}>
                       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" /><path d="M15.54 8.46a5 5 0 0 1 0 7.07" /></svg>
@@ -614,6 +641,11 @@ export function SettingsPanel({ cwd, hasProject, projectTrusted, sessionId, onCl
             )}
           </main>
         </div>
+        {aboutOpen && (
+          <div style={{ position: "absolute", inset: 0, zIndex: 2, display: "flex", alignItems: "center", justifyContent: "center", padding: 16, background: "rgba(0,0,0,0.28)" }}>
+            <AboutDialog embedded onClose={() => setAboutOpen(false)} />
+          </div>
+        )}
       </section>
     </div>
   );

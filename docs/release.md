@@ -53,6 +53,19 @@ version-unification note when that section is missing, and ends with
 never rewritten, so add the release notes to the new section by hand before
 committing.
 
+Release notes are also shipped inside the application: the **About** dialog
+(ⓘ next to the sidebar title and in Settings → General) renders
+`data/changelog.json`, which `scripts/sync-changelog.mjs` derives from
+`CHANGELOG.md`. After editing a release section, run:
+
+```bash
+npm run changelog:sync   # regenerate data/changelog.json from CHANGELOG.md
+npm run changelog:check  # CI entry: fails when the two are out of sync
+```
+
+`version:check` runs the changelog check as well, so a release whose notes were
+only edited in `CHANGELOG.md` fails the build until the JSON is regenerated.
+
 ## 4. Tag and Push
 
 ```bash

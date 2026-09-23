@@ -86,8 +86,17 @@ const child = spawn(nodeBinary, ["server.js"], {
 });
 
 try {
-  await waitUntilReady(`http://127.0.0.1:${port}/`, child);
-  console.log(`Desktop standalone server became ready on port ${port}.`);
+  const baseUrl = `http://127.0.0.1:${port}`;
+  await waitUntilReady(`${baseUrl}/`, child);
+  // 「关于」对话框的变更记录走这个路由：数据是构建期嵌进包里的，
+  // 一旦 standalone 追踪漏了 `data/changelog.json`，这里就会先于用户报错。
+  const changelogResponse = await fetch(`${baseUrl}/api/changelog`, { signal: AbortSignal.timeout(5_000) });
+  if (!changelogResponse.ok) throw new Error(`GET /api/changelog answered HTTP ${changelogResponse.status}.`);
+  const changelog = await changelogResponse.json();
+  if (!Array.isArray(changelog.releases) || changelog.releases.length === 0) {
+    throw new Error("GET /api/changelog returned no releases; check data/changelog.json in the bundle.");
+  }
+  console.log(`Desktop standalone server became ready on port ${port} (${changelog.releases.length} bundled releases).`);
 } finally {
   await stopChild(child);
   await new Promise((resolveClose) => log.end(resolveClose));
