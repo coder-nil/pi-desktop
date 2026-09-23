@@ -391,6 +391,8 @@ function revokeImagePreview(image: AttachedImage): void {
 }
 
 function QueuedMessageRow({ kind, text }: { kind: "steer" | "follow-up"; text: string }) {
+  const { t } = useI18n();
+
   return (
     <div
       title={text}
@@ -415,7 +417,7 @@ function QueuedMessageRow({ kind, text }: { kind: "steer" | "follow-up"; text: s
           color: kind === "steer" ? "var(--accent)" : "var(--text-dim)",
         }}
       >
-        {kind}
+        {kind === "steer" ? t("chat.steer") : t("chat.followUp")}
       </span>
       <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{text}</span>
     </div>
@@ -468,17 +470,21 @@ function ModelNoticeBanner({ tone, title, body }: { tone: "error" | "warning"; t
 }
 
 export function ModelErrorBanner({ error }: { error?: string | null }) {
+  const { t } = useI18n();
+
   if (!error) return null;
-  return <ModelNoticeBanner tone="error" title="Model error" body={error} />;
+  return <ModelNoticeBanner tone="error" title={t("chat.modelError")} body={error} />;
 }
 
 /** Surfaces `enabledModels` patterns that matched nothing, so a typo is visible (#307). */
 export function ModelScopeWarningBanner({ warnings }: { warnings?: string[] }) {
+  const { t } = useI18n();
+
   if (!warnings || warnings.length === 0) return null;
   return (
     <ModelNoticeBanner
       tone="warning"
-      title={warnings.length > 1 ? "Model scope warnings" : "Model scope warning"}
+      title={warnings.length > 1 ? t("chat.modelScopeWarnings") : t("chat.modelScopeWarning")}
       body={warnings.join("\n")}
     />
   );
@@ -2975,7 +2981,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                       e.currentTarget.style.background = modelDropdownOpen ? "var(--bg-hover)" : "none";
                       e.currentTarget.style.color = "var(--text-muted)";
                     }}
-                    title={modelSwitching ? "Switching model" : modelOptions.length > 0 ? "Change model" : "No available models"}
+                    title={modelSwitching ? t("chat.switchingModel") : modelOptions.length > 0 ? t("chat.changeModel") : t("chat.noAvailableModels")}
                   >
                     {modelSwitching ? (
                       <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" style={{ animation: "spin 0.8s linear infinite", flexShrink: 0 }} aria-hidden="true">
@@ -2992,7 +2998,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                       </svg>
                     )}
                     <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
-                      {currentName ?? (modelOptions.length > 0 ? "Select model" : "No models")}
+                      {currentName ?? (modelOptions.length > 0 ? t("chat.selectModel") : t("chat.noModels"))}
                     </span>
                   </button>
                   {modelDropdownOpen && modelDropdownRect && (() => {
@@ -3048,7 +3054,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                       <div style={{ minHeight: 0, overflowY: "auto" }}>
                         {modelsByProvider.length === 0 ? (
                           <div style={{ padding: "8px 12px", color: "var(--text-dim)", fontSize: 12, whiteSpace: "nowrap" }}>
-                            {modelFilter.trim() ? t("chat.noMatchingModels") : "No available models"}
+                            {modelFilter.trim() ? t("chat.noMatchingModels") : t("chat.noAvailableModels")}
                           </div>
                         ) : modelsByProvider.map((group, gi) => (
                           <div key={group.provider}>

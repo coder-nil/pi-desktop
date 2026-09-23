@@ -8,7 +8,6 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { APPLICATION_VERSION, PI_VERSION } from "@/lib/changelog";
 import { MCP_CATALOG, type McpCatalogEntry } from "@/lib/mcp-catalog";
 import { KEYBOARD_SHORTCUT_GROUPS, KEYBOARD_SHORTCUTS } from "@/lib/keyboard-shortcuts";
-import { AboutDialog } from "./AboutDialog";
 import { ModelsConfig } from "./ModelsConfig";
 import { MobileAccessSettings } from "./MobileAccessSettings";
 import { PluginsConfig } from "./PluginsConfig";
@@ -59,7 +58,6 @@ export function SettingsPanel({ cwd, hasProject, projectTrusted, sessionId, onCl
   const { t } = useI18n();
   const isMobile = useIsMobile();
   const [view, setView] = useState<SettingsView>("menu");
-  const [aboutOpen, setAboutOpen] = useState(false);
   const [visitedSections, setVisitedSections] = useState<Set<SettingsSection>>(() => new Set(["general"]));
   const [mcpQuery, setMcpQuery] = useState("");
   const [mcpServers, setMcpServers] = useState<Set<string>>(() => new Set());
@@ -79,16 +77,13 @@ export function SettingsPanel({ cwd, hasProject, projectTrusted, sessionId, onCl
       if (event.key !== "Escape") return;
       event.preventDefault();
       event.stopPropagation();
-      // 子对话框（关于变更记录）自己监听 Escape 并关闭自己。这里直接返回，
-      // 否则一次按键会连带把设置面板也退一层。
-      if (aboutOpen) return;
       if (view === "mcp-editor") setView("mcp");
       else if (isMobile && view !== "menu") setView("menu");
       else onClose();
     };
     document.addEventListener("keydown", handleKeyDown, true);
     return () => document.removeEventListener("keydown", handleKeyDown, true);
-  }, [aboutOpen, isMobile, onClose, view]);
+  }, [isMobile, onClose, view]);
 
   useEffect(() => {
     if (view !== "mcp" || !cwd) return;
@@ -293,21 +288,10 @@ export function SettingsPanel({ cwd, hasProject, projectTrusted, sessionId, onCl
     </div>
   );
 
-  // 版本信息行：版本号本身在设置里总是可见的，整行可点打开嵌入的变更记录。
-  // 这里的 ⓘ 已去掉——那个图标只属于侧边栏标题行的弹窗入口。
+  // 版本信息行：只展示版本号，不可点。变更记录只从侧边栏标题的 ⓘ 弹窗进入，
+  // 设置里不再叠一层对话框。
   const renderAboutRow = () => (
-    <button
-      type="button"
-      onClick={() => setAboutOpen(true)}
-      title={t("about.title")}
-      style={{
-        width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "11px 10px",
-        border: "none", borderBottom: "1px solid var(--border)", marginBottom: 4,
-        background: "transparent", color: "var(--text)", textAlign: "left", cursor: "pointer",
-      }}
-      onMouseEnter={(event) => { event.currentTarget.style.background = "var(--bg-hover)"; }}
-      onMouseLeave={(event) => { event.currentTarget.style.background = "transparent"; }}
-    >
+    <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 10px", borderBottom: "1px solid var(--border)", marginBottom: 4 }}>
       <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, flexShrink: 0, borderRadius: 7, background: "var(--bg-hover)", color: "var(--text-muted)" }}>
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <circle cx="12" cy="12" r="9" />
@@ -321,7 +305,7 @@ export function SettingsPanel({ cwd, hasProject, projectTrusted, sessionId, onCl
           {t("settings.aboutDescription", { version: APPLICATION_VERSION, piVersion: PI_VERSION })}
         </span>
       </span>
-    </button>
+    </div>
   );
 
   const visibleMcpServers = MCP_CATALOG.filter((preset) => {
@@ -655,11 +639,6 @@ export function SettingsPanel({ cwd, hasProject, projectTrusted, sessionId, onCl
             )}
           </main>
         </div>
-        {aboutOpen && (
-          <div style={{ position: "absolute", inset: 0, zIndex: 2, display: "flex", alignItems: "center", justifyContent: "center", padding: 16, background: "rgba(0,0,0,0.28)" }}>
-            <AboutDialog embedded onClose={() => setAboutOpen(false)} />
-          </div>
-        )}
       </section>
     </div>
   );

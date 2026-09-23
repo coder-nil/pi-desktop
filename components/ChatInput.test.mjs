@@ -13,9 +13,16 @@ const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, buildComposerMessa
 const { clearDraft, getDraft, mergeRestoredSubmissionDraft, mergeRestoredSubmissionText, rekeyDraft, setDraft } = await jiti.import("../lib/draft-store.ts");
 const { I18nProvider } = await jiti.import("../hooks/useI18n.tsx");
 const source = await readFile(new URL("./ChatInput.tsx", import.meta.url), "utf8");
+const enMessages = await readFile(new URL("../lib/i18n/messages/en.ts", import.meta.url), "utf8");
+const zhMessages = await readFile(new URL("../lib/i18n/messages/zh-CN.ts", import.meta.url), "utf8");
+
+/** 模型/队列文案都要走 I18nProvider。 */
+const renderWithI18n = (element) => renderToStaticMarkup(
+  React.createElement(I18nProvider, null, element),
+);
 
 test("renders the upstream model error", () => {
-  const html = renderToStaticMarkup(
+  const html = renderWithI18n(
     React.createElement(ModelErrorBanner, {
       error: "Invalid models.json schema:\nproviders.custom.models.0.id must not be empty",
     }),
@@ -27,7 +34,7 @@ test("renders the upstream model error", () => {
 });
 
 test("does not render an empty model error", () => {
-  assert.equal(renderToStaticMarkup(React.createElement(ModelErrorBanner, { error: null })), "");
+  assert.equal(renderWithI18n(React.createElement(ModelErrorBanner, { error: null })), "");
 });
 
 test("classifies slash command tags by resource kind", () => {
@@ -117,7 +124,7 @@ test("reassembles mention tags before the remaining composer text", () => {
 });
 
 test("renders enabledModels scope warnings", () => {
-  const html = renderToStaticMarkup(
+  const html = renderWithI18n(
     React.createElement(ModelScopeWarningBanner, {
       warnings: ['No models match pattern "ghost-gateway/*"'],
     }),
@@ -125,7 +132,33 @@ test("renders enabledModels scope warnings", () => {
 
   assert.match(html, /Model scope warning/);
   assert.match(html, /ghost-gateway/);
-  assert.equal(renderToStaticMarkup(React.createElement(ModelScopeWarningBanner, { warnings: [] })), "");
+  assert.equal(renderWithI18n(React.createElement(ModelScopeWarningBanner, { warnings: [] })), "");
+});
+
+test("localizes the queue badges and the model selector copy", () => {
+  // 队列徽标以前直接渲染内部 kind 字面量（steer / follow-up）。
+  assert.match(source, /\{kind === "steer" \? t\("chat\.steer"\) : t\("chat\.followUp"\)\}/);
+
+  // 模型按钮与提示条不再有硬编码英文。
+  for (const [, snippet] of source.matchAll(/[^\n]*(?:Change model|Switching model|Select model|No models|No available models|Model error|Model scope warning)[^\n]*/g)) {
+    assert.fail(`hardcoded copy left in ChatInput.tsx: ${snippet.trim()}`);
+  }
+  assert.match(source, /t\("chat\.changeModel"\)/);
+  assert.match(source, /t\("chat\.modelScopeWarnings"\)/);
+
+  for (const key of [
+    "chat.changeModel",
+    "chat.switchingModel",
+    "chat.selectModel",
+    "chat.noModels",
+    "chat.noAvailableModels",
+    "chat.modelError",
+    "chat.modelScopeWarning",
+    "chat.modelScopeWarnings",
+  ]) {
+    assert.ok(enMessages.includes(`"${key}": `), `en is missing ${key}`);
+    assert.ok(zhMessages.includes(`"${key}": `), `zh-CN is missing ${key}`);
+  }
 });
 
 test("keeps the model selector visible when a model error leaves no options", () => {

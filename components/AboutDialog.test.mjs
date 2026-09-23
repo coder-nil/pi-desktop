@@ -53,19 +53,21 @@ test("the info icon opens the dialog instead of the dialog owning state", () => 
   assert.match(appShellSource, /\{aboutOpen && !settingsOpen && \(\s*<AboutDialog onClose=\{\(\) => setAboutOpen\(false\)\} \/>/);
 });
 
-test("the settings row shows both versions and hosts an embedded dialog", () => {
-  // 常规页的版本行直接显示版本号，整行可点打开变更记录；那一行没有 ⓘ。
+test("the settings row only shows the versions, it opens nothing", () => {
+  // 常规页的版本行只展示版本号：没有 ⓘ、不可点，也不在设置里叠关于对话框。
   assert.match(settingsSource, /t\("settings\.aboutDescription", \{ version: APPLICATION_VERSION, piVersion: PI_VERSION \}\)/);
   assert.match(settingsSource, /\{renderAboutRow\(\)\}/);
-  assert.doesNotMatch(settingsSource, /AboutButton/);
-  assert.match(settingsSource, /<AboutDialog embedded onClose=\{\(\) => setAboutOpen\(false\)\} \/>/);
+  assert.doesNotMatch(settingsSource, /AboutButton|AboutDialog|aboutOpen/);
+  assert.match(settingsSource, /const renderAboutRow = \(\) => \(\s*<div/);
 });
 
-test("escape closes only the innermost layer", () => {
-  // 设置面板在关于对话框打开时不处理 Escape，否则一次按键会退两层。
-  assert.match(aboutSource, /if \(embedded\) return;/);
-  assert.match(settingsSource, /if \(aboutOpen\) return;/);
-  assert.match(settingsSource, /\}, \[aboutOpen, isMobile, onClose, view\]\)/);
+test("escape only has one dialog to close", () => {
+  // 关于只有弹窗一种形态，Escape 由它自己处理并阻止冒泡；
+  // 设置面板则是“没有子对话框”的简单分支。
+  assert.match(aboutSource, /event\.stopPropagation\(\)/);
+  assert.match(aboutSource, /document\.addEventListener\("keydown", handleKeyDown, true\)/);
+  assert.doesNotMatch(aboutSource, /embedded/);
+  assert.match(settingsSource, /\}, \[isMobile, onClose, view\]\);/);
 });
 
 test("copy all exports the versions plus a markdown changelog", () => {

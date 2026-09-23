@@ -128,16 +128,13 @@ function ReleaseBlock({ release, current, defaultOpen }: { release: ChangelogRel
   );
 }
 
-export function AboutDialog({ onClose, showAllReleases = true, embedded = false }: { onClose: () => void; showAllReleases?: boolean; /** 嵌入设置面板时不再铺一层遮罩，由外层容器负责布局。 */ embedded?: boolean }) {
+export function AboutDialog({ onClose }: { onClose: () => void }) {
   const { t } = useI18n();
   const [copied, setCopied] = useState(false);
   const releases = CHANGELOG;
   const currentVersion = currentRelease()?.version ?? APPLICATION_VERSION;
 
   useEffect(() => {
-    // 嵌入模式下 Escape 由设置面板统一处理：那层先判断是否有关闭子对话框，
-    // 两处都监听会变成「按一次 Escape 关掉两层」。
-    if (embedded) return;
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       event.preventDefault();
@@ -146,7 +143,7 @@ export function AboutDialog({ onClose, showAllReleases = true, embedded = false 
     };
     document.addEventListener("keydown", handleKeyDown, true);
     return () => document.removeEventListener("keydown", handleKeyDown, true);
-  }, [embedded, onClose]);
+  }, [onClose]);
 
   useEffect(() => {
     if (!copied) return;
@@ -160,24 +157,23 @@ export function AboutDialog({ onClose, showAllReleases = true, embedded = false 
       `pi v${PI_VERSION}`,
       `platform ${typeof navigator === "undefined" ? "unknown" : navigator.platform}`,
       "",
-      changelogToMarkdown(showAllReleases ? releases : releases.slice(0, 1)),
+      changelogToMarkdown(releases),
     ].join("\n");
     await copyText(text).catch(() => { /* 剪贴板被拒时保留对话框，用户可手动选中 */ });
     setCopied(true);
-  }, [releases, showAllReleases]);
+  }, [releases]);
 
   const content = (
     <section
       role="dialog"
-      aria-modal={embedded ? undefined : "true"}
+      aria-modal="true"
       aria-labelledby="about-dialog-title"
-      data-settings-subdialog={embedded ? "true" : undefined}
       style={{
         width: "min(660px, 100%)",
-        maxHeight: embedded ? "none" : "min(640px, calc(100dvh - 32px))",
+        maxHeight: "min(640px, calc(100dvh - 32px))",
         display: "flex", flexDirection: "column", overflow: "hidden",
         border: "1px solid var(--border)", borderRadius: 10,
-        background: "var(--bg)", boxShadow: embedded ? "none" : "0 14px 40px rgba(0,0,0,0.24)",
+        background: "var(--bg)", boxShadow: "0 14px 40px rgba(0,0,0,0.24)",
       }}
     >
         <header style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 14px", height: 48, borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
@@ -218,26 +214,21 @@ export function AboutDialog({ onClose, showAllReleases = true, embedded = false 
           {releases.length === 0 && (
             <div style={{ padding: "18px 2px", color: "var(--text-dim)", fontSize: 11 }}>{t("about.empty")}</div>
           )}
-          {releases.map((release, index) => (
+          {releases.map((release) => (
             <ReleaseBlock
               key={release.version}
               release={release}
               current={release.version === currentVersion}
-              // 只显示当前版本时默认展开；显示全部历史时只展开当前版本那一节。
-              defaultOpen={showAllReleases ? release.version === currentVersion : index === 0}
+              /* 只默认展开当前版本，历史版本点开才看。 */
+              defaultOpen={release.version === currentVersion}
             />
           ))}
-          {showAllReleases && (
-            <div style={{ marginTop: 12, color: "var(--text-dim)", fontSize: 10, paddingLeft: 2 }}>
-              {t("about.historyHint", { count: releases.length })}
-            </div>
-          )}
+          <div style={{ marginTop: 12, color: "var(--text-dim)", fontSize: 10, paddingLeft: 2 }}>
+            {t("about.historyHint", { count: releases.length })}
+          </div>
         </div>
     </section>
   );
-
-  // 嵌入设置面板：不再铺遮罩，只填充当前分栏。
-  if (embedded) return content;
 
   return (
     <div
