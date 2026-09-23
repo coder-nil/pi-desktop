@@ -111,6 +111,26 @@ export interface BashExecutionMessage {
 
 export type AgentMessage = UserMessage | AssistantMessage | ToolResultMessage | CustomMessage | BashExecutionMessage;
 
+/**
+ * Prompt and tool loadout carried by the session transcript (Pi >= 0.86). The
+ * leading one holds the base prompt; later ones patch `sections` by name and list
+ * tool changes. Provider input, never chat: every UI surface hides it.
+ *
+ * It lives in a separate union so `AgentMessage` stays "what the chat renders"
+ * while session entries can still carry it.
+ */
+export interface SystemMessage {
+  role: "system";
+  content: string | Array<{ type: "text"; text: string }>;
+  sections?: Record<string, string | null>;
+  toolsAdded?: unknown[];
+  toolsRemoved?: Array<{ name: string }>;
+  timestamp?: number;
+}
+
+/** Any message a `message` session entry can store, including transcript system messages. */
+export type SessionMessage = AgentMessage | SystemMessage;
+
 export type ExtensionUiRequest =
   | {
       type: "extension_ui_request";
@@ -214,7 +234,7 @@ export interface ExtensionWidgetItem {
 
 export interface SessionMessageEntry extends SessionEntryBase {
   type: "message";
-  message: AgentMessage;
+  message: SessionMessage;
 }
 
 export interface ThinkingLevelChangeEntry extends SessionEntryBase {

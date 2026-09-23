@@ -32,6 +32,20 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/**
+ * A `message_start` / `message_end` for a transcript system message.
+ *
+ * Pi >= 0.86 appends the prompt, the tool loadout and system-prompt section
+ * patches to the transcript as `role: "system"` messages, and the agent loop
+ * announces them like any other message. They are provider input, never chat,
+ * and the leading one carries the whole prompt plus every tool schema.
+ */
+export function isSystemMessageEvent(event: AgentEventLike): boolean {
+  return (event.type === "message_start" || event.type === "message_end")
+    && isObject(event.message)
+    && event.message.role === "system";
+}
+
 function toolCallMetadata(
   event: Record<string, unknown>,
 ): { id: string; toolName: string } | null {
@@ -59,6 +73,9 @@ export function toClientAgentEvent(
   event: AgentEventLike,
 ): AgentEventLike | ClientMessageUpdateEvent | null {
   if (OMITTED_EVENT_TYPES.has(event.type)) return null;
+  // Drop transcript system messages before they cost the browser bandwidth: the
+  // leading one holds the entire prompt and every tool schema.
+  if (isSystemMessageEvent(event)) return null;
 
   if (event.type === "message_update") {
     const assistantMessageEvent = event.assistantMessageEvent;

@@ -378,14 +378,20 @@ export class AgentSessionWrapper {
     private readonly onForceEmptyChange?: (force: boolean) => void,
   ) {}
 
-  private applyLanguageSystemPrompt(): void {
-    if (!this.inner.agent.state) return;
-    if (this.forceEmptySystemPrompt) {
-      this.inner.agent.state.systemPrompt = "";
-      return;
-    }
-    this.inner.agent.state.systemPrompt = applyLanguageInstruction(
-      translateGeneratedSystemPrompt(this.inner.agent.state.systemPrompt ?? "", this.uiLocale),
+  /**
+   * The prompt a run actually sends.
+   *
+   * Pi >= 0.86 replays `agent.state.systemPrompt` from the transcript's leading
+   * system message and exposes it as a getter-only property, so the effective prompt
+   * can no longer be written back into state — assigning it throws. The language
+   * instruction reaches the model through `createLanguagePromptExtension`
+   * (`before_agent_start`); this accessor exists so `get_state` and the System Prompt
+   * panel report that same text instead of a state value nothing updates.
+   */
+  private effectiveSystemPrompt(): string {
+    if (this.forceEmptySystemPrompt) return "";
+    return applyLanguageInstruction(
+      translateGeneratedSystemPrompt(this.inner.agent.state?.systemPrompt ?? "", this.uiLocale),
       this.uiLocale,
     );
   }
@@ -393,7 +399,6 @@ export class AgentSessionWrapper {
   setUiLocale(locale: unknown): void {
     this.uiLocale = normalizeUiLocale(locale);
     this.onUiLocaleChange?.(this.uiLocale);
-    this.applyLanguageSystemPrompt();
   }
 
   get sessionId(): string {
@@ -450,8 +455,9 @@ export class AgentSessionWrapper {
 
   setForceEmptySystemPrompt(force: boolean): void {
     this.forceEmptySystemPrompt = force;
+    // The inline language extension reads this flag on every run; nothing is written
+    // into agent state, which pi >= 0.86 makes getter-only.
     this.onForceEmptyChange?.(force);
-    this.applyForcedEmptySystemPrompt();
   }
 
   beginExtensionBinding(options: ExtensionBindingOptions = {}): void {
@@ -468,10 +474,7 @@ export class AgentSessionWrapper {
 
   private ensureExtensionsBound(options: ExtensionBindingOptions = {}): Promise<void> {
     if (options.forceEmptySystemPrompt) this.forceEmptySystemPrompt = true;
-    if (this.extensionsBound) {
-      this.applyForcedEmptySystemPrompt();
-      return Promise.resolve();
-    }
+    if (this.extensionsBound) return Promise.resolve();
     if (this.extensionBindingPromise) return this.extensionBindingPromise;
 
     this.extensionBindingError = null;
@@ -515,7 +518,6 @@ export class AgentSessionWrapper {
         this.inner.extensionRunner.setUIContext?.(uiContext, "rpc");
       }
       this.extensionsBound = true;
-      this.applyForcedEmptySystemPrompt();
       console.log(`[pi-desktop] session_start dispatched to extensions for session ${this.inner.sessionId}`);
     })().catch((err) => {
       this.extensionBindingError = err;
@@ -552,12 +554,6 @@ export class AgentSessionWrapper {
     } finally {
       this.resetIdleTimer();
       notifyRunningChange();
-    }
-  }
-
-  private applyForcedEmptySystemPrompt(): void {
-    if (this.forceEmptySystemPrompt && this.inner.agent.state) {
-      this.inner.agent.state.systemPrompt = "";
     }
   }
 
@@ -674,8 +670,6 @@ export class AgentSessionWrapper {
       },
     });
     configureDesktopProviderRetry(this.inner);
-    this.applyForcedEmptySystemPrompt();
-    this.applyLanguageSystemPrompt();
   }
 
   private resetIdleTimer(): void {
@@ -881,7 +875,7 @@ export class AgentSessionWrapper {
           contextUsage: contextUsage
             ? { percent: contextUsage.percent, contextWindow: contextUsage.contextWindow, tokens: contextUsage.tokens }
             : null,
-          systemPrompt: this.inner.agent.state?.systemPrompt ?? "",
+          systemPrompt: this.effectiveSystemPrompt(),
           thinkingLevel: this.inner.agent.state?.thinkingLevel ?? "off",
           extensionStatuses: this.getExtensionStatuses(),
           extensionWidgets: this.getExtensionWidgets(),
@@ -891,7 +885,7 @@ export class AgentSessionWrapper {
 
       case "set_ui_locale": {
         this.setUiLocale(command.locale);
-        return { systemPrompt: this.inner.agent.state?.systemPrompt ?? "" };
+        return { systemPrompt: this.effectiveSystemPrompt() };
       }
 
       case "set_model": {
@@ -1071,8 +1065,6 @@ export class AgentSessionWrapper {
         const resolvedToolNames = applyShellTool(toolNames, resolveShellSelection(this.inner.settingsManager).tool);
         this.setForceEmptySystemPrompt(toolNames.length === 0);
         this.inner.setActiveToolsByName(withExtensionTools(this.inner, resolvedToolNames));
-        this.applyForcedEmptySystemPrompt();
-        this.applyLanguageSystemPrompt();
         return null;
       }
 
@@ -1085,8 +1077,6 @@ export class AgentSessionWrapper {
         if (typeof this.inner.bindExtensions !== "function") {
           this.inner.extensionRunner.setUIContext?.(this.createExtensionUiContext(), "rpc");
         }
-        this.applyForcedEmptySystemPrompt();
-        this.applyLanguageSystemPrompt();
         invalidateModelsCache();
         return { success: true };
       }
@@ -1744,8 +1734,6 @@ export class AgentSessionWrapper {
             this.inner.extensionRunner.setUIContext?.(this.createExtensionUiContext(), "rpc");
           },
         });
-        this.applyForcedEmptySystemPrompt();
-        this.applyLanguageSystemPrompt();
       },
     };
   }

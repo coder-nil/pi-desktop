@@ -334,9 +334,15 @@ function entryToUiMessage(
   // normalizeToolCalls is a secondary guard (returns non-assistant messages as-is).
   switch (entry.type) {
     case "message": {
+      const entryMessage = entry.message;
+      // Pi >= 0.86 records the prompt, the tool loadout and system-prompt section
+      // patches as `role: "system"` transcript messages. They are provider input,
+      // not conversation, so they never render. Session message totals still come
+      // from the SDK's own count, so hiding them here does not change those.
+      if (entryMessage.role === "system") return null;
       const message = options.deferToolResultImages
-        ? omitToolResultBase64Images(normalizeToolCalls(entry.message))
-        : normalizeToolCalls(entry.message);
+        ? omitToolResultBase64Images(normalizeToolCalls(entryMessage))
+        : normalizeToolCalls(entryMessage);
       if (!options.deferThinking || message.role !== "assistant") return message;
       return {
         ...message,

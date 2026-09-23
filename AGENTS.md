@@ -131,6 +131,14 @@ hooks/
 - `globalThis` survives Next.js hot-reload; plain module-level Map does not
 - Idle timeout: 10 minutes. Concurrent `startRpcSession()` calls share a single start Promise (`globalThis.__piStartLocks`)
 
+### Pi SDK is pinned at 0.87.1 — two traps came with 0.86+
+The `@earendil-works/*` packages were upgraded 0.85.1 → 0.87.1. Two behaviours changed and **neither is caught by `tsc`**, because `lib/pi-types.ts` declares `AgentSessionLike` structurally: the SDK's real types never flow into our compile.
+
+- **`agent.state.systemPrompt` is getter-only.** Since 0.86 the prompt is replayed from the transcript's leading system message, and `AgentState.systemPrompt` is exposed as a getter with no setter — assigning it throws `TypeError: Cannot set property systemPrompt of #<Object> which has only a getter` at runtime. The language instruction reaches the model through `createLanguagePromptExtension` (`before_agent_start` returning `systemPrompt`, registered in `startRpcSession`'s `extensionFactories`), so `AgentSessionWrapper.effectiveSystemPrompt()` computes the value for `get_state` and the System Prompt panel instead of writing it back. `lib/rpc-manager.test.mjs` asserts no `.agent.state.systemPrompt =` reappears; `lib/pi-types.ts` marks the field `readonly`.
+- **The transcript carries `role: "system"` messages.** The prompt, tool loadout and `sections` patches are persisted as ordinary `message` entries (`agent-session.js` `_preparePromptAndToolLoadout`). They are provider input, never chat, and the leading one holds the whole prompt plus every tool schema. Filtered in `lib/agent-event-wire.ts` (`isSystemMessageEvent`, dropped before they reach the browser), `lib/session-reader.ts` `entryToUiMessage` (the funnel for chat, mobile projection and minimap), `lib/project-tree.ts` branch previews, `components/BranchNavigator.tsx` labels, and `hooks/useAgentSession.ts` as a second guard. `lib/types.ts` keeps `AgentMessage` as "what the chat renders" and adds `SessionMessage`/`SystemMessage` for entries.
+- **Counts still include them.** `SessionInfo.messageCount` comes from the SDK, so a session with N visible messages and one system entry reports N+1 in the sidebar. Kept deliberately (same choice as pi-web); recheck if that mismatch ever matters.
+- **No `normalizeContext` work is needed here.** `ModelRuntime.stream()` (pi-ai `models.js`) and the agent loop (pi-agent-core `agent-loop.js`) normalize the transcript themselves. pi-web had to wrap it explicitly only because it calls a bare provider `streamFunction`; tests that call a provider directly do need `normalizeContext()`.
+
 ### Fork must destroy the wrapper immediately
 `AgentSession.fork()` **mutates the wrapper's inner state in-place** — after fork, `inner.sessionId` is the *new* session's id. If the wrapper stays alive in the registry under the old id, the next request gets the already-forked state and subsequent forks produce a corrupt `parentSession` chain.
 

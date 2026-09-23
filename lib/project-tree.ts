@@ -38,6 +38,10 @@ function previewForEntry(entry: ProjectableEntry): BranchPreview | undefined {
   if (entry.type !== "message" || !isRecord(entry.message) || typeof entry.message.role !== "string") {
     return undefined;
   }
+  // Transcript system messages (Pi >= 0.86) carry the prompt and tool loadout, not
+  // a turn. Returning undefined lets the caller fall through to the next entry, so
+  // a branch never gets labelled with "message" instead of its real first turn.
+  if (entry.message.role === "system") return undefined;
 
   const content = entry.message.content;
   let text = "";

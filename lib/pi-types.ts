@@ -136,7 +136,12 @@ export interface AgentSessionLike {
   readonly settingsManager: SettingsManager;
   readonly agent: {
     state?: {
-      systemPrompt?: string;
+      /**
+       * Replayed from the transcript's leading system message since pi 0.86 and
+       * exposed as a getter-only property. Read it; assigning throws at runtime.
+       * The effective prompt for display lives in `AgentSessionWrapper.effectiveSystemPrompt()`.
+       */
+      readonly systemPrompt?: string;
       thinkingLevel?: string;
       streamingMessage?: PiAgentMessage;
     };
