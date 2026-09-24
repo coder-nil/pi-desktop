@@ -15,6 +15,7 @@ import {
   workspaceKeyOf,
 } from "@/lib/workspace-memory";
 import { getFileName } from "@/lib/file-paths";
+import { CHAT_TOP_BAR_HEIGHT } from "@/lib/panel-layout";
 import type { SessionSearchMatch } from "@/lib/session-search";
 import { useI18n } from "@/hooks/useI18n";
 import { AboutButton } from "./AboutDialog";
@@ -1322,12 +1323,22 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       {/* Header */}
       <div
         style={{
-          padding: "12px 10px 10px",
+          // 标题行的上边距改由标题行自身高度承担：它的垂直中心要落在对话顶栏
+          // （完整历史 / 对话分支 / 系统）的中线上。
+          padding: "0 10px 10px",
           borderBottom: "1px solid var(--border)",
           flexShrink: 0,
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", marginBottom: 10, gap: 6 }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            minHeight: CHAT_TOP_BAR_HEIGHT,
+            marginBottom: 10,
+          }}
+        >
           <PiWebTitle onAboutClick={onAboutClick} />
           {appUpdate && onAppUpdateClick && appUpdate.updateAvailable && (
             <button

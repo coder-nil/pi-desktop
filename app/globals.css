@@ -22,10 +22,29 @@
   transition: border-color 150ms, box-shadow 150ms;
 }
 
-/* Mark and send controls stay visible while the composer content scrolls. */
-.chat-composer-mark {
+/* Mark and send controls stay visible while the composer content scrolls.
+   The mark is the work/chat mode switch (see components/ChatInput.tsx), so the
+   sticky box is the button and the masked glyph inside only carries the colour. */
+.chat-composer-mark-button {
   position: sticky;
   top: 0;
+  display: flex;
+  align-self: flex-start;
+  flex-shrink: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  transition: opacity 120ms;
+}
+
+.chat-composer-mark-button:hover:not(:disabled) {
+  opacity: 0.72;
+}
+
+.chat-composer-mark-button:disabled {
+  cursor: default;
 }
 
 .chat-composer-send {

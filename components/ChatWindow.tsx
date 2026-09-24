@@ -220,7 +220,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
 
   const {
     loading, error, messages, entryIds, streamState,
-    agentRunning, bashRunning, pendingBash, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, toolPreset, thinkingLevel,
+    agentRunning, bashRunning, pendingBash, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, toolPreset, chatMode, thinkingLevel,
     retryInfo, promptFailure, contextUsage, forkingEntryId,
     compactError, compactResult, displayModel: displayModelValue, modelSwitching, sessionStats,
     slashCommands, slashCommandsLoading, queuedMessages,
@@ -234,7 +234,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     handleSteer, handleFollowUp, handlePromptWithStreamingBehavior,
     handleRecallQueue,
     handleBuiltinSlashCommand,
-    handleToolPresetChange, handleThinkingLevelChange, loadSlashCommands, scrollUserMsgToTop,
+    handleToolPresetChange, handleChatModeChange, handleThinkingLevelChange, loadSlashCommands, scrollUserMsgToTop,
   } = useAgentSession({
     session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd: wrappedOnAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked,
     modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemPromptLoaderChange, onSessionStatsPanelOpen,
@@ -509,6 +509,8 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
       compactResult={compactResult}
       toolPreset={toolPreset}
       onToolPresetChange={session || isNew ? handleToolPresetChange : undefined}
+      chatMode={chatMode}
+      onChatModeChange={handleChatModeChange}
       thinkingLevel={thinkingLevel}
       onThinkingLevelChange={session || isNew ? handleThinkingLevelChange : undefined}
       availableThinkingLevels={availableThinkingLevels}

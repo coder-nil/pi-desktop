@@ -121,3 +121,14 @@ test("falls back to the user home directory when no project is selected", () => 
     /<DirectoryPicker[\s\S]*?initialPath=\{selectedProject\?\.root \?\? homeDir\}/,
   );
 });
+
+test("centers the sidebar title row against the chat top bar", () => {
+  assert.match(source, /import \{ CHAT_TOP_BAR_HEIGHT \} from "@\/lib\/panel-layout";/);
+  // 上边距改由标题行自身高度承担，否则标题会比工具栏低 6px。
+  assert.match(source, /padding: "0 10px 10px",/);
+  assert.doesNotMatch(source, /padding: "12px 10px 10px"/);
+  assert.match(
+    source,
+    /<div\s+style=\{\{\s*display: "flex",\s*alignItems: "center",\s*gap: 6,\s*minHeight: CHAT_TOP_BAR_HEIGHT,\s*marginBottom: 10,\s*\}\}\s*>\s*<PiWebTitle onAboutClick=\{onAboutClick\} \/>/,
+  );
+});

@@ -305,7 +305,7 @@ test("scrolls the composer field so the scrollbar and send controls sit on the o
   // border instead of along an inner textarea edge.
   assert.match(globalsCss, /\.chat-composer-field \{[\s\S]*?max-height: 222px;[\s\S]*?overflow-y: auto;/);
   // Mark and send controls stay pinned while the text scrolls behind them.
-  assert.match(globalsCss, /\.chat-composer-mark \{\s*position: sticky;\s*top: 0;\s*\}/);
+  assert.match(globalsCss, /\.chat-composer-mark-button \{\s*position: sticky;\s*top: 0;/);
   assert.match(globalsCss, /\.chat-composer-send \{\s*position: sticky;\s*bottom: var\(--composer-padding-y\);\s*\}/);
   assert.match(globalsCss, /\.chat-composer-queue-actions \{\s*position: sticky;\s*bottom: var\(--composer-padding-y\);/);
 
@@ -319,6 +319,35 @@ test("scrolls the composer field so the scrollbar and send controls sit on the o
   // clip it, so it is rendered before the field in document order.
   const menuIndex = source.indexOf('className="chat-composer-queue-menu"');
   assert.ok(menuIndex > -1 && menuIndex < source.indexOf('className="chat-composer-field"'));
+});
+
+test("the composer π mark toggles plain conversation mode", () => {
+  const chatHtml = renderWithI18n(
+    React.createElement(ChatInput, {
+      onSend() {}, onAbort() {}, isStreaming: false,
+      chatMode: "chat", onChatModeChange() {},
+    }),
+  );
+  const workHtml = renderWithI18n(
+    React.createElement(ChatInput, {
+      onSend() {}, onAbort() {}, isStreaming: false,
+      chatMode: "work", onChatModeChange() {},
+    }),
+  );
+
+  // The mark became a button; chat mode tints it and points back at work mode.
+  assert.match(source, /className="chat-composer-mark-button"/);
+  assert.match(source, /backgroundColor: chatModeActive \? "var\(--accent\)" : "var\(--text\)"/);
+  assert.match(source, /onChatModeChange\?\.\(chatModeActive \? "work" : "chat"\)/);
+  assert.match(chatHtml, /aria-pressed="true"/);
+  assert.match(chatHtml, /aria-label="Switch back to work mode"/);
+  assert.match(workHtml, /aria-pressed="false"/);
+  assert.match(workHtml, /aria-label="Switch to plain conversation mode \(no tools\)"/);
+  assert.match(chatHtml, /placeholder="Just chat…"/);
+
+  // No tools means neither the tool preset nor the ! shell mode can apply.
+  assert.match(source, /const toolPresetDisabled = isStreaming \|\| chatModeActive;/);
+  assert.match(source, /const bashMode = !chatModeActive &&/);
 });
 
 test("arrow keys select a queue mode, pause auto-send, and Enter confirms it", () => {

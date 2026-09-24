@@ -7,6 +7,11 @@
 
 ## [0.87.1-alpha.15] - 2026-09-23
 
+### Added
+
+- 输入框左侧的 π 图标变成「工作模式 / 普通对话」开关：普通对话模式下图标使用强调色，会话不使用任何工具，系统提示词整段替换为面向闲聊的提示词（`lib/chat-mode-prompt.ts`，中英双语，语言规则来自 `lib/language-instruction.ts`），并提示用户需要动手时点回工作模式。模式是浏览器级偏好，新会话与已打开的会话都按它同步；切换只改内存中的提示词来源与工具集，不重建会话（见 AGENTS.md「Plain conversation mode」）。
+- `/api/agent/new` 接受 `chatMode`，`set_chat_mode` 命令切换已存在会话的模式，`get_state` 回报 `chatMode`。
+
 ### Changed
 
 - Pi SDK 升级到 0.87.1（`@earendil-works/pi-agent-core` / `pi-ai` / `pi-coding-agent` / `pi-tui`，0.85.1 → 0.87.1）。

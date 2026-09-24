@@ -73,9 +73,12 @@ app/api/
 
 lib/
   agent-client.ts      typed fetch helper for /api/agent commands
+  chat-mode-prompt.ts  chat prompt for plain conversation mode (work ⇄ chat, composer π mark)
+  chat-mode-preference.ts  browser-persisted work/chat mode
   draft-store.ts       local draft persistence helpers
   file-access.ts       allowed file roots for /api/files and worktrees
   file-paths.ts        client/server path encoding helpers
+  language-instruction.ts  UI-language instruction shared by the coding and chat prompt paths
   markdown.ts          shared markdown helpers
   mobile-state.ts      server-side plain-text projection for the phone view
   mobile-timeline.ts   turn grouping for /m: user → process → answer (+ MOBILE_RADIUS, pending takeover)
@@ -158,6 +161,13 @@ Pi stores toolCall blocks as `{type:"toolCall", id, name, arguments}` but `ToolC
 Tool names are passed at session creation (`POST /api/agent/new` → `toolNames[]`). For existing sessions, the active preset is inferred on mount via `get_tools` → `getPresetFromTools()`. When tools are fully disabled (`toolNames = []`), `rpc-manager.ts` passes an empty tool allow-list and forces `agent.state.systemPrompt = ""` after startup/reload/resource discovery.
 
 The last preset explicitly selected by the user is stored in browser `localStorage` and initializes fresh-session composers only. Existing sessions never trust that preference; they use their live `get_tools` state or pi's default when no wrapper exists.
+
+### Plain conversation mode (the composer π mark)
+- The mark on the left of the composer is the mode switch. Work mode is the coding agent; plain conversation mode uses **no tools** and replaces the whole system prompt with `lib/chat-mode-prompt.ts`'s chat prompt (bilingual; the language rule comes from `lib/language-instruction.ts`, the single source shared with the coding path).
+- `chatMode` outranks `forceEmpty` in `createLanguagePromptExtension` **and** in `AgentSessionWrapper.effectiveSystemPrompt()`: both mean "no tools", but only `forceEmpty` (tool preset `off`) clears the prompt. Keep that order — flipping it makes chat mode go silent.
+- `set_chat_mode` (POST `/api/agent/[id]`) edits the in-memory prompt state and tool set only. It must never destroy the wrapper: the prompt is recomputed per run by the `before_agent_start` extension (`agent.state.systemPrompt` is getter-only since 0.86). Entering chat mode snapshots `getActiveToolNames()` and disables every tool; leaving restores that snapshot, or the `toolNames` the client sends (a wrapper reopened after the idle timeout has no snapshot to fall back on).
+- The mode is a **browser preference** (`pi-chat-mode`, `lib/chat-mode-preference.ts`), not session content — it is never written to the `.jsonl`. `useAgentSession` pushes it to whichever session it is showing (`chatModeSyncRef` dedupes per `sid:mode`), and a brand-new session passes it to `POST /api/agent/new` so the first message already runs on the right prompt. `get_state` reports `chatMode`.
+- Chat mode disables the composer's tool-preset control (`workToolPresetRef` restores the preset on the way back) and only arms the `!` shell prefix in work mode.
 
 ### Model defaults for new sessions
 `GET /api/models` returns `defaultModel` read from `~/.pi/agent/settings.json`. `ChatWindow` pre-selects this on mount for new sessions. Explicit browser model/thinking selections are applied atomically during AgentSession construction, then `lib/startup-preferences.ts` persists their effective values without replaying `set_model`/`set_thinking_level`; implicit `enabledModels` fallbacks and thinking pins are not persisted.

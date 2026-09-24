@@ -45,6 +45,9 @@ interface Props {
   compactResult?: CompactResultInfo | null;
   toolPreset?: ToolPreset;
   onToolPresetChange?: (preset: ToolPreset) => void;
+  /** 普通对话模式：π 图标切换，不使用任何工具。 */
+  chatMode?: "work" | "chat";
+  onChatModeChange?: (mode: "work" | "chat") => void;
   thinkingLevel?: "auto" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
   onThinkingLevelChange?: (level: "auto" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max") => void;
   availableThinkingLevels?: string[] | null;
@@ -507,7 +510,7 @@ export function ModelScopeWarningBanner({ warnings }: { warnings?: string[] }) {
 
 export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   onSend, onAbort, onSteer, onFollowUp, isStreaming, model, isAutoModelSelection, modelNames, modelList, modelError, modelScopeWarnings, onModelChange, modelSwitching,
-  compactError, compactResult, toolPreset, onToolPresetChange,
+  compactError, compactResult, toolPreset, onToolPresetChange, chatMode, onChatModeChange,
   thinkingLevel, onThinkingLevelChange, availableThinkingLevels, thinkingLevelMap,
   retryInfo, promptFailure, onRetryPrompt, queuedMessages, inputHistory = [], onRecallQueue,
   slashCommands, slashCommandsLoading, onLoadSlashCommands,
@@ -522,6 +525,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
 }: Props, ref) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
+  // 普通对话模式（π 图标）：没有工具，输入框的 ! shell 模式和工具预设都不适用。
+  const chatModeActive = (chatMode ?? "work") === "chat";
   const [value, setValue] = useState(() => (draftKey ? getDraft(draftKey)?.value ?? "" : ""));
   const [selectedSlashCommand, setSelectedSlashCommand] = useState<SelectedSlashCommand | null>(() => (
     draftKey ? getDraft(draftKey)?.selectedCommand ?? null : null
@@ -548,7 +553,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     draftKey ? draftImagesToAttachedImages(getDraft(draftKey)?.images) : []
   ));
   const trimmedValue = value.trimStart();
-  const bashMode = attachedImages.length === 0 && trimmedValue.startsWith("!");
+  const bashMode = !chatModeActive && attachedImages.length === 0 && trimmedValue.startsWith("!");
   const bashExcluded = bashMode && trimmedValue.startsWith("!!");
   const [slashMenuOpen, setSlashMenuOpen] = useState(false);
   const [slashActiveIndex, setSlashActiveIndex] = useState(0);
@@ -1713,6 +1718,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     return thinkingLevelMap[lvl] ?? lvl;
   })();
   const toolPresetLabel = Object.entries(TOOL_PRESET_MAP).find(([, v]) => v === (toolPreset ?? "default"))?.[0] ?? "default";
+  // 普通对话模式下工具集是空的，预设切换没有任何可应用的对象。
+  const toolPresetDisabled = isStreaming || chatModeActive;
   const skillMenuSkills = cwd && skillMenuState?.cwd === cwd ? skillMenuState.skills : [];
   const skillMenuGroups = buildSkillMenuGroups(skillMenuSkills, skillFilter);
   const skillMenuMatchCount = skillMenuGroups.reduce((count, group) => count + group.skills.length, 0);
@@ -2375,29 +2382,38 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           <div
             className="chat-composer-field"
           >
-          <span
-            aria-hidden="true"
-            className="chat-composer-mark"
-            style={{
-              alignSelf: "flex-start",
-              backgroundColor: "var(--text)",
-              WebkitMaskImage: "url('/icons/pi-input-mark.png')",
-              maskImage: "url('/icons/pi-input-mark.png')",
-              WebkitMaskPosition: "center",
-              maskPosition: "center",
-              WebkitMaskRepeat: "no-repeat",
-              maskRepeat: "no-repeat",
-              WebkitMaskSize: "contain",
-              maskSize: "contain",
-              flexShrink: 0,
-              width: 28,
-              height: 24,
-              marginTop: 2,
-              pointerEvents: "none",
-              userSelect: "none",
-              WebkitUserSelect: "none",
-            }}
-          />
+          <button
+            type="button"
+            className="chat-composer-mark-button"
+            onClick={() => onChatModeChange?.(chatModeActive ? "work" : "chat")}
+            disabled={!onChatModeChange}
+            aria-pressed={chatModeActive}
+            aria-label={chatModeActive ? t("chat.switchToWorkMode") : t("chat.switchToChatMode")}
+            title={chatModeActive ? t("chat.switchToWorkMode") : t("chat.switchToChatMode")}
+          >
+            <span
+              aria-hidden="true"
+              className="chat-composer-mark"
+              style={{
+                backgroundColor: chatModeActive ? "var(--accent)" : "var(--text)",
+                WebkitMaskImage: "url('/icons/pi-input-mark.png')",
+                maskImage: "url('/icons/pi-input-mark.png')",
+                WebkitMaskPosition: "center",
+                maskPosition: "center",
+                WebkitMaskRepeat: "no-repeat",
+                maskRepeat: "no-repeat",
+                WebkitMaskSize: "contain",
+                maskSize: "contain",
+                flexShrink: 0,
+                width: 28,
+                height: 24,
+                marginTop: 2,
+                pointerEvents: "none",
+                userSelect: "none",
+                WebkitUserSelect: "none",
+              }}
+            />
+          </button>
           {selectedSlashCommand && (() => {
             const tagStyle = COMMAND_TAG_STYLES[selectedSlashCommand.kind];
             return (
@@ -2548,6 +2564,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 : isStreaming && (onSteer || onFollowUp)
                 ? t("chat.steerPlaceholder")
                 : isStreaming ? t("chat.agentPlaceholder")
+                : chatModeActive ? t("chat.chatModePlaceholder")
                 : t("chat.messagePlaceholder")
             }
             rows={1}
@@ -3288,9 +3305,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             {!isStreaming && onToolPresetChange && (
               <div ref={toolDropdownRef} style={{ position: "relative" }}>
                 <button
-                  onClick={() => !isStreaming && setToolDropdownOpen((v) => !v)}
-                  disabled={isStreaming}
-                   title={t("chat.changeToolPreset") + `: ${toolPresetLabel}`}
+                  onClick={() => !toolPresetDisabled && setToolDropdownOpen((v) => !v)}
+                  disabled={toolPresetDisabled}
+                   title={chatModeActive ? t("chat.toolPresetChatMode") : t("chat.changeToolPreset") + `: ${toolPresetLabel}`}
                    aria-label={t("chat.changeToolPreset")}
                   style={{
                     display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
@@ -3301,13 +3318,13 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                     border: "none",
                     borderRadius: 9,
                     color: "var(--text-muted)",
-                    cursor: isStreaming ? "not-allowed" : "pointer",
+                    cursor: toolPresetDisabled ? "not-allowed" : "pointer",
                     fontSize: 12,
-                    opacity: isStreaming ? 0.5 : 1,
+                    opacity: toolPresetDisabled ? 0.5 : 1,
                     transition: "background 0.12s, color 0.12s",
                   }}
                   onMouseEnter={(e) => {
-                    if (isStreaming) return;
+                    if (toolPresetDisabled) return;
                     e.currentTarget.style.background = "var(--bg-hover)";
                     e.currentTarget.style.color = "var(--text)";
                   }}

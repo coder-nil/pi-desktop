@@ -24,20 +24,25 @@ export function isToolPreset(value: unknown): value is ToolPreset {
   return typeof value === "string" && (TOOL_PRESET_VALUES as readonly string[]).includes(value);
 }
 
-export function getPresetFromTools(tools: ToolEntry[]): ToolPreset {
-  const activeTools = tools.filter((t) => t.active);
-  if (activeTools.length === 0) return "none";
-
-  const active = [...new Set(activeTools
-    .map((t) => canonicalToolName(t.name))
+export function getPresetFromActiveNames(names: string[]): ToolPreset {
+  const active = [...new Set(names
+    .map((name) => canonicalToolName(name))
     .filter((name) => BUILTIN_TOOL_NAMES.has(name)))]
     .sort()
     .join(",");
 
+  if (!active) return "none";
   if (active === [...PRESET_READ_ONLY].sort().join(",")) return "read-only";
   if (active === [...PRESET_DEFAULT].sort().join(",")) return "default";
   if (active === [...PRESET_FULL].sort().join(",")) return "full";
   return "default";
+}
+
+export function getPresetFromTools(tools: ToolEntry[]): ToolPreset {
+  const activeTools = tools.filter((t) => t.active);
+  if (activeTools.length === 0) return "none";
+
+  return getPresetFromActiveNames(activeTools.map((t) => t.name));
 }
 
 export function getToolNamesForPreset(preset: ToolPreset): string[] {

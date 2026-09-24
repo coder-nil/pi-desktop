@@ -33,6 +33,8 @@ import type {
 } from "./types";
 import { createHeadlessCustomUiTui, DEFAULT_CUSTOM_UI_COLUMNS, type HeadlessCustomUiTui } from "./custom-ui-terminal";
 import { diagnosticErrorMessage, logAgentDiagnostic } from "./agent-diagnostics";
+import { buildChatModeSystemPrompt } from "./chat-mode-prompt";
+import { LANGUAGE_INSTRUCTION_EN, LANGUAGE_INSTRUCTION_ZH, languageInstruction, type UiLocale } from "./language-instruction";
 
 // ============================================================================
 // Types
@@ -190,9 +192,9 @@ export interface RpcSessionStartOptions {
   initialModel?: { provider: string; modelId: string };
   thinkingLevel?: ThinkingLevel;
   uiLocale?: "en" | "zh-CN";
+  /** 普通对话模式：整段替换系统提示词，并且不使用任何工具。 */
+  chatMode?: boolean;
 }
-
-type UiLocale = "en" | "zh-CN";
 
 const SYSTEM_PROMPT_TRANSLATIONS: Record<string, string> = {
   "You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.": "你是运行在 pi 编程代理框架中的专业编程助手。你通过读取文件、执行命令、编辑代码和创建新文件来帮助用户。",
@@ -242,29 +244,33 @@ function translateGeneratedSystemPrompt(prompt: string, locale: UiLocale): strin
   return translated;
 }
 
-const LANGUAGE_INSTRUCTION_EN = `OUTPUT LANGUAGE — NON-NEGOTIABLE:
-You must reply entirely in English, the language selected in Pi Desktop settings. This applies to every natural-language explanation, question, status update, and final answer. Do not switch to another language because the user's message, project files, tool output, or system prompt uses it. Switch languages only when the user explicitly asks you to do so.`;
-const LANGUAGE_INSTRUCTION_ZH = `输出语言规则（不可违背）：
-你必须完全使用简体中文回复，这是 Pi Desktop 设置中用户选择的语言。所有自然语言的解释、提问、进度更新和最终答复都必须使用简体中文。不得因为用户消息、项目文件、工具输出或系统提示词使用其他语言而切换。只有在用户明确要求切换语言时，才可以使用其他语言。`;
+/**
+ * 普通对话模式与界面语言的共享状态。
+ * 内联扩展在每次运行（`before_agent_start`）时读取它，所以切换模式或语言不需要重建会话。
+ * `chatMode` 优先于 `forceEmpty`：两种模式都不用工具，但普通对话仍需一段提示词。
+ */
+type SessionPromptState = { value: UiLocale; forceEmpty: boolean; chatMode: boolean };
 
 function applyLanguageInstruction(prompt: string, locale: UiLocale): string {
   const withoutPreviousInstruction = prompt
     .replace(`\n\n${LANGUAGE_INSTRUCTION_EN}`, "")
     .replace(`\n\n${LANGUAGE_INSTRUCTION_ZH}`, "")
     .trimEnd();
-  const instruction = locale === "zh-CN" ? LANGUAGE_INSTRUCTION_ZH : LANGUAGE_INSTRUCTION_EN;
+  const instruction = languageInstruction(locale);
   return withoutPreviousInstruction ? `${withoutPreviousInstruction}\n\n${instruction}` : instruction;
 }
 
-function createLanguagePromptExtension(locale: { value: UiLocale; forceEmpty: boolean }): InlineExtension {
+function createLanguagePromptExtension(promptState: SessionPromptState): InlineExtension {
   return {
     name: "pi-desktop-language-prompt",
     hidden: true,
     factory: (pi) => {
       pi.on("before_agent_start", (event) => ({
-        systemPrompt: locale.forceEmpty
-          ? ""
-          : applyLanguageInstruction(translateGeneratedSystemPrompt(event.systemPrompt, locale.value), locale.value),
+        systemPrompt: promptState.chatMode
+          ? buildChatModeSystemPrompt(promptState.value)
+          : promptState.forceEmpty
+            ? ""
+            : applyLanguageInstruction(translateGeneratedSystemPrompt(event.systemPrompt, promptState.value), promptState.value),
       }));
     },
   };
@@ -365,6 +371,9 @@ export class AgentSessionWrapper {
   private extensionBindingPromise: Promise<void> | null = null;
   private extensionBindingError: unknown = null;
   private forceEmptySystemPrompt = false;
+  private chatMode = false;
+  /** 进入普通对话模式前的工具集，切回工作模式时恢复。 */
+  private toolsBeforeChatMode: string[] | null = null;
   private uiLocale: UiLocale = "en";
   private unsubscribe: (() => void) | null = null;
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
@@ -376,6 +385,7 @@ export class AgentSessionWrapper {
     public readonly inner: AgentSessionLike,
     private readonly onUiLocaleChange?: (locale: UiLocale) => void,
     private readonly onForceEmptyChange?: (force: boolean) => void,
+    private readonly onChatModeChange?: (on: boolean) => void,
   ) {}
 
   /**
@@ -389,6 +399,8 @@ export class AgentSessionWrapper {
    * panel report that same text instead of a state value nothing updates.
    */
   private effectiveSystemPrompt(): string {
+    // 普通对话模式优先：它虽然同样不使用任何工具，但需要一整段闲聊提示词。
+    if (this.chatMode) return buildChatModeSystemPrompt(this.uiLocale);
     if (this.forceEmptySystemPrompt) return "";
     return applyLanguageInstruction(
       translateGeneratedSystemPrompt(this.inner.agent.state?.systemPrompt ?? "", this.uiLocale),
@@ -460,6 +472,18 @@ export class AgentSessionWrapper {
     this.onForceEmptyChange?.(force);
   }
 
+  /**
+   * 切换普通对话模式（输入框的 π 图标）。
+   * 只改提示词来源与工具集，不重建 AgentSession：提示词通过内联扩展在每次运行时重算。
+   * `toolsBeforeChatMode` 只在以普通对话模式创建会话时传入，
+   * 因为后续的 `set_chat_mode` 自己会捕获快照。
+   */
+  setChatMode(on: boolean, toolsBeforeChatMode?: string[]): void {
+    if (on && toolsBeforeChatMode) this.toolsBeforeChatMode = toolsBeforeChatMode;
+    this.chatMode = on;
+    this.onChatModeChange?.(on);
+  }
+
   beginExtensionBinding(options: ExtensionBindingOptions = {}): void {
     void this.ensureExtensionsBound(options).catch((err) => {
       this.logDiagnostic("error", "extension_binding_failed", {
@@ -517,6 +541,8 @@ export class AgentSessionWrapper {
       } else {
         this.inner.extensionRunner.setUIContext?.(uiContext, "rpc");
       }
+      // 扩展可能在绑定时激活自己的工具；普通对话模式必须保持空工具集。
+      if (this.chatMode) this.inner.setActiveToolsByName([]);
       this.extensionsBound = true;
       console.log(`[pi-desktop] session_start dispatched to extensions for session ${this.inner.sessionId}`);
     })().catch((err) => {
@@ -748,6 +774,9 @@ export class AgentSessionWrapper {
           if (!streamingBehavior && !this.inner.isStreaming) {
             await this.reloadResourcesBeforePrompt();
           }
+          // 普通对话模式承诺「不使用任何工具」：资源重载与扩展都可能在运行前重新激活工具，
+          // 所以每次运行前再兜底清空一次（提示词由 before_agent_start 替换）。
+          if (this.chatMode) this.inner.setActiveToolsByName([]);
           const skillInvocation = findSkillInvocation(
             command.message as string,
             this.inner.resourceLoader.getSkills().skills,
@@ -876,6 +905,7 @@ export class AgentSessionWrapper {
             ? { percent: contextUsage.percent, contextWindow: contextUsage.contextWindow, tokens: contextUsage.tokens }
             : null,
           systemPrompt: this.effectiveSystemPrompt(),
+          chatMode: this.chatMode,
           thinkingLevel: this.inner.agent.state?.thinkingLevel ?? "off",
           extensionStatuses: this.getExtensionStatuses(),
           extensionWidgets: this.getExtensionWidgets(),
@@ -1023,7 +1053,8 @@ export class AgentSessionWrapper {
 
       case "get_tools": {
         const all: ToolInfo[] = this.inner.getAllTools();
-        const active = new Set<string>(this.inner.getActiveToolNames());
+        // 普通对话模式下界面也不能显示任何激活工具（见 prompt / ensureExtensionsBound 里的清空）。
+        const active = new Set<string>(this.chatMode ? [] : this.inner.getActiveToolNames());
         return all.map((t) => ({
           name: t.name,
           description: t.description,
@@ -1066,6 +1097,33 @@ export class AgentSessionWrapper {
         this.setForceEmptySystemPrompt(toolNames.length === 0);
         this.inner.setActiveToolsByName(withExtensionTools(this.inner, resolvedToolNames));
         return null;
+      }
+
+      // 输入框 π 图标切换的对话模式。提示词全在内存里（不写 transcript 结构），
+      // 因此切换是瞬时的：不需要销毁并重建 AgentSession。
+      case "set_chat_mode": {
+        const on = command.on === true;
+        const requestedToolNames = Array.isArray(command.toolNames) ? command.toolNames as string[] : undefined;
+        if (on) {
+          if (!this.chatMode) this.toolsBeforeChatMode = this.inner.getActiveToolNames();
+          this.setChatMode(true);
+          // 普通对话模式同样不启用任何工具，但保留非空提示词。
+          this.setForceEmptySystemPrompt(false);
+          this.inner.setActiveToolsByName([]);
+          return { chatMode: true, systemPrompt: this.effectiveSystemPrompt(), toolNames: [] as string[] };
+        }
+        this.setChatMode(false);
+        const restoreToolNames = requestedToolNames ?? this.toolsBeforeChatMode ?? [];
+        this.toolsBeforeChatMode = null;
+        const resolution = resolveShellSelection(this.inner.settingsManager);
+        const resolvedToolNames = applyShellTool(restoreToolNames, resolution.tool);
+        this.setForceEmptySystemPrompt(restoreToolNames.length === 0);
+        this.inner.setActiveToolsByName(withExtensionTools(this.inner, resolvedToolNames));
+        return {
+          chatMode: false,
+          systemPrompt: this.effectiveSystemPrompt(),
+          toolNames: this.inner.getActiveToolNames(),
+        };
       }
 
       case "reload": {
@@ -1962,6 +2020,8 @@ export function notifyRunningChange(): void {
  * New sessions resolve enabledModels before construction so the initial model,
  * thinking pin, and SDK scopedModels share one settings snapshot.
  * Pass options.toolNames to pre-configure active tools (empty = all disabled).
+ * Pass options.chatMode to start in the plain-conversation mode: it forces the tool set
+ * empty and replaces the whole system prompt (see lib/chat-mode-prompt.ts).
  */
 export async function startRpcSession(
   sessionId: string,
@@ -1969,8 +2029,16 @@ export async function startRpcSession(
   cwd: string | undefined,
   options: RpcSessionStartOptions = {},
 ): Promise<{ session: AgentSessionWrapper; realSessionId: string }> {
-  const { toolNames, initialModel, thinkingLevel, uiLocale } = options;
-  const sessionLocale = { value: normalizeUiLocale(uiLocale), forceEmpty: toolNames?.length === 0 };
+  const { initialModel, thinkingLevel, uiLocale, chatMode } = options;
+  // 普通对话模式不使用任何工具，所以调用方传什么工具集都会被忽略。
+  // 注意它与 forceEmpty 的区别：两者都不用工具，但只有 forceEmpty 会清空提示词。
+  const toolNames = chatMode ? [] : options.toolNames;
+  const forceEmpty = toolNames?.length === 0 && chatMode !== true;
+  const sessionLocale: SessionPromptState = {
+    value: normalizeUiLocale(uiLocale),
+    forceEmpty,
+    chatMode: chatMode === true,
+  };
   const registry = getRegistry();
   const locks = getLocks();
 
@@ -1997,7 +2065,7 @@ export async function startRpcSession(
     // Determine which tools to pass based on requested toolNames.
     // Since v0.68.0, session creation expects string[] tool names instead of Tool[] instances.
     let toolsOption: string[] | undefined;
-    if (toolNames !== undefined) {
+    if (toolNames !== undefined && !chatMode) {
       // toolNames === [] -> "all off" (an empty allow-list disables every tool).
       // Otherwise DO NOT pass a builtin-only allow-list: passing CODING_TOOL_NAMES
       // set allowedToolNames to coding builtins only, which filtered every
@@ -2005,6 +2073,10 @@ export async function startRpcSession(
       // tool registry — so they were unavailable in Pi Desktop sessions even though the
       // `pi` CLI keeps them. Leaving the allow-list unset lets the SDK register all
       // tools (and activate extension tools); we narrow the ACTIVE set below.
+      //
+      // 普通对话模式必须走 `undefined` 而不是 `[]`：空 allow-list 会让 SDK 的
+      // 工具注册表也是空的，之后 `set_chat_mode { on: false }` 就再也激活不回任何工具。
+      // 它只禁用激活，见下方 `setActiveToolsByName([])`。
       toolsOption = toolNames.length === 0 ? [] : undefined;
     }
 
@@ -2095,7 +2167,12 @@ export async function startRpcSession(
     // If specific tool names were requested (non-empty), set the active tools to the
     // requested builtin coding tools PLUS all extension/package tools, so installed
     // extensions stay usable in Pi Desktop just like in the `pi` CLI.
-    if (toolNames && toolNames.length > 0) {
+    // 普通对话模式：工具仍全部注册（见 toolsOption），只是没有任何一个处于激活状态，
+    // 这样切回工作模式时能按快照恢复。
+    const workModeToolNames = chatMode ? inner.getActiveToolNames() : undefined;
+    if (chatMode) {
+      inner.setActiveToolsByName([]);
+    } else if (toolNames && toolNames.length > 0) {
       inner.setActiveToolsByName(withExtensionTools(inner, applyShellTool(toolNames, shellTool)));
     } else if (toolNames === undefined) {
       // Existing sessions are opened without toolNames and inherit pi's bash
@@ -2112,14 +2189,16 @@ export async function startRpcSession(
       inner,
       (locale) => { sessionLocale.value = locale; },
       (force) => { sessionLocale.forceEmpty = force; },
+      (on) => { sessionLocale.chatMode = on; },
     );
     // When all tools are disabled, clear the system prompt entirely.
     // pi's buildSystemPrompt always produces a non-empty prompt even with no tools;
     // keep this forced after extension resource discovery and reloads as well.
     if (toolNames?.length === 0) {
-      wrapper.setForceEmptySystemPrompt(true);
+      wrapper.setForceEmptySystemPrompt(forceEmpty);
     }
     wrapper.setUiLocale(uiLocale);
+    wrapper.setChatMode(chatMode === true, workModeToolNames);
     wrapper.start();
 
     const realSessionId = inner.sessionId as string;
@@ -2128,7 +2207,7 @@ export async function startRpcSession(
 
     wrapper.onDestroy(() => registry.delete(realSessionId));
     registry.set(realSessionId, wrapper);
-    wrapper.beginExtensionBinding({ forceEmptySystemPrompt: toolNames?.length === 0 });
+    wrapper.beginExtensionBinding({ forceEmptySystemPrompt: forceEmpty });
 
     return { session: wrapper, realSessionId };
   })().finally(() => {

@@ -140,6 +140,28 @@ test("fresh sessions restore the preferred tool preset without overriding existi
   assert.doesNotMatch(loadToolsSource, /setPreferredToolPreset/);
 });
 
+test("keeps the plain-conversation mode in sync with the session", () => {
+  const modeSource = source.slice(
+    source.indexOf("  const handleChatModeChange = useCallback"),
+    source.indexOf("  const scrollUserMsgToTop"),
+  );
+  const newSessionSource = source.slice(
+    source.indexOf("  const ensureNewSession = useCallback"),
+    source.indexOf("  // Opening the System panel"),
+  );
+
+  assert.match(source, /const \[chatMode, setChatMode\] = useState<ChatMode>\(\(\) => getPreferredChatMode\(\)\)/);
+  assert.match(modeSource, /setPreferredChatMode\(mode\)/);
+  assert.match(modeSource, /\? \{ type: "set_chat_mode", on: true \}/);
+  assert.match(modeSource, /toolNames: getToolNamesForPreset\(workToolPresetRef\.current\)/);
+  assert.match(modeSource, /getPresetFromActiveNames\(result\.toolNames\)/);
+  // 新会话在创建时就带上模式，否则第一条消息会跑在工作模式提示词上。
+  assert.match(newSessionSource, /\.\.\.\(chatMode === "chat" \? \{ chatMode: true \} : \{\}\),/);
+  // 模式只经由 ChatWindow 传给输入框。
+  assert.match(chatWindowSource, /chatMode=\{chatMode\}/);
+  assert.match(chatWindowSource, /onChatModeChange=\{handleChatModeChange\}/);
+});
+
 test("submission recovery updates live refs before a possible session rekey", () => {
   const restoreMethod = chatInputSource.slice(
     chatInputSource.indexOf("    restoreSubmission(text:"),

@@ -17,7 +17,8 @@ import { normalizeToolCalls } from "@/lib/normalize";
 import { isPromptRejectedError, sendAgentCommand } from "@/lib/agent-client";
 import { clearDraft, rekeyDraft, restoreDraftSubmission } from "@/lib/draft-store";
 import { getPreferredToolPreset, setPreferredToolPreset } from "@/lib/tool-preset-preference";
-import { getToolNamesForPreset, type ToolEntry, type ToolPreset } from "@/lib/tool-presets";
+import { getPreferredChatMode, setPreferredChatMode, type ChatMode } from "@/lib/chat-mode-preference";
+import { getPresetFromActiveNames, getToolNamesForPreset, type ToolEntry, type ToolPreset } from "@/lib/tool-presets";
 import type { SessionStatsInfo } from "@/lib/pi-types";
 import { userMessageKey } from "@/lib/prompt-recovery";
 import { AgentEventConnection, isAgentEventStreamAbort } from "@/lib/agent-event-connection";
@@ -327,6 +328,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [newSessionModel, setNewSessionModel] = useState<SelectedModel | null>(null);
   const [newSessionDefaultModel, setNewSessionDefaultModel] = useState<SelectedModel | null>(null);
   const [toolPreset, setToolPreset] = useState<ToolPreset>("default");
+  // 普通对话模式是全局偏好（输入框 π 图标），不是会话内容：新会话按它创建，
+  // 打开已有会话时由下方的同步 effect 把它推给服务端。
+  const [chatMode, setChatMode] = useState<ChatMode>(() => getPreferredChatMode());
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevelOption>("auto");
   const [retryInfo, setRetryInfo] = useState<{ attempt: number; maxAttempts: number; errorMessage?: string } | null>(null);
   const [promptFailure, setPromptFailure] = useState<string | null>(null);
@@ -642,6 +646,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           cwd: newSessionCwd,
           type: "ensure_session",
           toolNames,
+          ...(chatMode === "chat" ? { chatMode: true } : {}),
           ...(selectedModel ? { provider: selectedModel.provider, modelId: selectedModel.modelId } : {}),
           ...(selectedThinkingLevel
             ? { thinkingLevel: selectedThinkingLevel }
@@ -676,7 +681,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } finally {
       ensuringNewSessionRef.current = null;
     }
-  }, [isNew, locale, newSessionCwd, toolPreset]);
+  }, [isNew, locale, newSessionCwd, toolPreset, chatMode]);
 
   // Opening the System panel is also allowed to initialize an otherwise dormant
   // session. This is deliberately a non-prompt command: it creates no message
@@ -1893,6 +1898,48 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [setToolPresetState]);
 
+  /** 切换普通对话模式时保留工作模式的工具预设，切回来时按它恢复。 */
+  const workToolPresetRef = useRef<ToolPreset>(getPreferredToolPreset());
+  useEffect(() => {
+    if (chatMode === "work") workToolPresetRef.current = toolPreset;
+  }, [chatMode, toolPreset]);
+
+  const handleChatModeChange = useCallback((mode: ChatMode) => {
+    setPreferredChatMode(mode);
+    setChatMode(mode);
+  }, []);
+
+  // 模式同步：新会话在创建时带上 chatMode，已有会话必须显式下发（含打开会话时）。
+  // 服务端只改提示词来源与工具集，不重建 AgentSession，所以这里不用等 prompt。
+  const chatModeSyncRef = useRef<string | null>(null);
+  useEffect(() => {
+    const sid = sessionIdRef.current ?? session?.id ?? null;
+    if (!sid) {
+      chatModeSyncRef.current = null;
+      return;
+    }
+    const syncKey = `${sid}:${chatMode}`;
+    if (chatModeSyncRef.current === syncKey) return;
+    chatModeSyncRef.current = syncKey;
+
+    const command = chatMode === "chat"
+      ? { type: "set_chat_mode", on: true }
+      : {
+        type: "set_chat_mode",
+        on: false,
+        // 切回工作模式时显式恢复预设：重开的包装器没有进入聊天模式前的快照。
+        toolNames: getToolNamesForPreset(workToolPresetRef.current),
+      };
+    void sendAgentCommand<{ toolNames?: string[] }>(sid, command)
+      .then((result) => {
+        if (sessionIdRef.current !== sid) return;
+        if (chatMode === "work" && result?.toolNames) {
+          setToolPresetState(getPresetFromActiveNames(result.toolNames));
+        }
+      })
+      .catch((error) => console.error("Failed to sync chat mode:", error));
+  }, [session?.id, chatMode, setToolPresetState]);
+
   const scrollUserMsgToTop = useCallback(() => {
     const container = scrollContainerRef.current;
     const el = lastUserMsgRef.current;
@@ -2087,7 +2134,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   return {
     // State
     data, loading, error, activeLeafId, messages, entryIds, streamState,
-    agentRunning, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, newSessionModel, toolPreset, thinkingLevel,
+    agentRunning, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, newSessionModel, toolPreset, chatMode, thinkingLevel,
     retryInfo, promptFailure, contextUsage, systemPrompt, forkingEntryId,
     isCompacting, compactError, compactResult, currentModel, displayModel, modelSwitching, sessionStats,
     slashCommands, slashCommandsLoading, queuedMessages,
@@ -2104,7 +2151,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
     handleRecallQueue,
     handleBuiltinSlashCommand,
-    handleToolPresetChange, handleThinkingLevelChange, loadTools, loadSlashCommands, setActiveLeafId, setData, setMessages,
+    handleToolPresetChange, handleChatModeChange, handleThinkingLevelChange, loadTools, loadSlashCommands, setActiveLeafId, setData, setMessages,
     scrollToBottom, scrollUserMsgToTop,
     dispatch, setAgentRunning, setForkingEntryId,
     bashRunning, pendingBash,
