@@ -63,6 +63,7 @@ app/api/
   models-config/enabled/route.ts  GET provider models + picker state | PUT writes enabledModels
   mobile/pair/route.ts            GET LAN address + remote-view URL for the phone QR code
   mobile/access/route.ts          GET/PUT phone-access switch + password (writes desktop-access.json)
+  tools/settings/route.ts         GET/PUT the Windows PowerShell tool switch (writes settings.json defaultTools)
   models-config/discover/route.ts POST fetch a configured provider's upstream model list
   models-config/test/route.ts     POST test a configured model/provider
   plugins/route.ts                GET/POST package plugin management
@@ -73,6 +74,7 @@ app/api/
 
 lib/
   agent-client.ts      typed fetch helper for /api/agent commands
+  chat-appearance.ts   chat reading surface constants + clamp + CSS-variable publish (设置 → 常规 → 聊天)
   chat-mode-prompt.ts  chat prompt for plain conversation mode (work ⇄ chat, composer π mark)
   chat-mode-preference.ts  browser-persisted work/chat mode
   draft-store.ts       local draft persistence helpers
@@ -84,10 +86,12 @@ lib/
   mobile-timeline.ts   turn grouping for /m: user → process → answer (+ MOBILE_RADIUS, pending takeover)
   npx.ts               npx runner used by skill install
   pi-types.ts          local structural types for pi SDK objects
+  powershell-settings.ts  read/write the PowerShell shell slot in ~/.pi/agent/settings.json
   rpc-manager.ts      AgentSessionWrapper + registry + startRpcSession
   session-reader.ts   SessionManager wrappers + path cache + buildSessionContext adapter
   tool-presets.ts     PRESET_NONE/READ_ONLY/DEFAULT/FULL + getPresetFromTools()
   tool-preset-preference.ts  browser-persisted default for fresh sessions
+  thinking-expansion-preference.ts  browser-persisted "thinking expanded by default" + broadcast event
   types.ts            shared TypeScript types
   normalize.ts        normalizeToolCalls() — field name mismatch between file format and our types
   worktree.ts         project/worktree resolution and git worktree operations
@@ -101,6 +105,7 @@ components/
   BranchNavigator.tsx in-session branch switcher
   ChatMinimap.tsx     scroll minimap alongside the message list
   MarkdownBody.tsx    markdown renderer
+  SettingsPanel.tsx   settings dialog (常规/快捷键/插件/模型/技能/MCP/手机访问)
   ModelsConfig.tsx    modal for editing models.json (opened from sidebar bottom)
   EnabledModelsPicker.tsx  per-provider checklist for the chat model picker (writes enabledModels)
   MobilePairDialog.tsx  QR dialog that pairs a phone with the current session (opened from ChatInput)
@@ -120,6 +125,7 @@ components/
 hooks/
   useAgentSession.ts  messages + streaming + SSE + fork/navigate/reconciliation logic
   useAudio.ts         completion sound + browser AudioContext unlock
+  useChatAppearance.ts  chat content width/font size store → CSS custom properties
   useDragDrop.ts      shared drag/drop state
   useIsMobile.ts      responsive breakpoint hook
   useTheme.ts         theme state
@@ -168,6 +174,17 @@ The last preset explicitly selected by the user is stored in browser `localStora
 - `set_chat_mode` (POST `/api/agent/[id]`) edits the in-memory prompt state and tool set only. It must never destroy the wrapper: the prompt is recomputed per run by the `before_agent_start` extension (`agent.state.systemPrompt` is getter-only since 0.86). Entering chat mode snapshots `getActiveToolNames()` and disables every tool; leaving restores that snapshot, or the `toolNames` the client sends (a wrapper reopened after the idle timeout has no snapshot to fall back on).
 - The mode is a **browser preference** (`pi-chat-mode`, `lib/chat-mode-preference.ts`), not session content — it is never written to the `.jsonl`. `useAgentSession` pushes it to whichever session it is showing (`chatModeSyncRef` dedupes per `sid:mode`), and a brand-new session passes it to `POST /api/agent/new` so the first message already runs on the right prompt. `get_state` reports `chatMode`.
 - Chat mode disables the composer's tool-preset control (`workToolPresetRef` restores the preset on the way back) and only arms the `!` shell prefix in work mode.
+
+### Settings → 常规 carries pi-web's chat reading surface
+- The 常规 page follows pi-web's grouping: 主题/语言 unchanged (pi-desktop keeps its three-theme switch, no mist/rose/pine palettes), then a 聊天 group (思考默认展开、聊天内容宽度、聊天内容字号、完成提示音), 显示横幅, a Windows-only Shell 工具 group, and 关于 pinned last. Not ported on purpose: pi-web's selected-text ask popover (`quoteSelection`), web-push registration, and web-auth logout — the phone view covers remote use, and the desktop shell has native notifications and no login.
+- **Chat width/type size are document-level CSS custom properties, not a React context.** `lib/chat-appearance.ts` owns the constants, the clamping and `applyChatAppearance()` (writes `--chat-content-max-width` / `--chat-content-font-size` on the root); `hooks/useChatAppearance.ts` is a module-level `useSyncExternalStore` store over them, the same shape as `hooks/useTheme.ts`. Consumers read the variables from CSS or inline styles (`ChatWindow`'s message column, `ChatInput`'s composer wrapper and textarea, `.markdown-body`, `.extension-widget-content`), so nothing re-renders on a value change except the slider itself.
+- `CHAT_APPEARANCE_INIT_SCRIPT` is inlined in `app/layout.tsx` next to the theme script: without it the stored type size only lands after React hydrates and the first paint jumps.
+- **Clamp `null`/`""` to the default, never through `Number()`.** `Number(null)` is `0`, which clamps up to the *minimum* (12px) — that is how an unset font size silently became the smallest one. The init script repeats the same guard for the same reason.
+- The composer textarea's line height stays `calc(24px + var(--chat-font-size-offset, 0px))`: the single-line 24px box plus `minHeight: 24` vertical centring must not move at the default size. `resizeComposerTextarea()` has to re-run when the size changes (`[value, chatFontSize]`) or a multi-line draft is measured against the old metrics.
+- **Thinking expanded by default is a browser preference** (`lib/thinking-expansion-preference.ts`, `pi-thinking-expanded`), never written to the `.jsonl`. `ThinkingBlock` starts collapsed (`useState(false)`) and applies the preference from an effect — reading `localStorage` in the initialiser would desync the server render from hydration — and that same effect subscribes to `THINKING_EXPANDED_EVENT`, so flipping the switch re-opens blocks that are already mounted. Expanding is also the load trigger for deferred history thinking, so the fetch runs from an effect on `expanded` rather than from the click handler; `components/MessageView.test.mjs` pins both.
+- **The PowerShell switch is pi's own `defaultTools` setting**, not a desktop-only preference: `lib/powershell-settings.ts` swaps the `bash` ↔ `powershell` slot under the same `proper-lockfile` lock pi uses, and `GET|PUT /api/tools/settings` is its only entry point, so the CLI, pi-web and the Desktop agree on one field. A missing settings file means "not configured" (auto-detect), not "off".
+- `resolveShellSelection()` checks that explicit setting **before** probing for Git Bash, but an explicit `shellPath` still wins over both — that is a custom bash configuration, not a shell-slot choice. Existing sessions funnel through `applyShellTool()` on every `set_tools` / `set_chat_mode`, so a session opened later picks the switch up; the settings page reloads the *current* session (`sendAgentCommand({ type: "reload" })` + `onSessionReloaded`) because the active tool set is fixed at session creation.
+- The Shell 工具 section renders only when the host reports `isWindows`, but it also renders when the GET failed, so a broken read shows its error instead of an empty page.
 
 ### Model defaults for new sessions
 `GET /api/models` returns `defaultModel` read from `~/.pi/agent/settings.json`. `ChatWindow` pre-selects this on mount for new sessions. Explicit browser model/thinking selections are applied atomically during AgentSession construction, then `lib/startup-preferences.ts` persists their effective values without replaying `set_model`/`set_thinking_level`; implicit `enabledModels` fallbacks and thinking pins are not persisted.

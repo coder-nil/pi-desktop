@@ -13,6 +13,7 @@ import { TurnWrittenFiles } from "./TurnWrittenFiles";
 import type { FileOpenLocation } from "@/lib/file-links";
 import type { WrittenFile } from "@/lib/turn-written-files";
 import { skillExpansionToCommand } from "@/lib/slash-display";
+import { isThinkingExpandedByDefault, THINKING_EXPANDED_EVENT } from "@/lib/thinking-expansion-preference";
 import type {
   AgentMessage,
   UserMessage,
@@ -376,7 +377,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
             border: "1px solid rgba(59,130,246,0.2)",
             borderRadius: 12,
             padding: "8px 12px",
-            fontSize: 14,
+            fontSize: "calc(14px + var(--chat-font-size-offset, 0px))",
             lineHeight: 1.6,
             color: "var(--text)",
             wordBreak: "break-word",
@@ -875,30 +876,51 @@ function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex }: {
   blockIndex: number;
 }) {
   const { t } = useI18n();
+  // 未展开是服务端与首帧的共同状态：偏好只能在浏览器里读，放到 effect 里应用
+  // 才不会让 hydration 前后不一致。同一 effect 顺带订阅偏好变化，设置里拨开关
+  // 时已经渲染出来的思考块也会跟着开合。
   const [expanded, setExpanded] = useState(false);
   const [content, setContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const tRef = useRef(t);
+  tRef.current = t;
 
-  const toggle = async () => {
-    const nextExpanded = !expanded;
-    setExpanded(nextExpanded);
-    if (!nextExpanded || !block.deferred || content !== null) return;
+  useEffect(() => {
+    const apply = () => setExpanded(isThinkingExpandedByDefault());
+    apply();
+    window.addEventListener(THINKING_EXPANDED_EVENT, apply);
+    return () => window.removeEventListener(THINKING_EXPANDED_EVENT, apply);
+  }, []);
+
+  // 历史消息里的思考正文是按需拉取的，所以展开本身就是加载时机。
+  // loadThinkingContent() 会缓存同一个 key，effect 重跑不会重复请求。
+  useEffect(() => {
+    if (!expanded || !block.deferred || content !== null) return;
     if (!sessionId || !entryId) {
-      setError(t("i18n.thinkingUnavailable"));
+      setError(tRef.current("i18n.thinkingUnavailable"));
       return;
     }
-
+    let cancelled = false;
     setLoading(true);
     setError(null);
-    try {
-      setContent(await loadThinkingContent(sessionId, entryId, blockIndex));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
-    }
-  };
+    loadThinkingContent(sessionId, entryId, blockIndex)
+      .then((value) => {
+        if (!cancelled) {
+          setContent(value);
+          setLoading(false);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : String(err));
+          setLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [expanded, block.deferred, content, sessionId, entryId, blockIndex]);
 
   return (
     <div
@@ -910,7 +932,8 @@ function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex }: {
       }}
     >
       <button
-        onClick={() => void toggle()}
+        onClick={() => setExpanded((value) => !value)}
+        aria-expanded={expanded}
         style={{
           display: "flex",
           alignItems: "center",

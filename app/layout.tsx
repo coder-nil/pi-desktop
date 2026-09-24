@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Noto_Sans_Mono } from "next/font/google";
 import { PwaRegistration } from "@/components/PwaRegistration";
+import { CHAT_APPEARANCE_INIT_SCRIPT } from "@/lib/chat-appearance";
 import "katex/dist/katex.min.css";
 import "./globals.css";
 
@@ -73,6 +74,11 @@ export default function RootLayout({
         <script
           dangerouslySetInnerHTML={{
             __html: `(function(){try{var t=localStorage.getItem("pi-theme");var dark=t==="dark"||((t==null||t===""||t==="auto")&&window.matchMedia("(prefers-color-scheme: dark)").matches);if(dark)document.documentElement.classList.add("dark")}catch(e){}if(window.__PI_WEB_DESKTOP__)document.documentElement.classList.add("pi-desktop")})();`,
+          }}
+        />
+        <script
+          dangerouslySetInnerHTML={{
+            __html: CHAT_APPEARANCE_INIT_SCRIPT,
           }}
         />
         <script

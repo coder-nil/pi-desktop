@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -172,4 +173,21 @@ test("does not render the workspace restore action", () => {
   });
 
   assert.doesNotMatch(html, /恢复工作区/);
+});
+
+test("thinking blocks follow the expand-by-default preference", async () => {
+  const source = await readFile(new URL("./MessageView.tsx", import.meta.url), "utf8");
+
+  // 偏好存在浏览器里，服务端与 hydration 首帧都必须是收起状态。
+  assert.match(source, /const \[expanded, setExpanded\] = useState\(false\);\n  const \[content, setContent\] = useState<string \| null>\(null\);/);
+  assert.match(source, /const apply = \(\) => setExpanded\(isThinkingExpandedByDefault\(\)\);/);
+  assert.match(source, /window\.addEventListener\(THINKING_EXPANDED_EVENT, apply\)/);
+  assert.match(source, /window\.removeEventListener\(THINKING_EXPANDED_EVENT, apply\)/);
+
+  // 历史思考正文按需拉取，因此「展开」本身就是加载时机：默认展开也要取回来，
+  // 不能继续依赖点击。
+  assert.match(source, /if \(!expanded \|\| !block\.deferred \|\| content !== null\) return;/);
+  assert.doesNotMatch(source, /await loadThinkingContent\(sessionId, entryId, blockIndex\)/);
+
+  assert.match(source, /aria-expanded=\{expanded\}/);
 });

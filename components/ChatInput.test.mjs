@@ -285,7 +285,7 @@ test("vertically centers the textarea content in its single-line composer", () =
   assert.match(source, /maskImage: "url\('\/icons\/pi-input-mark\.png'\)"[\s\S]*?marginTop: 2/);
   assert.match(source, /<textarea[\s\S]*?alignSelf: "center"/);
   assert.match(source, /<textarea[\s\S]*?margin: 0,[\s\S]*?padding: 0/);
-  assert.match(source, /<textarea[\s\S]*?lineHeight: "24px"[\s\S]*?minHeight: 24/);
+  assert.match(source, /<textarea[\s\S]*?lineHeight: "calc\(24px \+ var\(--chat-font-size-offset, 0px\)\)"[\s\S]*?minHeight: 24/);
 });
 
 test("scrolls the composer field so the scrollbar and send controls sit on the outer edge", () => {
@@ -513,4 +513,22 @@ test("renders compact errors above the input as a wrapping alert", () => {
   assert.match(html, /&lt;html&gt;request forbidden&lt;\/html&gt;/);
   assert.match(html, /white-space:pre-wrap/);
   assert.ok(html.indexOf('role="alert"') < html.indexOf("<textarea"));
+});
+
+// 设置 → 常规 → 聊天：宽度与字号是文档级自定义属性，输入框是最早挂载的消费者。
+test("chat appearance settings drive the composer width and type size", () => {
+  assert.match(source, /const \{ fontSize: chatFontSize \} = useChatAppearance\(\)/);
+  assert.match(source, /maxWidth: "var\(--chat-content-max-width, 820px\)"/);
+  assert.match(source, /fontSize: "var\(--chat-content-font-size, 14px\)"/);
+  // 字号变化必须重算高度，否则多行草稿会在新字号下被截断。
+  assert.match(source, /useEffect\(\(\) => \{\n    resizeComposerTextarea\(textareaRef\.current\);\n  \}, \[value, chatFontSize\]\);/);
+});
+
+test("publishes the chat reading surface as clamped custom properties", () => {
+  assert.match(globalsCss, /--chat-content-max-width: 820px;/);
+  assert.match(globalsCss, /--chat-content-font-size: 14px;/);
+  assert.match(globalsCss, /--chat-font-size-offset: calc\(var\(--chat-content-font-size\) - 14px\);/);
+  assert.match(globalsCss, /\.markdown-body \{[\s\S]*?font-size: calc\(14px \+ var\(--chat-font-size-offset, 0px\)\);/);
+  // 表格原本是 0.93em（相对 14px）；改成绝对值才能跟着字号一起放大。
+  assert.match(globalsCss, /\.markdown-body table \{[\s\S]*?font-size: calc\(13px \+ var\(--chat-font-size-offset, 0px\)\);/);
 });

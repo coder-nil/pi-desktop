@@ -10,6 +10,7 @@ import {type AtQueryMatch, buildAtInsertText, buildEntriesFromFiles, extractAtQu
 import {FolderIcon, getFileIcon} from "./FileIcons";
 import {useIsMobile} from "@/hooks/useIsMobile";
 import {useI18n} from "@/hooks/useI18n";
+import {useChatAppearance} from "@/hooks/useChatAppearance";
 import {MobilePairDialog} from "./MobilePairDialog";
 import type {ToolPreset} from "@/lib/tool-presets";
 
@@ -584,6 +585,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const [skillMenuError, setSkillMenuError] = useState<string | null>(null);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // 字号同时驱动输入框自身与高度重算：这里是全应用最早挂载的消费者，
+  // 自定义属性也随这次订阅应用到文档根节点上（见 hooks/useChatAppearance.ts）。
+  const { fontSize: chatFontSize } = useChatAppearance();
   const dropdownRef = useRef<HTMLDivElement>(null);
   const modelDropdownPanelRef = useRef<HTMLDivElement>(null);
   const toolDropdownRef = useRef<HTMLDivElement>(null);
@@ -928,7 +932,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
 
   useEffect(() => {
     resizeComposerTextarea(textareaRef.current);
-  }, [value]);
+  }, [value, chatFontSize]);
 
   useEffect(() => {
     return () => {
@@ -1818,7 +1822,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           e.target.value = "";
         }}
       />
-      <div style={{ maxWidth: 820, margin: "0 auto" }}>
+      <div style={{ maxWidth: "var(--chat-content-max-width, 820px)", margin: "0 auto" }}>
         <ModelErrorBanner error={modelError} />
         <ModelScopeWarningBanner warnings={modelScopeWarnings} />
         {/* Queued steering / follow-up messages (delivered by pi on upcoming turns) */}
@@ -2581,8 +2585,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               outline: "none",
               resize: "none",
               color: "var(--text)",
-              fontSize: 14,
-              lineHeight: "24px",
+              fontSize: "var(--chat-content-font-size, 14px)",
+              // 默认仍是 24px：只有用户调大字号时行高才跟着长，单行输入框的
+              // 垂直居中（24px 行高 + minHeight 24）因此保持不变。
+              lineHeight: "calc(24px + var(--chat-font-size-offset, 0px))",
               fontFamily: "inherit",
               boxSizing: "border-box",
               minHeight: 24,

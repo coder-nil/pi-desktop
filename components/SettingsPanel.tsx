@@ -1,10 +1,25 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import McpIcon from "@lobehub/icons/es/MCP/components/Mono";
 import { Blocks, Cpu, Keyboard, Layers3, Settings2, Smartphone } from "lucide-react";
 import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { useChatAppearance } from "@/hooks/useChatAppearance";
+import { sendAgentCommand } from "@/lib/agent-client";
+import type { ShellToolSettingsResponse } from "@/lib/api-types";
+import {
+  CHAT_CONTENT_FONT_SIZE_DEFAULT,
+  CHAT_CONTENT_FONT_SIZE_MAX,
+  CHAT_CONTENT_FONT_SIZE_MIN,
+  CHAT_CONTENT_WIDTH_DEFAULT,
+  CHAT_CONTENT_WIDTH_MAX,
+  CHAT_CONTENT_WIDTH_MIN,
+} from "@/lib/chat-appearance";
+import {
+  isThinkingExpandedByDefault,
+  setThinkingExpandedByDefault,
+} from "@/lib/thinking-expansion-preference";
 import { APPLICATION_VERSION, PI_VERSION } from "@/lib/changelog";
 import { MCP_CATALOG, type McpCatalogEntry } from "@/lib/mcp-catalog";
 import { KEYBOARD_SHORTCUT_GROUPS, KEYBOARD_SHORTCUTS } from "@/lib/keyboard-shortcuts";
@@ -39,6 +54,78 @@ type McpScope = "project" | "global";
 
 type ThemeOption = "light" | "dark" | "auto";
 
+const SETTINGS_ROW_ICON_STYLE = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  width: 30,
+  height: 30,
+  flexShrink: 0,
+  borderRadius: 7,
+  background: "var(--bg-hover)",
+  color: "var(--text-muted)",
+} as const;
+
+/** 一条设置项的骨架：左图标、中间标题与说明、右侧控件。 */
+function SettingsRow({ icon, title, description, children }: {
+  icon: ReactNode;
+  title: string;
+  description: string;
+  children?: ReactNode;
+}) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 10px", borderBottom: "1px solid var(--border)", marginBottom: 4 }}>
+      <span style={SETTINGS_ROW_ICON_STYLE}>{icon}</span>
+      <span style={{ minWidth: 0, flex: 1 }}>
+        <span style={{ display: "block", fontSize: 13, fontWeight: 600 }}>{title}</span>
+        <span style={{ display: "block", marginTop: 2, color: "var(--text-muted)", fontSize: 11, lineHeight: 1.45 }}>{description}</span>
+      </span>
+      {children}
+    </div>
+  );
+}
+
+/** 常规页的功能分组标题（外观 / 聊天 / Shell 工具）。 */
+function SettingsGroupTitle({ children }: { children: ReactNode }) {
+  return (
+    <div style={{ margin: "16px 0 4px", padding: "0 10px", color: "var(--text-dim)", fontSize: 10, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase" }}>
+      {children}
+    </div>
+  );
+}
+
+function SettingsSwitch({ checked, label, onChange, disabled }: {
+  checked: boolean;
+  label: string;
+  onChange: (checked: boolean) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      title={label}
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      style={{
+        width: 38,
+        height: 22,
+        padding: 2,
+        border: "none",
+        borderRadius: 11,
+        background: checked ? "var(--accent)" : "var(--border)",
+        cursor: disabled ? "default" : "pointer",
+        opacity: disabled ? 0.6 : 1,
+        flexShrink: 0,
+      }}
+    >
+      <span style={{ display: "block", width: 18, height: 18, borderRadius: "50%", background: "white", transform: checked ? "translateX(16px)" : "translateX(0)", transition: "transform 0.15s" }} />
+    </button>
+  );
+}
+
 type LanguageOption = {
   id: string;
   label: string;
@@ -59,6 +146,17 @@ export function SettingsPanel({ cwd, hasProject, projectTrusted, sessionId, onCl
   const isMobile = useIsMobile();
   const [view, setView] = useState<SettingsView>("menu");
   const [visitedSections, setVisitedSections] = useState<Set<SettingsSection>>(() => new Set(["general"]));
+  // 聊天阅读区（宽度/字号）：值存在浏览器里，写回后立即生效。
+  const {
+    width: chatContentWidth,
+    setWidth: setChatContentWidth,
+    fontSize: chatContentFontSize,
+    setFontSize: setChatContentFontSize,
+  } = useChatAppearance();
+  const [thinkingExpanded, setThinkingExpanded] = useState(false);
+  const [shellSettings, setShellSettings] = useState<ShellToolSettingsResponse | null>(null);
+  const [shellSaving, setShellSaving] = useState(false);
+  const [shellError, setShellError] = useState<string | null>(null);
   const [mcpQuery, setMcpQuery] = useState("");
   const [mcpServers, setMcpServers] = useState<Set<string>>(() => new Set());
   const [mcpBusy, setMcpBusy] = useState<string | null>(null);
@@ -84,6 +182,42 @@ export function SettingsPanel({ cwd, hasProject, projectTrusted, sessionId, onCl
     document.addEventListener("keydown", handleKeyDown, true);
     return () => document.removeEventListener("keydown", handleKeyDown, true);
   }, [isMobile, onClose, view]);
+
+  useEffect(() => {
+    setThinkingExpanded(isThinkingExpandedByDefault());
+    void fetch("/api/tools/settings")
+      .then(async (response) => {
+        const data = await response.json() as ShellToolSettingsResponse & { error?: string };
+        if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
+        setShellSettings(data);
+      })
+      .catch((error) => setShellError(error instanceof Error ? error.message : String(error)));
+  }, []);
+
+  const togglePowerShell = async (enabled: boolean) => {
+    setShellSaving(true);
+    setShellError(null);
+    try {
+      const response = await fetch("/api/tools/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled }),
+      });
+      const data = await response.json() as ShellToolSettingsResponse & { error?: string };
+      if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
+      setShellSettings(data);
+      // 活跃工具集在会话创建时就定下来，因此保存后要重载当前会话，
+      // 新选的 shell 工具才会真的出现在工具列表里。
+      if (sessionId) {
+        await sendAgentCommand(sessionId, { type: "reload" });
+        onSessionReloaded();
+      }
+    } catch (error) {
+      setShellError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setShellSaving(false);
+    }
+  };
 
   useEffect(() => {
     if (view !== "mcp" || !cwd) return;
@@ -308,6 +442,115 @@ export function SettingsPanel({ cwd, hasProject, projectTrusted, sessionId, onCl
     </div>
   );
 
+  // ── 聊天阅读区（pi-web 常规页的「聊天」分节） ──
+  const renderThinkingRow = () => (
+    <SettingsRow
+      icon={<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M9.5 2A5.5 5.5 0 0 0 4 7.5c0 1.7.78 3.21 2 4.21V14a1 1 0 0 0 1 1h5a1 1 0 0 0 1-1v-2.29c1.22-1 2-2.51 2-4.21A5.5 5.5 0 0 0 9.5 2z" /><line x1="7" y1="18" x2="12" y2="18" /><line x1="8" y1="21" x2="11" y2="21" /></svg>}
+      title={t("settings.thinkingExpandedDefault")}
+      description={t("settings.thinkingExpandedDefaultDescription")}
+    >
+      <SettingsSwitch
+        checked={thinkingExpanded}
+        label={t("settings.thinkingExpandedDefault")}
+        onChange={(enabled) => {
+          // 先落盘再广播：已挂载的思考块靠这个事件原地开合，见 lib/thinking-expansion-preference.ts。
+          setThinkingExpandedByDefault(enabled);
+          setThinkingExpanded(enabled);
+        }}
+      />
+    </SettingsRow>
+  );
+
+  /** 数值型设置行：标题与当前值在左侧，重置按钮与滑块在右侧。 */
+  const renderRangeRow = (range: {
+    id: string;
+    icon: ReactNode;
+    title: string;
+    description: string;
+    value: number;
+    min: number;
+    max: number;
+    step: number;
+    defaultValue: number;
+    resetLabel: string;
+    onChange: (value: number) => void;
+  }) => (
+    <div style={{ padding: "11px 10px", borderBottom: "1px solid var(--border)", marginBottom: 4 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <span style={SETTINGS_ROW_ICON_STYLE}>{range.icon}</span>
+        <span style={{ minWidth: 0, flex: 1 }}>
+          <label htmlFor={range.id} style={{ display: "block", fontSize: 13, fontWeight: 600 }}>{range.title}</label>
+          <span style={{ display: "block", marginTop: 2, color: "var(--text-muted)", fontSize: 11, lineHeight: 1.45 }}>{range.description}</span>
+        </span>
+        <output htmlFor={range.id} style={{ flexShrink: 0, color: "var(--text-muted)", fontFamily: "var(--font-mono)", fontSize: 11, fontVariantNumeric: "tabular-nums" }}>{range.value}px</output>
+        <button
+          type="button"
+          disabled={range.value === range.defaultValue}
+          onClick={() => range.onChange(range.defaultValue)}
+          title={range.resetLabel}
+          aria-label={range.resetLabel}
+          style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 24, height: 24, flexShrink: 0, padding: 0, border: "none", borderRadius: 6, background: "none", color: range.value === range.defaultValue ? "var(--text-dim)" : "var(--text-muted)", cursor: range.value === range.defaultValue ? "default" : "pointer" }}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8M3 3v5h5" /></svg>
+        </button>
+      </div>
+      <input
+        id={range.id}
+        type="range"
+        min={range.min}
+        max={range.max}
+        step={range.step}
+        value={range.value}
+        onChange={(event) => range.onChange(Number(event.target.value))}
+        style={{ display: "block", width: "100%", marginTop: 9, accentColor: "var(--accent)" }}
+      />
+    </div>
+  );
+
+  const renderChatWidthRow = () => renderRangeRow({
+    id: "settings-chat-content-width",
+    icon: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M8 7 3 12l5 5M16 7l5 5-5 5M3 12h18" /></svg>,
+    title: t("settings.chatContentWidth"),
+    description: t("settings.chatContentWidthDescription"),
+    value: chatContentWidth,
+    min: CHAT_CONTENT_WIDTH_MIN,
+    max: CHAT_CONTENT_WIDTH_MAX,
+    step: 10,
+    defaultValue: CHAT_CONTENT_WIDTH_DEFAULT,
+    resetLabel: t("settings.resetChatContentWidth"),
+    onChange: setChatContentWidth,
+  });
+
+  const renderChatFontSizeRow = () => renderRangeRow({
+    id: "settings-chat-content-font-size",
+    icon: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 19l4-10 4 10M5.5 15.5h5M15 19l3-8 3 8M16 16.5h4" /></svg>,
+    title: t("settings.chatContentFontSize"),
+    description: t("settings.chatContentFontSizeDescription"),
+    value: chatContentFontSize,
+    min: CHAT_CONTENT_FONT_SIZE_MIN,
+    max: CHAT_CONTENT_FONT_SIZE_MAX,
+    step: 1,
+    defaultValue: CHAT_CONTENT_FONT_SIZE_DEFAULT,
+    resetLabel: t("settings.resetChatContentFontSize"),
+    onChange: setChatContentFontSize,
+  });
+
+  // Windows 专用：无 Git Bash 的机器把 bash 槽换成 PowerShell 工具。
+  const renderShellToolRow = () => (
+    <SettingsRow
+      icon={<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 5h16v14H4z" /><path d="m7 10 2.5 2.5L7 15M13 15h4" /></svg>}
+      title={t("settings.usePowerShell")}
+      description={t("settings.shellToolDescription")}
+    >
+      <SettingsSwitch
+        checked={shellSettings?.powerShellEnabled === true}
+        disabled={shellSaving || !shellSettings}
+        label={t("settings.usePowerShell")}
+        onChange={(enabled) => void togglePowerShell(enabled)}
+      />
+    </SettingsRow>
+  );
+
   const visibleMcpServers = MCP_CATALOG.filter((preset) => {
     const query = mcpQuery.trim().toLocaleLowerCase();
     if (!query) return true;
@@ -447,30 +690,36 @@ export function SettingsPanel({ cwd, hasProject, projectTrusted, sessionId, onCl
                 <div style={{ width: "min(720px, 100%)", padding: "8px 10px 18px" }}>
                   {renderThemeRow()}
                   {renderLanguageRow()}
-                  <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 10px", borderBottom: "1px solid var(--border)", marginBottom: 4 }}>
-                    <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, flexShrink: 0, borderRadius: 7, background: "var(--bg-hover)", color: "var(--text-muted)" }}>
-                      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" /><path d="M15.54 8.46a5 5 0 0 1 0 7.07" /></svg>
-                    </span>
-                    <span style={{ minWidth: 0, flex: 1 }}>
-                      <span style={{ display: "block", fontSize: 13, fontWeight: 600 }}>{t("settings.completionSound")}</span>
-                      <span style={{ display: "block", marginTop: 2, color: "var(--text-muted)", fontSize: 11, lineHeight: 1.45 }}>{t("settings.completionSoundDescription")}</span>
-                    </span>
-                    <button type="button" role="switch" aria-checked={soundEnabled} onClick={onSoundToggle} title={soundEnabled ? t("chat.disableSound") : t("chat.enableSound")} aria-label={soundEnabled ? t("chat.disableSound") : t("chat.enableSound")} style={{ width: 38, height: 22, padding: 2, border: "none", borderRadius: 11, background: soundEnabled ? "var(--accent)" : "var(--border)", cursor: "pointer", flexShrink: 0 }}>
-                      <span style={{ display: "block", width: 18, height: 18, borderRadius: "50%", background: "white", transform: soundEnabled ? "translateX(16px)" : "translateX(0)", transition: "transform 0.15s" }} />
-                    </button>
-                  </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 10px", borderBottom: "1px solid var(--border)", marginBottom: 4 }}>
-                    <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, flexShrink: 0, borderRadius: 7, background: "var(--bg-hover)", color: "var(--text-muted)" }}>
-                      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 6h16v12H4z" /><path d="M8 10h8" /><path d="M8 14h5" /></svg>
-                    </span>
-                    <span style={{ minWidth: 0, flex: 1 }}>
-                      <span style={{ display: "block", fontSize: 13, fontWeight: 600 }}>{t("settings.showBanner")}</span>
-                      <span style={{ display: "block", marginTop: 2, color: "var(--text-muted)", fontSize: 11, lineHeight: 1.45 }}>{t("settings.showBannerDescription")}</span>
-                    </span>
-                    <button type="button" role="switch" aria-checked={bannerEnabled} onClick={onBannerToggle} title={t("settings.showBanner")} aria-label={t("settings.showBanner")} style={{ width: 38, height: 22, padding: 2, border: "none", borderRadius: 11, background: bannerEnabled ? "var(--accent)" : "var(--border)", cursor: "pointer", flexShrink: 0 }}>
-                      <span style={{ display: "block", width: 18, height: 18, borderRadius: "50%", background: "white", transform: bannerEnabled ? "translateX(16px)" : "translateX(0)", transition: "transform 0.15s" }} />
-                    </button>
-                  </div>
+
+                  <SettingsGroupTitle>{t("settings.groupChat")}</SettingsGroupTitle>
+                  {renderThinkingRow()}
+                  {renderChatWidthRow()}
+                  {renderChatFontSizeRow()}
+                  <SettingsRow
+                    icon={<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" /><path d="M15.54 8.46a5 5 0 0 1 0 7.07" /></svg>}
+                    title={t("settings.completionSound")}
+                    description={t("settings.completionSoundDescription")}
+                  >
+                    <SettingsSwitch checked={soundEnabled} label={soundEnabled ? t("chat.disableSound") : t("chat.enableSound")} onChange={() => onSoundToggle()} />
+                  </SettingsRow>
+                  <SettingsRow
+                    icon={<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 6h16v12H4z" /><path d="M8 10h8" /><path d="M8 14h5" /></svg>}
+                    title={t("settings.showBanner")}
+                    description={t("settings.showBannerDescription")}
+                  >
+                    <SettingsSwitch checked={bannerEnabled} label={t("settings.showBanner")} onChange={() => onBannerToggle()} />
+                  </SettingsRow>
+
+                  {/* Shell 工具只在 Windows 存在；读取失败时也渲染这一节，
+                      否则用户只能看到一个消失的开关而看不到原因。 */}
+                  {(shellSettings?.isWindows === true || shellError !== null) && (
+                    <>
+                      <SettingsGroupTitle>{t("settings.shellTool")}</SettingsGroupTitle>
+                      {renderShellToolRow()}
+                      {shellError && <p role="alert" style={{ margin: "8px 10px 0", color: "var(--danger)", fontSize: 11, lineHeight: 1.45, overflowWrap: "anywhere" }}>{shellError}</p>}
+                    </>
+                  )}
+
                   {/* 「关于」固定在常规页最底部。 */}
                   {renderAboutRow()}
                 </div>

@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { win32 } from "node:path";
 import { getPowerShellConfig, getShellConfig } from "@earendil-works/pi-coding-agent";
+import { isPowerShellToolEnabled } from "./powershell-settings";
 
 export type DesktopShellTool = "bash" | "powershell";
 
@@ -16,6 +17,11 @@ export interface DesktopShellSelection {
 
 interface ShellPathSettings {
   getShellPath(): string | undefined;
+  /**
+   * pi's `defaultTools` setting. An explicit `powershell` entry is the user's
+   * own choice (设置 → 常规 → Shell 工具) and outranks the availability probe.
+   */
+  getDefaultTools?(): string[] | undefined;
 }
 
 /**
@@ -106,6 +112,11 @@ export function resolveShellSelection(
   // bash.exe) would silently stop being used.
   if (configuredShellPath) return { tool: "bash", shellPath: configuredShellPath };
   if (platform !== "win32") return { tool: "bash" };
+
+  // 用户在设置里显式选了 PowerShell：这是他的选择，不去探测 bash 是否存在。
+  if (isPowerShellToolEnabled(settings.getDefaultTools?.(), platform)) {
+    return { tool: "powershell" };
+  }
 
   let bashAvailable = false;
   try {

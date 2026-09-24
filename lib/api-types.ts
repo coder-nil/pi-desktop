@@ -112,3 +112,8 @@ export interface PluginsResponse {
   diagnostics: PluginDiagnostic[];
   projectResourcesLoaded: boolean;
 }
+
+export interface ShellToolSettingsResponse {
+  isWindows: boolean;
+  powerShellEnabled: boolean;
+}
