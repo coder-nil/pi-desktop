@@ -2,7 +2,25 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import McpIcon from "@lobehub/icons/es/MCP/components/Mono";
-import { Blocks, Cpu, Keyboard, Layers3, Settings2, Smartphone } from "lucide-react";
+import {
+  Blocks,
+  Cpu,
+  Flag,
+  Info,
+  Keyboard,
+  Languages,
+  Layers3,
+  Lightbulb,
+  MoveHorizontal,
+  RotateCcw,
+  Settings2,
+  Smartphone,
+  SquareTerminal,
+  SunMoon,
+  Type as TypeIcon,
+  Volume2,
+  type LucideIcon,
+} from "lucide-react";
 import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useChatAppearance } from "@/hooks/useChatAppearance";
@@ -54,80 +72,97 @@ type McpScope = "project" | "global";
 
 type ThemeOption = "light" | "dark" | "auto";
 
-const SETTINGS_ROW_ICON_STYLE = {
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  width: 30,
-  height: 30,
-  flexShrink: 0,
-  borderRadius: 7,
-  background: "var(--bg-hover)",
-  color: "var(--text-muted)",
-} as const;
+// 图标家族只有 lucide-react（项目唯一的图标依赖），strokeWidth 全局统一 1.8；
+// 尺寸只有“行图标 17 / 行内小按钮 14 / 分组标签无图标”三种。
+const ROW_ICON_SIZE = 17;
+const ROW_ICON_STROKE = 1.8;
+
+function RowIcon({ icon: Icon }: { icon: LucideIcon }) {
+  return <Icon size={ROW_ICON_SIZE} strokeWidth={ROW_ICON_STROKE} aria-hidden="true" />;
+}
 
 /** 一条设置项的骨架：左图标、中间标题与说明、右侧控件。 */
-function SettingsRow({ icon, title, description, children }: {
-  icon: ReactNode;
+function SettingsRow({ icon, title, description, monospaceDescription, children }: {
+  icon: LucideIcon;
   title: string;
   description: string;
+  /** 版本号这类需要逐字符对齐的说明。 */
+  monospaceDescription?: boolean;
   children?: ReactNode;
 }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 10px", borderBottom: "1px solid var(--border)", marginBottom: 4 }}>
-      <span style={SETTINGS_ROW_ICON_STYLE}>{icon}</span>
-      <span style={{ minWidth: 0, flex: 1 }}>
-        <span style={{ display: "block", fontSize: 13, fontWeight: 600 }}>{title}</span>
-        <span style={{ display: "block", marginTop: 2, color: "var(--text-muted)", fontSize: 11, lineHeight: 1.45 }}>{description}</span>
+    <div className="settings-row">
+      <span className="settings-row-icon"><RowIcon icon={icon} /></span>
+      <span className="settings-row-text">
+        <span className="settings-row-title">{title}</span>
+        <span className={monospaceDescription ? "settings-row-description is-mono" : "settings-row-description"}>{description}</span>
       </span>
       {children}
     </div>
   );
 }
 
-/** 常规页的功能分组标题（外观 / 聊天 / Shell 工具）。 */
-function SettingsGroupTitle({ children }: { children: ReactNode }) {
+/**
+ * 常规页的功能分组（聊天 / Shell 工具）。
+ * 只给真正需要分类的组加标题：整个常规页不超过两个。
+ */
+function SettingsGroup({ title, children }: { title?: string; children: ReactNode }) {
   return (
-    <div style={{ margin: "16px 0 4px", padding: "0 10px", color: "var(--text-dim)", fontSize: 10, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase" }}>
+    <section className="settings-general-group">
+      {title && <div className="settings-group-title">{title}</div>}
       {children}
-    </div>
+    </section>
   );
 }
 
-function SettingsSwitch({ checked, label, onChange, disabled }: {
+/** 行内下拉（主题 / 语言）：两个地方共用同一尺寸与圆角。 */
+function SettingsSelect({ value, label, options, onChange }: {
+  value: string;
+  label: string;
+  options: Array<{ value: string; label: string }>;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <select
+      className="settings-select"
+      value={value}
+      aria-label={label}
+      onChange={(event) => onChange(event.target.value)}
+    >
+      {options.map((option) => (
+        <option key={option.value} value={option.value}>{option.label}</option>
+      ))}
+    </select>
+  );
+}
+
+function SettingsSwitch({ checked, label, onChange, disabled, busy }: {
   checked: boolean;
   label: string;
   onChange: (checked: boolean) => void;
   disabled?: boolean;
+  /** 值还在读取/写入：禁用并告知辅助技术。 */
+  busy?: boolean;
 }) {
   return (
     <button
       type="button"
       role="switch"
+      className="settings-switch"
       aria-checked={checked}
+      aria-busy={busy || undefined}
       aria-label={label}
       title={label}
       disabled={disabled}
       onClick={() => onChange(!checked)}
-      style={{
-        width: 38,
-        height: 22,
-        padding: 2,
-        border: "none",
-        borderRadius: 11,
-        background: checked ? "var(--accent)" : "var(--border)",
-        cursor: disabled ? "default" : "pointer",
-        opacity: disabled ? 0.6 : 1,
-        flexShrink: 0,
-      }}
     >
-      <span style={{ display: "block", width: 18, height: 18, borderRadius: "50%", background: "white", transform: checked ? "translateX(16px)" : "translateX(0)", transition: "transform 0.15s" }} />
+      <span />
     </button>
   );
 }
 
 type LanguageOption = {
-  id: string;
+  value: string;
   label: string;
 };
 
@@ -345,107 +380,64 @@ export function SettingsPanel({ cwd, hasProject, projectTrusted, sessionId, onCl
   };
 
   const languageOptions: LanguageOption[] = (supportedLocales ?? []).map((plugin) => ({
-    id: plugin.id,
+    value: plugin.id,
     label: plugin.label,
   }));
 
   const renderThemeRow = () => (
-    <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 10px", borderBottom: "1px solid var(--border)", marginBottom: 4 }}>
-      <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, flexShrink: 0, borderRadius: 7, background: "var(--bg-hover)", color: "var(--text-muted)" }}>
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <circle cx="12" cy="12" r="5" />
-          <line x1="12" y1="1" x2="12" y2="3" />
-          <line x1="12" y1="21" x2="12" y2="23" />
-          <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
-          <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
-          <line x1="1" y1="12" x2="3" y2="12" />
-          <line x1="21" y1="12" x2="23" y2="12" />
-          <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
-          <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
-        </svg>
-      </span>
-      <span style={{ minWidth: 0, flex: 1 }}>
-        <span style={{ display: "block", fontSize: 13, fontWeight: 600 }}>{t("settings.theme")}</span>
-        <span style={{ display: "block", marginTop: 2, color: "var(--text-muted)", fontSize: 11, lineHeight: 1.45 }}>{t("settings.themeDescription")}</span>
-      </span>
-      <select
+    <SettingsRow icon={SunMoon} title={t("settings.theme")} description={t("settings.themeDescription")}>
+      <SettingsSelect
         value={themePreference}
-        onChange={(event) => onThemeChange?.(event.target.value as ThemeOption)}
-        aria-label={t("settings.theme")}
-        style={{
-          minHeight: 29, padding: "0 6px",
-          border: "1px solid var(--border)", borderRadius: 6,
-          background: "var(--bg-panel)", color: "var(--text)",
-          fontSize: 11, cursor: "pointer", flexShrink: 0,
-          maxWidth: 120,
-        }}
-      >
-        <option value="light">{t("theme.light")}</option>
-        <option value="dark">{t("theme.dark")}</option>
-        <option value="auto">{t("theme.auto")}</option>
-      </select>
-    </div>
+        label={t("settings.theme")}
+        onChange={(value) => onThemeChange?.(value as ThemeOption)}
+        options={[
+          { value: "light", label: t("theme.light") },
+          { value: "dark", label: t("theme.dark") },
+          { value: "auto", label: t("theme.auto") },
+        ]}
+      />
+    </SettingsRow>
   );
 
   const renderLanguageRow = () => (
-    <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 10px", borderBottom: "1px solid var(--border)", marginBottom: 4 }}>
-      <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, flexShrink: 0, borderRadius: 7, background: "var(--bg-hover)", color: "var(--text-muted)" }}>
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <path d="m5 8 6 6" />
-          <path d="m4 14 6-6 2-3" />
-          <path d="M2 5h12" />
-          <path d="M7 2h1" />
-          <path d="m22 22-5-10-5 10" />
-          <path d="M14 18h6" />
-        </svg>
-      </span>
-      <span style={{ minWidth: 0, flex: 1 }}>
-        <span style={{ display: "block", fontSize: 13, fontWeight: 600 }}>{t("settings.language")}</span>
-        <span style={{ display: "block", marginTop: 2, color: "var(--text-muted)", fontSize: 11, lineHeight: 1.45 }}>{t("settings.languageDescription")}</span>
-      </span>
-      <select
+    <SettingsRow icon={Languages} title={t("settings.language")} description={t("settings.languageDescription")}>
+      <SettingsSelect
         value={locale}
-        onChange={(event) => onLocaleChange?.(event.target.value)}
-        aria-label={t("settings.language")}
-        style={{
-          minHeight: 29, padding: "0 6px",
-          border: "1px solid var(--border)", borderRadius: 6,
-          background: "var(--bg-panel)", color: "var(--text)",
-          fontSize: 11, cursor: "pointer", flexShrink: 0,
-          maxWidth: 160,
-        }}
-      >
-        {languageOptions.map((option) => (
-          <option key={option.id} value={option.id}>{option.label}</option>
-        ))}
-      </select>
-    </div>
+        label={t("settings.language")}
+        onChange={(value) => onLocaleChange?.(value)}
+        options={languageOptions}
+      />
+    </SettingsRow>
+  );
+
+  // 显示横幅属于界面偏好，与主题/语言同层，因此不放进「聊天」分组。
+  const renderBannerRow = () => (
+    <SettingsRow icon={Flag} title={t("settings.showBanner")} description={t("settings.showBannerDescription")}>
+      <SettingsSwitch checked={bannerEnabled} label={t("settings.showBanner")} onChange={() => onBannerToggle()} />
+    </SettingsRow>
+  );
+
+  const renderCompletionSoundRow = () => (
+    <SettingsRow icon={Volume2} title={t("settings.completionSound")} description={t("settings.completionSoundDescription")}>
+      <SettingsSwitch checked={soundEnabled} label={soundEnabled ? t("chat.disableSound") : t("chat.enableSound")} onChange={() => onSoundToggle()} />
+    </SettingsRow>
   );
 
   // 版本信息行：只展示版本号，不可点。变更记录只从侧边栏标题的 ⓘ 弹窗进入，
   // 设置里不再叠一层对话框。
   const renderAboutRow = () => (
-    <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 10px", borderBottom: "1px solid var(--border)", marginBottom: 4 }}>
-      <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, flexShrink: 0, borderRadius: 7, background: "var(--bg-hover)", color: "var(--text-muted)" }}>
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <circle cx="12" cy="12" r="9" />
-          <line x1="12" y1="11" x2="12" y2="16.5" />
-          <circle cx="12" cy="7.8" r="0.7" fill="currentColor" stroke="none" />
-        </svg>
-      </span>
-      <span style={{ minWidth: 0, flex: 1 }}>
-        <span style={{ display: "block", fontSize: 13, fontWeight: 600 }}>{t("settings.about")}</span>
-        <span style={{ display: "block", marginTop: 2, color: "var(--text-muted)", fontSize: 11, lineHeight: 1.45, fontFamily: "var(--font-mono)" }}>
-          {t("settings.aboutDescription", { version: APPLICATION_VERSION, piVersion: PI_VERSION })}
-        </span>
-      </span>
-    </div>
+    <SettingsRow
+      icon={Info}
+      title={t("settings.about")}
+      description={t("settings.aboutDescription", { version: APPLICATION_VERSION, piVersion: PI_VERSION })}
+      monospaceDescription
+    />
   );
 
   // ── 聊天阅读区（pi-web 常规页的「聊天」分节） ──
   const renderThinkingRow = () => (
     <SettingsRow
-      icon={<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M9.5 2A5.5 5.5 0 0 0 4 7.5c0 1.7.78 3.21 2 4.21V14a1 1 0 0 0 1 1h5a1 1 0 0 0 1-1v-2.29c1.22-1 2-2.51 2-4.21A5.5 5.5 0 0 0 9.5 2z" /><line x1="7" y1="18" x2="12" y2="18" /><line x1="8" y1="21" x2="11" y2="21" /></svg>}
+      icon={Lightbulb}
       title={t("settings.thinkingExpandedDefault")}
       description={t("settings.thinkingExpandedDefaultDescription")}
     >
@@ -461,10 +453,10 @@ export function SettingsPanel({ cwd, hasProject, projectTrusted, sessionId, onCl
     </SettingsRow>
   );
 
-  /** 数值型设置行：标题与当前值在左侧，重置按钮与滑块在右侧。 */
+  /** 数值型设置行：标题与当前值在同一行，重置按钮与滑块在右侧。 */
   const renderRangeRow = (range: {
     id: string;
-    icon: ReactNode;
+    icon: LucideIcon;
     title: string;
     description: string;
     value: number;
@@ -475,41 +467,41 @@ export function SettingsPanel({ cwd, hasProject, projectTrusted, sessionId, onCl
     resetLabel: string;
     onChange: (value: number) => void;
   }) => (
-    <div style={{ padding: "11px 10px", borderBottom: "1px solid var(--border)", marginBottom: 4 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        <span style={SETTINGS_ROW_ICON_STYLE}>{range.icon}</span>
-        <span style={{ minWidth: 0, flex: 1 }}>
-          <label htmlFor={range.id} style={{ display: "block", fontSize: 13, fontWeight: 600 }}>{range.title}</label>
-          <span style={{ display: "block", marginTop: 2, color: "var(--text-muted)", fontSize: 11, lineHeight: 1.45 }}>{range.description}</span>
+    <div className="settings-row settings-row-stacked">
+      <div className="settings-slider-head">
+        <span className="settings-row-icon"><RowIcon icon={range.icon} /></span>
+        <span className="settings-row-text">
+          <label className="settings-row-title" htmlFor={range.id}>{range.title}</label>
+          <span className="settings-row-description">{range.description}</span>
         </span>
-        <output htmlFor={range.id} style={{ flexShrink: 0, color: "var(--text-muted)", fontFamily: "var(--font-mono)", fontSize: 11, fontVariantNumeric: "tabular-nums" }}>{range.value}px</output>
+        <output className="settings-slider-value" htmlFor={range.id}>{range.value}px</output>
         <button
           type="button"
+          className="settings-icon-button"
           disabled={range.value === range.defaultValue}
           onClick={() => range.onChange(range.defaultValue)}
           title={range.resetLabel}
           aria-label={range.resetLabel}
-          style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 24, height: 24, flexShrink: 0, padding: 0, border: "none", borderRadius: 6, background: "none", color: range.value === range.defaultValue ? "var(--text-dim)" : "var(--text-muted)", cursor: range.value === range.defaultValue ? "default" : "pointer" }}
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8M3 3v5h5" /></svg>
+          <RotateCcw size={14} strokeWidth={ROW_ICON_STROKE} aria-hidden="true" />
         </button>
       </div>
       <input
         id={range.id}
+        className="settings-slider"
         type="range"
         min={range.min}
         max={range.max}
         step={range.step}
         value={range.value}
         onChange={(event) => range.onChange(Number(event.target.value))}
-        style={{ display: "block", width: "100%", marginTop: 9, accentColor: "var(--accent)" }}
       />
     </div>
   );
 
   const renderChatWidthRow = () => renderRangeRow({
     id: "settings-chat-content-width",
-    icon: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M8 7 3 12l5 5M16 7l5 5-5 5M3 12h18" /></svg>,
+    icon: MoveHorizontal,
     title: t("settings.chatContentWidth"),
     description: t("settings.chatContentWidthDescription"),
     value: chatContentWidth,
@@ -523,7 +515,7 @@ export function SettingsPanel({ cwd, hasProject, projectTrusted, sessionId, onCl
 
   const renderChatFontSizeRow = () => renderRangeRow({
     id: "settings-chat-content-font-size",
-    icon: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 19l4-10 4 10M5.5 15.5h5M15 19l3-8 3 8M16 16.5h4" /></svg>,
+    icon: TypeIcon,
     title: t("settings.chatContentFontSize"),
     description: t("settings.chatContentFontSizeDescription"),
     value: chatContentFontSize,
@@ -538,13 +530,14 @@ export function SettingsPanel({ cwd, hasProject, projectTrusted, sessionId, onCl
   // Windows 专用：无 Git Bash 的机器把 bash 槽换成 PowerShell 工具。
   const renderShellToolRow = () => (
     <SettingsRow
-      icon={<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 5h16v14H4z" /><path d="m7 10 2.5 2.5L7 15M13 15h4" /></svg>}
+      icon={SquareTerminal}
       title={t("settings.usePowerShell")}
       description={t("settings.shellToolDescription")}
     >
       <SettingsSwitch
         checked={shellSettings?.powerShellEnabled === true}
         disabled={shellSaving || !shellSettings}
+        busy={shellSaving || !shellSettings}
         label={t("settings.usePowerShell")}
         onChange={(enabled) => void togglePowerShell(enabled)}
       />
@@ -687,41 +680,31 @@ export function SettingsPanel({ cwd, hasProject, projectTrusted, sessionId, onCl
                   <div style={{ color: "var(--text)", fontSize: 15, fontWeight: 700 }}>{t("settings.general")}</div>
                   <div style={{ marginTop: 3, color: "var(--text-muted)", fontSize: 11 }}>{t("settings.generalDescription")}</div>
                 </div>
-                <div style={{ width: "min(720px, 100%)", padding: "8px 10px 18px" }}>
-                  {renderThemeRow()}
-                  {renderLanguageRow()}
+                <div className="settings-general">
+                  <SettingsGroup>
+                    {renderThemeRow()}
+                    {renderLanguageRow()}
+                    {renderBannerRow()}
+                  </SettingsGroup>
 
-                  <SettingsGroupTitle>{t("settings.groupChat")}</SettingsGroupTitle>
-                  {renderThinkingRow()}
-                  {renderChatWidthRow()}
-                  {renderChatFontSizeRow()}
-                  <SettingsRow
-                    icon={<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" /><path d="M15.54 8.46a5 5 0 0 1 0 7.07" /></svg>}
-                    title={t("settings.completionSound")}
-                    description={t("settings.completionSoundDescription")}
-                  >
-                    <SettingsSwitch checked={soundEnabled} label={soundEnabled ? t("chat.disableSound") : t("chat.enableSound")} onChange={() => onSoundToggle()} />
-                  </SettingsRow>
-                  <SettingsRow
-                    icon={<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 6h16v12H4z" /><path d="M8 10h8" /><path d="M8 14h5" /></svg>}
-                    title={t("settings.showBanner")}
-                    description={t("settings.showBannerDescription")}
-                  >
-                    <SettingsSwitch checked={bannerEnabled} label={t("settings.showBanner")} onChange={() => onBannerToggle()} />
-                  </SettingsRow>
+                  <SettingsGroup title={t("settings.groupChat")}>
+                    {renderThinkingRow()}
+                    {renderChatWidthRow()}
+                    {renderChatFontSizeRow()}
+                    {renderCompletionSoundRow()}
+                  </SettingsGroup>
 
-                  {/* Shell 工具只在 Windows 存在；读取失败时也渲染这一节，
+                  {/* Shell 工具只在 Windows 存在；读取失败时也渲染这一组，
                       否则用户只能看到一个消失的开关而看不到原因。 */}
                   {(shellSettings?.isWindows === true || shellError !== null) && (
-                    <>
-                      <SettingsGroupTitle>{t("settings.shellTool")}</SettingsGroupTitle>
+                    <SettingsGroup title={t("settings.shellTool")}>
                       {renderShellToolRow()}
-                      {shellError && <p role="alert" style={{ margin: "8px 10px 0", color: "var(--danger)", fontSize: 11, lineHeight: 1.45, overflowWrap: "anywhere" }}>{shellError}</p>}
-                    </>
+                      {shellError && <p role="alert" className="settings-error">{shellError}</p>}
+                    </SettingsGroup>
                   )}
 
                   {/* 「关于」固定在常规页最底部。 */}
-                  {renderAboutRow()}
+                  <SettingsGroup>{renderAboutRow()}</SettingsGroup>
                 </div>
               </section>
             )}

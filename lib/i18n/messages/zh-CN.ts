@@ -16,7 +16,7 @@ export const zhCNLocale: LocalePlugin = {
     "settings.close": "关闭设置",
     "settings.back": "返回设置",
     "settings.general": "常规",
-    "settings.generalDescription": "主题、语言、聊天外观和版本信息",
+    "settings.generalDescription": "主题、语言、聊天与界面偏好",
     "settings.groupChat": "聊天",
     "settings.thinkingExpandedDefault": "默认展开思考过程",
     "settings.thinkingExpandedDefaultDescription": "思考块默认展开，不用逐条点开",

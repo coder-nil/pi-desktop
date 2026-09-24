@@ -7,6 +7,7 @@ import { createJiti } from "jiti";
 
 const source = await readFile(new URL("./SettingsPanel.tsx", import.meta.url), "utf8");
 const shortcutCatalog = await readFile(new URL("../lib/keyboard-shortcuts.ts", import.meta.url), "utf8");
+const globalsCss = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
 
 const jiti = createJiti(import.meta.url, { jsx: { runtime: "automatic" }, tsconfigPaths: true });
 const { SettingsPanel } = await jiti.import("./SettingsPanel.tsx");
@@ -73,7 +74,10 @@ test("groups interface preferences under General", () => {
   assert.match(source, /t\("settings\.showBanner"\)/);
   // 「关于」固定在常规页的最后一行，只展示版本号，不可点、不弹窗。
   assert.ok(source.indexOf("{renderAboutRow()}") > source.indexOf('t("settings.showBanner")'));
-  assert.match(source, /const renderAboutRow = \(\) => \(\s*<div/);
+  assert.match(source, /const renderAboutRow = \(\) => \(\s*<SettingsRow/);
+  // 「显示横幅」是全局界面偏好，不能夹在「聊天」和「Shell 工具」两个分组之间：
+  // 那样它看起来属于聊天。
+  assert.ok(source.indexOf("{renderBannerRow()}") < source.indexOf('t("settings.groupChat")'));
 });
 
 test("renders a read-only keyboard shortcut section from the shared catalog", () => {
@@ -129,4 +133,41 @@ test("renders the ported General rows with the chat reading surface", () => {
   assert.doesNotMatch(html, /usePowerShell|使用 PowerShell|Use PowerShell/);
   // 默认状态的重置按钮是禁用的：当前值就是默认值。
   assert.ok((html.match(/<button[^>]*disabled=""[^>]*>/g) ?? []).length >= 2, "both reset buttons should start disabled");
+  // 行图标来自 lucide（唯一图标家族），不再手写 svg path。
+  assert.match(html, /lucide-sun-moon/);
+  assert.match(html, /lucide-languages/);
+  assert.match(html, /lucide-lightbulb/);
+  // 分组标题只在需要分类时出现，非 Windows 只有「聊天」一个。
+  assert.equal((html.match(/class="settings-group-title"/g) ?? []).length, 1);});
+
+// 视觉一致性（taste 预检：一个图标家族、一套圆角、一条焦点环、一种主题）。
+test("keeps the General rows on one icon family, one radius scale and one focus ring", () => {
+  // 图标只用 lucide-react（项目唯一的图标依赖），不再手写 svg path。
+  assert.match(source, /function RowIcon\(\{ icon: Icon \}: \{ icon: LucideIcon \}\)/);
+  for (const icon of ["SunMoon", "Languages", "Flag", "Lightbulb", "MoveHorizontal", "TypeIcon", "Volume2", "SquareTerminal", "Info", "RotateCcw"]) {
+    assert.match(source, new RegExp(`\\b${icon}\\b`), `${icon} should come from the shared icon family`);
+  }
+  assert.doesNotMatch(source, /SETTINGS_ROW_ICON_STYLE/);
+  assert.match(source, /const ROW_ICON_STROKE = 1\.8;/);
+
+  // 圆角规则：行与图标块 8px，开关轨道用 pill（唯一例外，并已在 CSS 注释里记录）。
+  assert.match(globalsCss, /\.settings-row \{[\s\S]*?border-radius: 8px;/);
+  assert.match(globalsCss, /\.settings-row-icon \{[\s\S]*?border-radius: 8px;/);
+  assert.match(globalsCss, /\.settings-icon-button \{[\s\S]*?border-radius: 8px;/);
+  assert.match(globalsCss, /\.settings-switch \{[\s\S]*?border-radius: 999px;/);
+  assert.match(globalsCss, /\.settings-select \{[\s\S]*?border-radius: 8px;/);
+
+  // 滑块轨道在深色主题下不能用浏览器默认外观。
+  assert.match(globalsCss, /\.settings-slider::-webkit-slider-runnable-track \{/);
+
+  // 焦点环与 reduced-motion 是硬要求。
+  assert.match(globalsCss, /\.settings-general :is\(button, select, input\):focus-visible \{/);
+  assert.match(globalsCss, /@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\.settings-general \*/);
+
+  // 关闭态开关轨道不能再用 --border：白底上只有 1.3:1，低于 WCAG 1.4.11 的 3:1。
+  assert.match(globalsCss, /--switch-track-off: #8f8f8f;/);
+  assert.match(globalsCss, /html\.dark \{[\s\S]*?--switch-track-off: #6b6b6b;/);
+  const switchBlock = globalsCss.match(/\.settings-switch \{[\s\S]*?\n\}/)?.[0] ?? "";
+  assert.match(switchBlock, /background: var\(--switch-track-off\);/);
+  assert.doesNotMatch(switchBlock, /var\(--border\)/);
 });

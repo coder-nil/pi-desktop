@@ -54,11 +54,14 @@ test("the info icon opens the dialog instead of the dialog owning state", () => 
 });
 
 test("the settings row only shows the versions, it opens nothing", () => {
-  // 常规页的版本行只展示版本号：没有 ⓘ、不可点，也不在设置里叠关于对话框。
+  // 常规页的版本行只展示版本号：没有 ⓘ、不可点、无右侧控件，也不在设置里叠关于对话框。
   assert.match(settingsSource, /t\("settings\.aboutDescription", \{ version: APPLICATION_VERSION, piVersion: PI_VERSION \}\)/);
   assert.match(settingsSource, /\{renderAboutRow\(\)\}/);
   assert.doesNotMatch(settingsSource, /AboutButton|AboutDialog|aboutOpen/);
-  assert.match(settingsSource, /const renderAboutRow = \(\) => \(\s*<div/);
+  assert.match(settingsSource, /const renderAboutRow = \(\) => \(\s*<SettingsRow[\s\S]*?monospaceDescription\s*\/>\s*\);/);
+  const aboutRow = settingsSource.match(/const renderAboutRow = \(\) => \([\s\S]*?\n  \);/)?.[0] ?? "";
+  assert.ok(aboutRow, "renderAboutRow should be a self-contained row");
+  assert.doesNotMatch(aboutRow, /button|SettingsSwitch|SettingsSelect/);
 });
 
 test("escape only has one dialog to close", () => {

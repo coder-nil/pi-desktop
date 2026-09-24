@@ -255,6 +255,11 @@
   --assistant-bg: #ffffff;
   --tool-bg: #f9fafb;
   --bg-subtle: rgba(0,0,0,0.03);
+  /* 开关轨道在关闭态也必须能被看清：WCAG 1.4.11 要求 UI 组件边界达到 3:1，
+     浅灰轨道（--border）在白底上只有 1.3:1，所以单独给一条中灰 token。 */
+  --switch-track-off: #8f8f8f;
+  --switch-track-off-hover: #9b9b9b;
+  --switch-knob: #ffffff;
 }
 
 html.dark {
@@ -274,6 +279,280 @@ html.dark {
   --assistant-bg: #1a1a1a;
   --tool-bg: #1f2937;
   --bg-subtle: rgba(255,255,255,0.04);
+  --switch-track-off: #6b6b6b;
+  --switch-track-off-hover: #7d7d7d;
+  --switch-knob: #f4f4f5;
+}
+
+/* ── 设置 → 常规 ───────────────────────────────────────────────
+   分组的设置列表：组内靠留白与 hover 高亮区分行（不用逐行 hairline），
+   组间用分组标题断开。
+
+   圆角规则（改前先读）：对话框 10 / 行与图标小块 8 / 右侧控件 8 /
+   开关轨道用 pill。图标一律取自 lucide-react（项目唯一图标家族），
+   strokeWidth 统一 1.8。 */
+.settings-general {
+  width: min(720px, 100%);
+  padding: 10px 10px 20px;
+}
+
+.settings-general-group + .settings-general-group {
+  margin-top: 20px;
+}
+
+.settings-group-title {
+  padding: 0 10px 4px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 50px;
+  padding: 9px 10px;
+  border-radius: 8px;
+  transition: background-color 120ms ease;
+}
+
+.settings-row:hover {
+  background: var(--bg-hover);
+}
+
+/* 数值行：标题行在上，滑块占满下一行 */
+.settings-row-stacked {
+  display: block;
+}
+
+.settings-slider-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.settings-row-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: 8px;
+  /* 比行 hover 色低一级，hover 时行与图标块不会融成一片 */
+  background: var(--bg-panel);
+  color: var(--text-muted);
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.settings-row:hover .settings-row-icon {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.settings-row-text {
+  min-width: 0;
+  flex: 1;
+}
+
+.settings-row-title {
+  display: block;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.settings-row-description {
+  display: block;
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.settings-row-description.is-mono {
+  font-family: var(--font-mono);
+}
+
+/* 右侧的下拉控件（主题 / 语言） */
+.settings-select {
+  flex-shrink: 0;
+  min-height: 30px;
+  max-width: 160px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-panel);
+  color: var(--text);
+  font-size: 11px;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.settings-select:hover {
+  border-color: color-mix(in srgb, var(--text) 18%, var(--border));
+}
+
+/* 数值行的头部：标题 / 当前值 / 重置 */
+.settings-slider-value {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.settings-icon-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease, transform 80ms ease;
+}
+
+.settings-icon-button:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.settings-icon-button:active:not(:disabled) {
+  transform: scale(0.94);
+}
+
+.settings-icon-button:disabled {
+  color: var(--text-dim);
+  cursor: default;
+}
+
+.settings-error {
+  margin: 8px 10px 0;
+  color: var(--danger);
+  font-size: 11px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+/* 滑块：轨道与滑块自绘，免得到深色主题下用浏览器默认样式 */
+.settings-slider {
+  display: block;
+  width: 100%;
+  height: 18px;
+  margin: 9px 0 0;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.settings-slider::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--bg-selected);
+}
+
+.settings-slider::-moz-range-track {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--bg-selected);
+}
+
+.settings-slider::-webkit-slider-thumb {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -5px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--bg);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+  transition: border-color 120ms ease, transform 120ms ease;
+}
+
+.settings-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--bg);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+}
+
+.settings-slider:hover::-webkit-slider-thumb {
+  border-color: var(--accent);
+}
+
+.settings-slider:active::-webkit-slider-thumb {
+  transform: scale(1.08);
+}
+
+/* 开关：轨道用中灰而不是 --border，关闭态也能看清 */
+.settings-switch {
+  position: relative;
+  flex-shrink: 0;
+  width: 38px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: var(--switch-track-off);
+  cursor: pointer;
+  transition: background-color 140ms ease;
+}
+
+.settings-switch[aria-checked="true"] {
+  background: var(--accent);
+}
+
+.settings-switch:hover:not(:disabled) {
+  background: var(--switch-track-off-hover);
+}
+
+.settings-switch[aria-checked="true"]:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.settings-switch:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.settings-switch > span {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--switch-knob);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.24);
+  transition: transform 140ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.settings-switch[aria-checked="true"] > span {
+  transform: translateX(16px);
+}
+
+/* 面板内所有交互控件用同一条焦点环 */
+.settings-general :is(button, select, input):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-general *,
+  .settings-general *::before,
+  .settings-general *::after {
+    transition: none !important;
+    animation: none !important;
+  }
 }
 
 .catppuccin-file-icon {

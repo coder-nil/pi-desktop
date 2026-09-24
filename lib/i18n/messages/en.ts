@@ -16,7 +16,7 @@ export const enLocale: LocalePlugin = {
     "settings.close": "Close settings",
     "settings.back": "Back to settings",
     "settings.general": "General",
-    "settings.generalDescription": "Theme, language, chat appearance, and version info",
+    "settings.generalDescription": "Theme, language, chat and interface preferences",
     "settings.groupChat": "Chat",
     "settings.thinkingExpandedDefault": "Expand thinking by default",
     "settings.thinkingExpandedDefaultDescription": "Show thinking content without expanding each block",
