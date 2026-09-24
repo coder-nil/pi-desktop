@@ -244,6 +244,11 @@ Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `au
 - Tests: `cargo test --lib lan_proxy` covers the pure helpers plus two real integration tests (401 without credentials and nothing forwarded upstream; a password change taking effect without a restart).
 - Pairing: the button next to the attachment control in `ChatInput` (hidden on mobile, and only rendered once the session has an id) opens `MobilePairDialog`, which asks `GET /api/mobile/pair`. `lib/mobile-pair.ts` resolves the address from `PI_WEB_HOSTNAME` — wildcard binds probe `os.networkInterfaces()` with private ranges first, CGNAT (Tailscale) next. A loopback-only server returns `url: null` so the dialog shows the `dev:lan` command instead of a QR code that cannot possibly work, and the payload never includes the password.
 
+### The composer field scrolls, not the textarea
+- `.chat-composer-field` owns `max-height: 222px` + `overflow-y: auto` (200px of text plus its own padding and border) and the textarea is uncapped with `overflow: hidden`, so the scrollbar is drawn along the outer border instead of exposing an inner textarea edge. `resizeComposerTextarea()` in `ChatInput.tsx` is the single resize site: it sets the height from `scrollHeight` and measures once more for the reflow a classic scrollbar causes when it appears (`scrollbar-gutter: stable` on the field keeps that from shifting anything). Do not reintroduce `Math.min(..., 200)` or a `maxHeight` on the textarea — that moves the scrollbar back inside.
+- The pi mark and the send/queue controls are `position: sticky` (`top: 0`, `bottom: var(--composer-padding-y)`) so they stay visible while the text scrolls behind them.
+- A scroll container clips absolutely positioned children, so `.chat-composer-queue-menu` is rendered as a sibling **before** the field inside the relative wrapper and carries its own `handleQueueMenuKeyDown` — the same handler `.chat-composer-queue-actions` still holds, because its buttons are inside the field. `ChatInput.test.mjs` pins all of this.
+
 ### Completion sound
 - `hooks/useAudio.ts` stores the toggle in `localStorage` as `pi-sound-enabled` and reuses one `AudioContext`.
 - Browser autoplay policy means sound must be unlocked from a user gesture; `ChatInput` calls the unlock hook from interactive controls, and `ChatWindow` plays the tone from `onAgentEnd`.

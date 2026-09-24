@@ -11,6 +11,7 @@
 
 - Pi SDK 升级到 0.87.1（`@earendil-works/pi-agent-core` / `pi-ai` / `pi-coding-agent` / `pi-tui`，0.85.1 → 0.87.1）。
 - `agent.state.systemPrompt` 自 0.86 起变为只读 getter（改由会话 transcript 的首条 system 消息回放），赋值会抛 `TypeError`。改为在读取 `get_state` 与系统提示面板时计算生效值；界面语言指令仍通过 `before_agent_start` 扩展下发给模型，行为不变。
+- 对话输入框改为整个输入框滚动：文本超出高度时滚动条贴在输入框外沿，π 标记与发送/队列按钮始终固定在框内可见位置，不再暴露内部 textarea 的边界。
 - 应用、npm、Tauri 和 Cargo 版本号统一为 `0.87.1-alpha.15`。
 
 ### Fixed

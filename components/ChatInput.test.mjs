@@ -13,6 +13,7 @@ const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, buildComposerMessa
 const { clearDraft, getDraft, mergeRestoredSubmissionDraft, mergeRestoredSubmissionText, rekeyDraft, setDraft } = await jiti.import("../lib/draft-store.ts");
 const { I18nProvider } = await jiti.import("../hooks/useI18n.tsx");
 const source = await readFile(new URL("./ChatInput.tsx", import.meta.url), "utf8");
+const globalsCss = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
 const enMessages = await readFile(new URL("../lib/i18n/messages/en.ts", import.meta.url), "utf8");
 const zhMessages = await readFile(new URL("../lib/i18n/messages/zh-CN.ts", import.meta.url), "utf8");
 
@@ -285,6 +286,39 @@ test("vertically centers the textarea content in its single-line composer", () =
   assert.match(source, /<textarea[\s\S]*?alignSelf: "center"/);
   assert.match(source, /<textarea[\s\S]*?margin: 0,[\s\S]*?padding: 0/);
   assert.match(source, /<textarea[\s\S]*?lineHeight: "24px"[\s\S]*?minHeight: 24/);
+});
+
+test("scrolls the composer field so the scrollbar and send controls sit on the outer edge", () => {
+  const idleHtml = renderWithI18n(
+    React.createElement(ChatInput, { onSend() {}, onAbort() {}, isStreaming: false }),
+  );
+  assert.match(idleHtml, /class="chat-composer-field"/);
+  assert.match(idleHtml, /class="chat-composer-mark"/);
+  assert.match(idleHtml, /class="chat-composer-send"/);
+
+  const streamingHtml = renderWithI18n(
+    React.createElement(ChatInput, { onSend() {}, onAbort() {}, isStreaming: true }),
+  );
+  assert.match(streamingHtml, /class="chat-composer-queue-actions"/);
+
+  // The field is the scroll container, so the scrollbar is drawn next to the
+  // border instead of along an inner textarea edge.
+  assert.match(globalsCss, /\.chat-composer-field \{[\s\S]*?max-height: 222px;[\s\S]*?overflow-y: auto;/);
+  // Mark and send controls stay pinned while the text scrolls behind them.
+  assert.match(globalsCss, /\.chat-composer-mark \{\s*position: sticky;\s*top: 0;\s*\}/);
+  assert.match(globalsCss, /\.chat-composer-send \{\s*position: sticky;\s*bottom: var\(--composer-padding-y\);\s*\}/);
+  assert.match(globalsCss, /\.chat-composer-queue-actions \{\s*position: sticky;\s*bottom: var\(--composer-padding-y\);/);
+
+  // The textarea grows with its content; scrolling it would expose an inner
+  // boundary again.
+  assert.match(source, /<textarea[\s\S]*?minHeight: 24,\s*overflow: "hidden",/);
+  assert.doesNotMatch(source, /Math\.min\([a-z]+\.scrollHeight, 200\)/);
+  assert.match(source, /function resizeComposerTextarea\(textarea: HTMLTextAreaElement \| null\): void \{[\s\S]*?textarea\.style\.height = `\$\{measured\}px`;/);
+
+  // The queue menu is a popup: inside the scroll container the field would
+  // clip it, so it is rendered before the field in document order.
+  const menuIndex = source.indexOf('className="chat-composer-queue-menu"');
+  assert.ok(menuIndex > -1 && menuIndex < source.indexOf('className="chat-composer-field"'));
 });
 
 test("arrow keys select a queue mode, pause auto-send, and Enter confirms it", () => {

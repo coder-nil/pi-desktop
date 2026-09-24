@@ -129,6 +129,21 @@ function getVisibleTopBoundary(element: HTMLElement): number {
   return visibleTop;
 }
 
+/**
+ * The composer field is the scroll container (the scrollbar has to sit on the
+ * outer edge), so the textarea grows to its full content height instead of
+ * scrolling on its own. A classic scrollbar appearing in the field narrows the
+ * text and reflows it, hence the second measurement.
+ */
+function resizeComposerTextarea(textarea: HTMLTextAreaElement | null): void {
+  if (!textarea) return;
+  textarea.style.height = "auto";
+  const measured = textarea.scrollHeight;
+  textarea.style.height = `${measured}px`;
+  const settled = textarea.scrollHeight;
+  if (settled > measured) textarea.style.height = `${settled}px`;
+}
+
 function compareModelOptions(a: ModelOption, b: ModelOption): number {
   return MODEL_OPTION_COLLATOR.compare(a.name || a.modelId, b.name || b.modelId)
     || MODEL_OPTION_COLLATOR.compare(a.provider, b.provider)
@@ -605,8 +620,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       requestAnimationFrame(() => {
         if (!ta) return;
         ta.focus();
-        ta.style.height = "auto";
-        ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+        resizeComposerTextarea(ta);
       });
     },
     replaceMessage(message: UserMessage) {
@@ -631,8 +645,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       requestAnimationFrame(() => {
         if (!ta) return;
         ta.focus();
-        ta.style.height = "auto";
-        ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+        resizeComposerTextarea(ta);
       });
     },
     prependText(text: string) {
@@ -651,8 +664,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         if (!ta) return;
         ta.focus();
         ta.setSelectionRange(combined.length, combined.length);
-        ta.style.height = "auto";
-        ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+        resizeComposerTextarea(ta);
       });
     },
     rekeyDraft(previousKey: string, nextKey: string) {
@@ -759,8 +771,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         if (!ta) return;
         ta.focus();
         ta.setSelectionRange(ta.value.length, ta.value.length);
-        ta.style.height = "auto";
-        ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+        resizeComposerTextarea(ta);
       });
     },
     insertText(text: string) {
@@ -790,8 +801,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         const pos = start + sep.length + text.length;
         ta.setSelectionRange(pos, pos);
         ta.focus();
-        ta.style.height = "auto";
-        ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+        resizeComposerTextarea(ta);
       });
     },
     addImages(files: File[]) {
@@ -912,10 +922,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   }, [draftKey, selectedAtMentions, selectedSlashCommand]);
 
   useEffect(() => {
-    const ta = textareaRef.current;
-    if (!ta) return;
-    ta.style.height = "auto";
-    if (value) ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+    resizeComposerTextarea(textareaRef.current);
   }, [value]);
 
   useEffect(() => {
@@ -1094,8 +1101,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       const newPos = before.length;
       el.focus();
       el.setSelectionRange(newPos, newPos);
-      el.style.height = "auto";
-      if (newValue) el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+      resizeComposerTextarea(el);
     });
   }, [atQuery, value]);
 
@@ -1140,8 +1146,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       if (!ta) return;
       ta.focus();
       ta.setSelectionRange(text.length, text.length);
-      ta.style.height = "auto";
-      ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+      resizeComposerTextarea(ta);
     });
   }, []);
 
@@ -1155,8 +1160,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       if (!ta) return;
       ta.focus();
       ta.setSelectionRange(0, 0);
-      ta.style.height = "auto";
-      ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+      resizeComposerTextarea(ta);
     });
   }, []);
 
@@ -1499,8 +1503,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       updateAtQuery(nextValue, nextSelectionStart);
     }
 
-    ta.style.height = "auto";
-    ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+    resizeComposerTextarea(ta);
   }, [updateAtQuery]);
 
   const handleBeforeInput = useCallback((e: React.FormEvent<HTMLTextAreaElement>) => {
@@ -1755,7 +1758,36 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     if (!isMobile) setControlsMenuOpen(false);
   }, [isMobile]);
 
-
+  // The queue menu lives outside the scrolling field, which would otherwise
+  // clip it, so it carries its own keyboard handling.
+  const handleQueueMenuKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (!queueMenuVisible) return;
+    const shortcutMode = getQueueShortcutMode(event);
+    if (shortcutMode && (shortcutMode === "steer" ? onSteer : onFollowUp)) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!event.repeat) sendQueued(shortcutMode);
+      return;
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      setQueueMenuOpen(false);
+      textareaRef.current?.focus();
+      return;
+    }
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      event.stopPropagation();
+      selectQueueMode(queueActiveMode === "followup" ? "steer" : "followup");
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!event.repeat) sendQueued(queueActiveMode);
+    }
+  };
 
   return (
     <div
@@ -2295,11 +2327,57 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               </div>
             );
           })()}
+          {queueMenuVisible && (
+            <div
+              id={queueMenuId}
+              role="menu"
+              aria-label={t("chat.send")}
+              className="chat-composer-queue-menu"
+              onKeyDown={handleQueueMenuKeyDown}
+            >
+              {onSteer && (
+                <button
+                  ref={queueSteerOptionRef}
+                  role="menuitemradio"
+                  aria-checked={queueActiveMode === "steer"}
+                  tabIndex={queueActiveMode === "steer" ? 0 : -1}
+                  className={queueActiveMode === "steer" ? "chat-composer-queue-selected" : undefined}
+                  onFocus={() => setQueueActiveMode("steer")}
+                  onMouseEnter={() => setQueueActiveMode("steer")}
+                  onClick={() => sendQueued("steer")}
+                >
+                  <span>{t("chat.steer")}</span>
+                  <kbd className="chat-composer-queue-shortcut">Alt+F</kbd>
+                </button>
+              )}
+              {onFollowUp && (
+                <button
+                  ref={queueDefaultOptionRef}
+                  role="menuitemradio"
+                  aria-checked={queueActiveMode === "followup"}
+                  tabIndex={queueActiveMode === "followup" ? 0 : -1}
+                  className={queueActiveMode === "followup" ? "chat-composer-queue-selected" : undefined}
+                  onFocus={() => setQueueActiveMode("followup")}
+                  onMouseEnter={() => setQueueActiveMode("followup")}
+                  onClick={() => sendQueued("followup")}
+                >
+                  <span>{t("chat.followUp")}</span>
+                  <span className="chat-composer-queue-meta">
+                    {!queueCountdownPaused && (
+                      <span className="chat-composer-queue-countdown" aria-label={`${queueCountdown}s`}>{queueCountdown}s</span>
+                    )}
+                    <kbd className="chat-composer-queue-shortcut">Alt+Q</kbd>
+                  </span>
+                </button>
+              )}
+            </div>
+          )}
           <div
             className="chat-composer-field"
           >
           <span
             aria-hidden="true"
+            className="chat-composer-mark"
             style={{
               alignSelf: "flex-start",
               backgroundColor: "var(--text)",
@@ -2491,8 +2569,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               fontFamily: "inherit",
               boxSizing: "border-box",
               minHeight: 24,
-              maxHeight: 200,
-              overflow: "auto",
+              overflow: "hidden",
             }}
           />
 
@@ -2500,76 +2577,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             <div
               ref={queueActionsRef}
               className="chat-composer-queue-actions"
-              onKeyDown={(event) => {
-                if (!queueMenuVisible) return;
-                const shortcutMode = getQueueShortcutMode(event);
-                if (shortcutMode && (shortcutMode === "steer" ? onSteer : onFollowUp)) {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  if (!event.repeat) sendQueued(shortcutMode);
-                  return;
-                }
-                if (event.key === "Escape") {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  setQueueMenuOpen(false);
-                  textareaRef.current?.focus();
-                  return;
-                }
-                if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  selectQueueMode(queueActiveMode === "followup" ? "steer" : "followup");
-                  return;
-                }
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  if (!event.repeat) sendQueued(queueActiveMode);
-                }
-              }}
+              onKeyDown={handleQueueMenuKeyDown}
             >
               {canQueueStreamingMessage && (onSteer || onFollowUp) && (
-                <>
-                {queueMenuVisible && (
-                  <div id={queueMenuId} role="menu" aria-label={t("chat.send")} className="chat-composer-queue-menu">
-                    {onSteer && (
-                      <button
-                        ref={queueSteerOptionRef}
-                        role="menuitemradio"
-                        aria-checked={queueActiveMode === "steer"}
-                        tabIndex={queueActiveMode === "steer" ? 0 : -1}
-                        className={queueActiveMode === "steer" ? "chat-composer-queue-selected" : undefined}
-                        onFocus={() => setQueueActiveMode("steer")}
-                        onMouseEnter={() => setQueueActiveMode("steer")}
-                        onClick={() => sendQueued("steer")}
-                      >
-                        <span>{t("chat.steer")}</span>
-                        <kbd className="chat-composer-queue-shortcut">Alt+F</kbd>
-                      </button>
-                    )}
-                    {onFollowUp && (
-                      <button
-                        ref={queueDefaultOptionRef}
-                        role="menuitemradio"
-                        aria-checked={queueActiveMode === "followup"}
-                        tabIndex={queueActiveMode === "followup" ? 0 : -1}
-                        className={queueActiveMode === "followup" ? "chat-composer-queue-selected" : undefined}
-                        onFocus={() => setQueueActiveMode("followup")}
-                        onMouseEnter={() => setQueueActiveMode("followup")}
-                        onClick={() => sendQueued("followup")}
-                      >
-                        <span>{t("chat.followUp")}</span>
-                        <span className="chat-composer-queue-meta">
-                          {!queueCountdownPaused && (
-                            <span className="chat-composer-queue-countdown" aria-label={`${queueCountdown}s`}>{queueCountdown}s</span>
-                          )}
-                          <kbd className="chat-composer-queue-shortcut">Alt+Q</kbd>
-                        </span>
-                      </button>
-                    )}
-                  </div>
-                )}
                 <button
                   onClick={requestQueuedSend}
                   aria-label={t("chat.send")}
@@ -2583,7 +2593,6 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                     <path d="M5 1 L9 5 L5 9" /><line x1="1" y1="5" x2="9" y2="5" />
                   </svg>
                 </button>
-                </>
               )}
                 <button
                   onClick={onAbort}
@@ -2602,6 +2611,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               disabled={!value.trim() && !attachedImages.length}
               title={t("chat.send")}
               aria-label={t("chat.send")}
+              className="chat-composer-send"
               style={{
                 flexShrink: 0,
                 alignSelf: "flex-end",

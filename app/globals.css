@@ -1,17 +1,36 @@
 @import "tailwindcss";
 
 .chat-composer-field {
+  --composer-padding-y: 10px;
+  position: relative;
   container-type: inline-size;
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
   min-width: 0;
-  padding: 10px 10px 10px 12px;
+  padding: var(--composer-padding-y) 10px var(--composer-padding-y) 12px;
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--bg);
+  /* The field scrolls instead of the textarea so the scrollbar sits on the
+     outer edge: 200px of text, plus the field's own padding and border. */
+  max-height: 222px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
   transition: border-color 150ms, box-shadow 150ms;
+}
+
+/* Mark and send controls stay visible while the composer content scrolls. */
+.chat-composer-mark {
+  position: sticky;
+  top: 0;
+}
+
+.chat-composer-send {
+  position: sticky;
+  bottom: var(--composer-padding-y);
 }
 
 .chat-composer-field:focus-within {
@@ -25,7 +44,8 @@
 }
 
 .chat-composer-queue-actions {
-  position: relative;
+  position: sticky;
+  bottom: var(--composer-padding-y);
   display: flex;
   align-items: center;
   align-self: flex-end;
