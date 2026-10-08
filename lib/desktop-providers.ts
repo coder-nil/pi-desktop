@@ -7,7 +7,8 @@ import { APISETS_BASE_URL, APISETS_PROVIDER_ID } from "./desktop-provider-consta
 import { getModelsDevCatalog } from "./models-dev-discovery";
 import type { ModelCatalogEntry } from "./model-catalog";
 import { responsesTerminalFetch } from "./responses-terminal-fetch";
-import type { Api, FetchFunction, Model, Provider } from "@earendil-works/pi-ai";
+import { isModelType } from "@earendil-works/pi-ai";
+import type { AnyModel, Api, FetchFunction, Model, Provider } from "@earendil-works/pi-ai";
 
 function withResponsesFetch<T extends { fetch?: FetchFunction }>(options: T | undefined): T {
   return { ...options, fetch: responsesTerminalFetch(options?.fetch) } as T;
@@ -76,7 +77,9 @@ function modelsDevDeepSeekProvider(base: Provider<Api>): Provider<Api> {
         if (!context.allowNetwork) {
           // 离线刷新只负责恢复：本地缓存的 models-store.json 优先，其次是目录缓存。
           if (context.stored?.etag === "models.dev") {
-            const stored = context.stored.models.filter((model) => model.provider === DEEPSEEK_PROVIDER_ID);
+            const stored = context.stored.models
+              .filter((model) => model.provider === DEEPSEEK_PROVIDER_ID)
+              .filter((model): model is Model<Api> => isModelType(model, "chat"));
             await context.publish({ update: () => { models = [...stored]; } });
           }
           return;
@@ -119,10 +122,14 @@ const APISETS_CATALOG_ETAG = "apisets-models-api-v2";
 const APISETS_REFRESH_INTERVAL_MS = 30 * 60 * 1000;
 
 function apiSetsStoredModels(
-  stored: { models: readonly Model<Api>[]; etag?: string } | undefined,
+  stored: { models: readonly AnyModel[]; etag?: string } | undefined,
 ): Model<Api>[] {
   if (stored?.etag !== APISETS_CATALOG_ETAG) return [];
-  return stored.models.filter((model) => model.provider === APISETS_PROVIDER_ID);
+  // 自 pi 1.0 起 models-store.json 保存「任意类型」的目录（chat / image /
+  // classifier），这里只认属于本 provider 的 chat 模型。
+  return stored.models
+    .filter((model) => model.provider === APISETS_PROVIDER_ID)
+    .filter((model): model is Model<Api> => isModelType(model, "chat"));
 }
 
 /** Register providers shipped by Pi Desktop on a runtime instance. */

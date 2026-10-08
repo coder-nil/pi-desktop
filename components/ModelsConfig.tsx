@@ -79,6 +79,9 @@ const PROVIDER_ICONS: Record<string, { Icon: IconComponent; hasColor: boolean }>
   "vercel-ai-gateway":      { Icon: VercelIcon,           hasColor: false },
   "github-copilot":         { Icon: GithubCopilotIcon,    hasColor: false },
   "amazon-bedrock":         { Icon: AwsColorIcon,         hasColor: true },
+  // pi 1.0.3 起 azure 服务商由 `azure-openai-responses` 改名为 `azure`。
+  // 旧 id 仍列出以兼容尚未迁移的 auth.json / models.json。
+  "azure":                  { Icon: AzureColorIcon,       hasColor: true },
   "azure-openai-responses": { Icon: AzureColorIcon,       hasColor: true },
   "kimi-coding":            { Icon: KimiColorIcon,        hasColor: true },
   "nvidia":                 { Icon: NvidiaColorIcon,      hasColor: true },

@@ -5,6 +5,20 @@
 本文件只记录**已发布版本**：每个小节对应一个 git tag（`v0.85.1-alpha.14` → `## [0.85.1-alpha.14]`）。
 发布前未打 tag 的中间提交不单独成节，会被归入其后最近的那个版本。
 
+## [0.87.1-alpha.16] - 2026-10-08
+
+### Changed
+
+- Pi SDK 升级到 1.1.0（`@earendil-works/pi-agent-core` / `pi-ai` / `pi-coding-agent` / `pi-tui`，0.87.1 → 1.1.0）。
+- `preflightResult` 自 pi 1.0 起回报派发结果（`"handled" | "queued" | "started"`）而非布尔值，且被拒绝的 prompt 改为 reject 返回的 Promise：`prompt` 命令相应改为「任何回调都算已接受」，失败由 Promise 抛出，并在响应里回报 `disposition`；`steer` / `follow_up` 也带上 `{ source: "rpc" }`。
+- `models-store.json` 自 pi 1.0 起保存任意类型的模型目录（chat / image / classifier），`lib/desktop-providers.ts` 改用 `isModelType(model, "chat")` 收窄后再按 provider 过滤。
+- Azure 服务商在 pi 1.0.3 由 `azure-openai-responses` 改名为 `azure`：设置页的图标映射同时保留新旧两个 id，未迁移的 `models.json` / `auth.json` 仍能正确显示。
+- 应用、npm、Tauri 和 Cargo 版本号统一为 `0.87.1-alpha.16`。
+
+### Fixed
+
+- 修复 `npm run version:check` 在 Windows 上误判 `data/changelog.json` 过期（`core.autocrlf` 检出成 CRLF 时逐字节比较失败），比较前先归一化行尾。
+
 ## [0.87.1-alpha.15] - 2026-09-23
 
 ### Added

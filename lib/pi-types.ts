@@ -155,10 +155,17 @@ export interface AgentSessionLike {
   reload(options?: { beforeSessionStart?: () => void | Promise<void> }): Promise<void>;
   subscribe(listener: (event: AgentSessionEvent) => void): () => void;
   prompt(text: string, options?: {
+    expandPromptTemplates?: boolean;
     images?: Array<{ type: "image"; data: string; mimeType: string }>;
     streamingBehavior?: "steer" | "followUp";
-    source?: "interactive" | "rpc";
-    preflightResult?: (success: boolean) => void;
+    source?: "interactive" | "rpc" | "extension";
+    /**
+     * Since pi 1.0 this reports how an accepted prompt was dispatched
+     * (`"handled"` = an extension command ran, `"queued"` = joined the
+     * streaming queue, `"started"` = a run began). Rejections no longer call it
+     * with `false`; they reject the returned promise instead.
+     */
+    preflightResult?: (disposition: "handled" | "queued" | "started") => void;
   }): Promise<void>;
   abort(): Promise<void>;
   executeBash(command: string, onChunk?: (chunk: string) => void, options?: {
@@ -176,8 +183,13 @@ export interface AgentSessionLike {
   getLastAssistantText(): string | undefined;
   setAutoCompactionEnabled(enabled: boolean): void;
   setAutoRetryEnabled(enabled: boolean): void;
-  steer(text: string, images?: Array<{ type: "image"; data: string; mimeType: string }>): Promise<void>;
-  followUp(text: string, images?: Array<{ type: "image"; data: string; mimeType: string }>): Promise<void>;
+  /** pi 1.0 起 steer/followUp 回报 "handled" | "queued"。 */
+  steer(text: string, images?: Array<{ type: "image"; data: string; mimeType: string }>, options?: {
+    source?: "interactive" | "rpc" | "extension";
+  }): Promise<"handled" | "queued">;
+  followUp(text: string, images?: Array<{ type: "image"; data: string; mimeType: string }>, options?: {
+    source?: "interactive" | "rpc" | "extension";
+  }): Promise<"handled" | "queued">;
   readonly pendingMessageCount: number;
   getSteeringMessages(): readonly string[];
   getFollowUpMessages(): readonly string[];

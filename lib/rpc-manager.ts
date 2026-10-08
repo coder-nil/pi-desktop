@@ -809,6 +809,10 @@ export class AgentSessionWrapper {
 
           this.pendingPromptCount += 1;
           notifyRunningChange();
+          // pi 1.0 起 preflightResult 改为回报「已接受」的派发方式
+          // （"handled" | "queued" | "started"），被拒绝时不再回调 false，
+          // 而是直接 reject 返回的 promise。这里只关心「是否已被接受」。
+          let promptDisposition: "handled" | "queued" | "started" | undefined;
           let prompt: Promise<void>;
           try {
             prompt = this.inner.prompt(command.message as string, {
@@ -817,8 +821,9 @@ export class AgentSessionWrapper {
               source: "rpc",
               // Match pi's RPC contract: acknowledge only after synchronous prompt
               // validation and extension preflight have accepted the submission.
-              preflightResult: (success) => {
-                if (success) acceptPreflight();
+              preflightResult: (disposition) => {
+                promptDisposition = disposition;
+                acceptPreflight();
               },
             });
           } catch (error) {
@@ -872,7 +877,9 @@ export class AgentSessionWrapper {
               });
             }
           }
-          return null;
+          // 与 pi 的 RPC 契约一致：回报本次 prompt 的派发结果，便于客户端区分
+          // 「扩展命令已处理」「已排队」与「真正开始了新一轮运行」。
+          return promptDisposition ? { disposition: promptDisposition } : null;
         } finally {
           releaseAdmission();
         }
@@ -1041,13 +1048,13 @@ export class AgentSessionWrapper {
 
       case "steer": {
         const steerImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
-        await this.inner.steer(command.message as string, steerImages?.length ? steerImages : undefined);
+        await this.inner.steer(command.message as string, steerImages?.length ? steerImages : undefined, { source: "rpc" });
         return null;
       }
 
       case "follow_up": {
         const followImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
-        await this.inner.followUp(command.message as string, followImages?.length ? followImages : undefined);
+        await this.inner.followUp(command.message as string, followImages?.length ? followImages : undefined, { source: "rpc" });
         return null;
       }
 
