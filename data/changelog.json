@@ -1,5 +1,19 @@
 [
   {
+    "version": "1.1.0-alpha.15",
+    "date": "2026-10-08",
+    "sections": [
+      {
+        "title": "Changed",
+        "kind": "changed",
+        "items": [
+          "应用版本号改为跟随 Pi SDK：本次将应用从 `0.87.1-alpha.16` 提升为 `1.1.0-alpha.15`，与内置的 Pi SDK 1.1.0 对齐。",
+          "应用、npm、Tauri 和 Cargo 版本号统一为 `1.1.0-alpha.15`。"
+        ]
+      }
+    ]
+  },
+  {
     "version": "0.87.1-alpha.16",
     "date": "2026-10-08",
     "sections": [
