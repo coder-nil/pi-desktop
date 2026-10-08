@@ -60,7 +60,10 @@ if (!isEntryPoint) {
   } catch {
     current = "";
   }
-  if (current !== serialized) {
+  // 仓库文件按 LF 提交，但 Windows 检出可能因 core.autocrlf 变成 CRLF。
+  // 归一化行尾后再比较，避免内容一致时因换行符不同而误判为过期。
+  const normalize = (text) => text.replace(/\r\n/g, "\n");
+  if (normalize(current) !== normalize(serialized)) {
     console.error("data/changelog.json is out of date. Run `npm run changelog:sync`.");
     process.exit(1);
   }
