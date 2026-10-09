@@ -23,10 +23,18 @@ import { parseFrontmatter } from "@/lib/frontmatter";
 import { markdownPreviewRehypePlugins, markdownPreviewRemarkPlugins, normalizeDisplayMath } from "@/lib/markdown";
 import { CodeBlock, MermaidBlock } from "./MermaidBlock";
 import { FrontmatterCard } from "./FrontmatterCard";
+import { CaseSensitive, ChevronDown, ChevronUp, Search, X } from "lucide-react";
 import { parseUnifiedPatch } from "@/lib/patch";
 import type { GitFileDiffResponse } from "@/lib/git-types";
 import { useI18n } from "@/hooks/useI18n";
 import { darkSyntaxTheme, lightSyntaxTheme } from "@/lib/syntax-highlighter-theme";
+import {
+  buildLineSearchRangeMap,
+  findFileSearchMatches,
+  highlightSyntaxNodes,
+  type LineSearchRange,
+  type SyntaxNode,
+} from "@/lib/file-viewer-search";
 import {
   resolveInitialFileDisplayMode,
   type FileViewerDisplayMode as DisplayMode,
@@ -97,6 +105,8 @@ const FILE_LINE_NUMBER_STYLE: CSSProperties = {
 type SourceCodeRendererProps = Parameters<NonNullable<SyntaxHighlighterProps["renderer"]>>[0] & {
   wrapLines: boolean;
   flashLine?: number | null;
+  lineSearchRanges?: Map<number, LineSearchRange[]>;
+  activeSearchIndex?: number;
 };
 
 interface SelectedLineRange {
@@ -201,14 +211,22 @@ function copyFileViewerSelectionWithoutGutters(event: ReactClipboardEvent<HTMLEl
   event.preventDefault();
 }
 
-function SourceCodeRenderer({ rows, stylesheet, useInlineStyles, wrapLines, flashLine }: SourceCodeRendererProps) {
+function SourceCodeRenderer({ rows, stylesheet, useInlineStyles, wrapLines, flashLine, lineSearchRanges, activeSearchIndex = -1 }: SourceCodeRendererProps) {
   return rows.map((row, lineIndex) => {
     const children = row.children ?? [];
     const firstChildClasses = children[0]?.properties?.className;
     const hasLineNumber = Array.isArray(firstChildClasses)
       && firstChildClasses.includes("react-syntax-highlighter-line-number");
     const lineNumberNode = hasLineNumber ? children[0] : null;
-    const contentNodes = hasLineNumber ? children.slice(1) : children;
+    const ranges = lineSearchRanges?.get(lineIndex + 1);
+    const rawContentNodes = hasLineNumber ? children.slice(1) : children;
+    const contentNodes = ranges && ranges.length > 0
+      ? highlightSyntaxNodes(
+          rawContentNodes as unknown as SyntaxNode[],
+          ranges,
+          activeSearchIndex,
+        ) as unknown as typeof rawContentNodes
+      : rawContentNodes;
     const isFlashLine = flashLine === lineIndex + 1;
 
     return (
@@ -1047,6 +1065,26 @@ function TextFileViewer({
   const onRevealHandledRef = useRef(onRevealHandled);
   const [selectedLineRange, setSelectedLineRange] = useState<SelectedLineRange | null>(null);
   const [flashLine, setFlashLine] = useState<number | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchCaseSensitive, setSearchCaseSensitive] = useState(false);
+  const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const shellRef = useRef<HTMLDivElement | null>(null);
+  const pointerInsideRef = useRef(false);
+  const content = data?.content ?? "";
+
+  const searchMatches = useMemo(
+    () => findFileSearchMatches(content, searchQuery, searchCaseSensitive),
+    [content, searchQuery, searchCaseSensitive],
+  );
+  const lineSearchRanges = useMemo(
+    () => buildLineSearchRangeMap(searchMatches),
+    [searchMatches],
+  );
+  const activeMatchIndex = searchMatches.length === 0
+    ? -1
+    : Math.min(currentMatchIndex, searchMatches.length - 1);
   // 待定位的行在加载完成后消费一次；消费前不会被当成普通滚动状态写回。
   // 首次挂载即带入，重挂载（切文件/再点一次链接）由 AppShell 的 key 触发。
   const pendingRevealLineRef = useRef<number | null>(initialLine ?? null);
@@ -1340,6 +1378,77 @@ function TextFileViewer({
     return () => clearTimeout(timer);
   }, [flashLine]);
 
+  const openSearch = useCallback(() => setSearchOpen(true), []);
+
+  const closeSearch = useCallback(() => {
+    setSearchOpen(false);
+    setSearchQuery("");
+  }, []);
+
+  const stepMatch = useCallback((delta: number) => {
+    setCurrentMatchIndex((current) => {
+      const total = searchMatches.length;
+      if (total === 0) return 0;
+      return (current + delta + total) % total;
+    });
+  }, [searchMatches.length]);
+
+  const updateSearchQuery = useCallback((value: string) => {
+    setSearchQuery(value);
+    setCurrentMatchIndex(0);
+  }, []);
+
+  useEffect(() => {
+    if (searchOpen) searchInputRef.current?.focus();
+  }, [searchOpen]);
+
+  // Cmd/Ctrl+F 只在指针悬停或焦点已落在文件预览里时接管，避免抢聊天输入框的快捷键。
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.repeat) return;
+      if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return;
+      if (event.key.toLowerCase() !== "f" || displayMode !== "source") return;
+
+      const shell = shellRef.current;
+      const focusInside = shell ? shell.contains(document.activeElement) : false;
+      if (!focusInside && !pointerInsideRef.current) return;
+
+      event.preventDefault();
+      setSearchOpen(true);
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [displayMode]);
+
+  // 输入时就要跳到第一个匹配；导航时滚动当前匹配所在行（必要时也横向滚动）。
+  useEffect(() => {
+    if (!searchOpen || displayMode !== "source" || activeMatchIndex < 0) return;
+    const active = searchMatches[activeMatchIndex];
+    const container = contentRef.current;
+    if (!active || !container) return;
+
+    const row = container.querySelector<HTMLElement>(`[data-line-number="${active.line}"]`);
+    if (!row) return;
+
+    const containerRect = container.getBoundingClientRect();
+    const rowRect = row.getBoundingClientRect();
+    if (rowRect.top < containerRect.top || rowRect.bottom > containerRect.bottom) {
+      container.scrollTop += rowRect.top - containerRect.top - container.clientHeight / 2 + rowRect.height / 2;
+    }
+
+    if (!wrapLines) {
+      const mark = row.querySelector<HTMLElement>(".file-search-match.is-active");
+      const markRect = mark?.getBoundingClientRect();
+      if (markRect && (markRect.left < containerRect.left + 56 || markRect.right > containerRect.right)) {
+        container.scrollLeft += markRect.left - containerRect.left - 64;
+      }
+    }
+
+    viewerStateRef.current.scrollTop = container.scrollTop;
+    viewerStateRef.current.scrollLeft = container.scrollLeft;
+  }, [activeMatchIndex, displayMode, searchMatches, searchOpen, wrapLines]);
+
   if (loading || (requestedInitialDisplayMode === "diff" && gitDiffLoading && !data)) {
     return (
       <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", fontSize: 13 }}>
@@ -1359,7 +1468,6 @@ function TextFileViewer({
   if (!data && !isDeletedDiff) return null;
 
   const language = data?.language ?? "text";
-  const content = data?.content ?? "";
   const isHtml = language === "html";
   const isMarkdown = language === "markdown";
   const hasPreview = isHtml || isMarkdown;
@@ -1378,7 +1486,13 @@ function TextFileViewer({
     : `${language} · ${lines.length} lines · ${formatSize(data!.size)}`;
 
   return (
-    <div className="file-viewer-shell" style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
+    <div
+      ref={shellRef}
+      className="file-viewer-shell"
+      onPointerEnter={() => { pointerInsideRef.current = true; }}
+      onPointerLeave={() => { pointerInsideRef.current = false; }}
+      style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}
+    >
       <div
         className="file-viewer-toolbar"
         style={{
@@ -1466,6 +1580,20 @@ function TextFileViewer({
               <>
                 <button
                   type="button"
+                  onClick={openSearch}
+                  title={t("i18n.findInFile")}
+                  aria-label={t("i18n.findInFile")}
+                  aria-pressed={searchOpen}
+                  className="file-viewer-icon-button"
+                  style={{
+                    background: searchOpen ? "var(--bg-selected)" : "transparent",
+                    color: searchOpen ? "var(--text)" : "var(--text-muted)",
+                  }}
+                >
+                  <Search size={14} strokeWidth={2} aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
                   onClick={toggleWrapLines}
                   title={wrapLines ? t("i18n.disableWrap") : t("i18n.enableWrap")}
                   aria-label={wrapLines ? t("i18n.disableWrap") : t("i18n.enableWrap")}
@@ -1490,6 +1618,82 @@ function TextFileViewer({
           {!isDeletedDiff && <RevealFileButton filePath={filePath} sourceSessionId={sourceSessionId} className="file-viewer-icon-button" />}
         </div>
       </div>
+
+      {searchOpen && effectiveDisplayMode === "source" && (
+        <div className="file-viewer-search">
+          <Search className="file-viewer-search-icon" size={13} strokeWidth={2} aria-hidden="true" />
+          <input
+            ref={searchInputRef}
+            className="file-viewer-search-input"
+            value={searchQuery}
+            onChange={(event) => updateSearchQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                event.stopPropagation();
+                stepMatch(event.shiftKey ? -1 : 1);
+              } else if (event.key === "Escape") {
+                event.preventDefault();
+                event.stopPropagation();
+                closeSearch();
+              }
+            }}
+            placeholder={t("i18n.findQueryPlaceholder")}
+            aria-label={t("i18n.findInFile")}
+            spellCheck={false}
+            autoComplete="off"
+          />
+          <span className="file-viewer-search-count" aria-live="polite">
+            {searchMatches.length === 0 ? "0/0" : `${activeMatchIndex + 1}/${searchMatches.length}`}
+          </span>
+          <button
+            type="button"
+            onClick={() => stepMatch(-1)}
+            disabled={searchMatches.length === 0}
+            title={t("i18n.findPrev")}
+            aria-label={t("i18n.findPrev")}
+            className="file-viewer-icon-button"
+          >
+            <ChevronUp size={14} strokeWidth={2} aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            onClick={() => stepMatch(1)}
+            disabled={searchMatches.length === 0}
+            title={t("i18n.findNext")}
+            aria-label={t("i18n.findNext")}
+            className="file-viewer-icon-button"
+          >
+            <ChevronDown size={14} strokeWidth={2} aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setSearchCaseSensitive((value) => !value);
+              setCurrentMatchIndex(0);
+            }}
+            title={t("i18n.findCaseSensitive")}
+            aria-label={t("i18n.findCaseSensitive")}
+            aria-pressed={searchCaseSensitive}
+            className="file-viewer-icon-button"
+            style={{
+              background: searchCaseSensitive ? "var(--bg-selected)" : "transparent",
+              color: searchCaseSensitive ? "var(--text)" : "var(--text-muted)",
+            }}
+          >
+            <CaseSensitive size={15} strokeWidth={2} aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            onClick={closeSearch}
+            title={t("i18n.findClose")}
+            aria-label={t("i18n.findClose")}
+            className="file-viewer-icon-button"
+          >
+            <X size={14} strokeWidth={2} aria-hidden="true" />
+          </button>
+        </div>
+      )}
 
       {/* Content area */}
       <div
@@ -1604,7 +1808,13 @@ function TextFileViewer({
               },
             }}
             renderer={(rendererProps) => (
-              <SourceCodeRenderer {...rendererProps} wrapLines={wrapLines} flashLine={flashLine} />
+              <SourceCodeRenderer
+                {...rendererProps}
+                wrapLines={wrapLines}
+                flashLine={flashLine}
+                lineSearchRanges={searchOpen ? lineSearchRanges : undefined}
+                activeSearchIndex={activeMatchIndex}
+              />
             )}
             wrapLongLines={wrapLines}
           >

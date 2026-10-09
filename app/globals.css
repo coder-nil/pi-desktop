@@ -1583,6 +1583,67 @@ pre, code {
   outline-offset: -2px;
 }
 
+/* File viewer search bar */
+.file-viewer-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 35px;
+  padding: 5px 12px;
+  box-sizing: border-box;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+  flex-shrink: 0;
+}
+
+.file-viewer-search-icon {
+  flex: 0 0 auto;
+  color: var(--text-dim);
+}
+
+.file-viewer-search-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 24px;
+  padding: 0 8px;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-panel);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  /* 行高等于内容高度（24 减上下边框），placeholder 与输入文字才会垂直居中。 */
+  line-height: 22px;
+}
+
+.file-viewer-search-input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  border-color: var(--accent);
+}
+
+.file-viewer-search-count {
+  flex: 0 0 auto;
+  min-width: 46px;
+  text-align: right;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 匹配高亮由 SourceCodeRenderer 插在 token 树里，不能破坏继承的 token 颜色。 */
+.file-search-match {
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+  color: inherit;
+}
+
+.file-search-match.is-active {
+  background: var(--accent);
+  color: var(--bg);
+}
+
 .directory-picker-path:focus-visible {
   border-color: var(--accent) !important;
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
@@ -1602,6 +1663,19 @@ pre, code {
 
   .file-viewer-mode-button {
     padding-inline: 6px;
+  }
+
+  .file-viewer-search {
+    gap: 4px;
+    padding-inline: 8px;
+  }
+
+  .file-viewer-search-icon {
+    display: none;
+  }
+
+  .file-viewer-search-count {
+    min-width: 38px;
   }
 }
 
