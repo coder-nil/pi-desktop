@@ -26,6 +26,58 @@ export function modelKey(model: { provider: string; id: string }): string {
   return `${model.provider}/${model.id}`;
 }
 
+const THINKING_LEVEL_SUFFIXES = new Set([
+  "off",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+]);
+
+function qualifiedPattern(pattern: string): { provider: string; model: string } | undefined {
+  let base = pattern.trim();
+  const colonIndex = base.lastIndexOf(":");
+  if (colonIndex > 0 && THINKING_LEVEL_SUFFIXES.has(base.slice(colonIndex + 1))) {
+    base = base.slice(0, colonIndex);
+  }
+
+  const slashIndex = base.indexOf("/");
+  if (slashIndex <= 0 || slashIndex === base.length - 1) return undefined;
+  return {
+    provider: base.slice(0, slashIndex),
+    model: base.slice(slashIndex + 1),
+  };
+}
+
+/** Remove every provider-qualified pattern, including `provider/*:level`. */
+export function removeProviderFromEnabledModels(
+  patterns: readonly string[],
+  provider: string,
+): string[] {
+  const target = provider.toLowerCase();
+  return patterns.filter((pattern) => {
+    const parsed = qualifiedPattern(pattern);
+    return !parsed || parsed.provider.toLowerCase() !== target;
+  });
+}
+
+/** Remove exact model patterns while preserving a provider wildcard. */
+export function removeModelFromEnabledModels(
+  patterns: readonly string[],
+  provider: string,
+  modelId: string,
+): string[] {
+  const targetProvider = provider.toLowerCase();
+  const targetModel = modelId.toLowerCase();
+  return patterns.filter((pattern) => {
+    const parsed = qualifiedPattern(pattern);
+    if (!parsed || parsed.provider.toLowerCase() !== targetProvider) return true;
+    return parsed.model === "*" || parsed.model.toLowerCase() !== targetModel;
+  });
+}
+
 /** provider 名含 glob 元字符时不能简写成 `provider/*`。 */
 export function isGlobSafeProviderName(provider: string): boolean {
   return !/[*?[\]{}()!+|@,]/.test(provider);

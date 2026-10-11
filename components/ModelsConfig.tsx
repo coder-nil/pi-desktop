@@ -163,6 +163,10 @@ interface ModelsJson {
   providers?: Record<string, ProviderEntry>;
 }
 
+type ModelConfigDeleteTarget =
+  | { kind: "provider"; provider: string }
+  | { kind: "model"; provider: string; modelId: string };
+
 type ModelTestState =
   | { phase: "idle" }
   | { phase: "testing" }
@@ -2267,18 +2271,39 @@ export function ModelsConfig({ embedded = false, onClose, onSaved }: ModelsConfi
     });
   }, []);
 
-  const deleteProvider = useCallback((name: string) => {
+  const persistDeletion = useCallback(async (target: ModelConfigDeleteTarget): Promise<boolean> => {
+    setSaveError(null);
+    setSavedOk(false);
+    try {
+      const res = await fetch("/api/models-config", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(target),
+      });
+      const data = await res.json() as { success?: boolean; error?: string };
+      if (!res.ok || data.error || !data.success) {
+        throw new Error(data.error ?? `HTTP ${res.status}`);
+      }
+      setSavedTick((tick) => tick + 1);
+      onSaved?.();
+      return true;
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : String(error));
+      return false;
+    }
+  }, [onSaved]);
+
+  const deleteProvider = useCallback(async (name: string) => {
+    if (!(await persistDeletion({ kind: "provider", provider: name }))) return;
+
     setConfig((prev) => {
       const providers = { ...(prev.providers ?? {}) };
       delete providers[name];
       return { ...prev, providers };
     });
-    setConfig((prev) => {
-      const remaining = Object.keys(prev.providers ?? {});
-      setSelection(remaining.length > 0 ? { type: "provider", name: remaining[0] } : null);
-      return prev;
-    });
-  }, []);
+    const remaining = Object.keys(config.providers ?? {}).filter((providerName) => providerName !== name);
+    setSelection(remaining.length > 0 ? { type: "provider", name: remaining[0] } : null);
+  }, [config.providers, persistDeletion]);
 
   const addModel = useCallback((providerName: string) => {
     setConfig((prev) => {
@@ -2322,15 +2347,21 @@ export function ModelsConfig({ embedded = false, onClose, onSaved }: ModelsConfi
     });
   }, []);
 
-  const removeModel = useCallback((providerName: string, index: number) => {
+  const removeModel = useCallback(async (providerName: string, index: number) => {
+    const modelId = config.providers?.[providerName]?.models?.[index]?.id?.trim();
+    if (modelId && !(await persistDeletion({ kind: "model", provider: providerName, modelId }))) return;
+
     setConfig((prev) => {
       const provider = prev.providers?.[providerName] ?? {};
       const models = [...(provider.models ?? [])];
-      models.splice(index, 1);
+      const removeIndex = modelId
+        ? models.findIndex((model) => model.id === modelId)
+        : index;
+      if (removeIndex >= 0) models.splice(removeIndex, 1);
       return { ...prev, providers: { ...(prev.providers ?? {}), [providerName]: { ...provider, models: models.length ? models : undefined } } };
     });
     setSelection({ type: "provider", name: providerName });
-  }, []);
+  }, [config.providers, persistDeletion]);
 
   const handleSave = useCallback(async () => {
     setSaving(true);

@@ -15,6 +15,13 @@ const {
 
 const source = await readFile(new URL("./ModelsConfig.tsx", import.meta.url), "utf8");
 
+test("provider and model deletion persist immediately to models.json", () => {
+  assert.match(source, /method: "DELETE"/);
+  assert.match(source, /\/api\/models-config/);
+  assert.match(source, /kind: "provider", provider: name/);
+  assert.match(source, /kind: "model", provider: providerName, modelId/);
+});
+
 test("ignores malformed auth provider responses", () => {
   assert.match(
     source,
