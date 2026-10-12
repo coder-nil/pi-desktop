@@ -94,3 +94,22 @@ export function saveFileViewerState(
   next[index] = { ...next[index], viewerState };
   return next;
 }
+
+/**
+ * 同步查看器的未保存标记。
+ *
+ * 编辑里的草稿只存在于 FileViewer 内部，dirty 是唯一流到 Tab 层的信号：
+ * 它驱动标签上的圆点与关闭前的确认。false 是已保存后的常态，重复
+ * 写同一个值不会产生新数组，避免每次自动保存都重渲染整个 Tab 栏。
+ */
+export function saveFileDirtyState(tabs: Tab[], tabId: string, dirty: boolean): Tab[] {
+  const index = tabs.findIndex((tab) => tab.id === tabId);
+  if (index === -1 || Boolean(tabs[index].dirty) === dirty) return tabs;
+  const next = [...tabs];
+  next[index] = dirty ? { ...next[index], dirty: true } : (() => {
+    const tab = { ...next[index] };
+    delete tab.dirty;
+    return tab;
+  })();
+  return next;
+}

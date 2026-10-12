@@ -3,6 +3,7 @@
 import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Speech } from "lucide-react";
+import { Eye, EyeOff } from "lucide-react";
 import type { SessionInfo } from "@/lib/types";
 import type { AppUpdateResponse } from "@/lib/api-types";
 import { loadExplorerOpen, saveExplorerOpen } from "@/lib/file-explorer-state";
@@ -498,6 +499,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [explorerOpen, setExplorerOpen] = useState(true);
   const [explorerKey, setExplorerKey] = useState(0);
   const [explorerUploadBusy, setExplorerUploadBusy] = useState(false);
+  const [hideDotDirs, setHideDotDirsState] = useState(false);
   const [changesCount, setChangesCount] = useState(0);
   const [changesCollapsed, setChangesCollapsed] = useState(true);
   const [sessionRefreshDone, setSessionRefreshDone] = useState(false);
@@ -2293,6 +2295,20 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
               </svg>
               {t("files.explorer")}
             </button>
+            {explorerOpen && (
+              <ToolbarIconButton
+                onClick={() => fileExplorerRef.current?.setHideDotDirs((v) => !v)}
+                title={hideDotDirs ? t("files.showHiddenFiles") : t("files.hideHiddenFiles")}
+                aria-pressed={hideDotDirs}
+                color={hideDotDirs ? "var(--text-muted)" : "var(--text)"}
+              >
+                {hideDotDirs ? (
+                  <EyeOff size={13} />
+                ) : (
+                  <Eye size={13} />
+                )}
+              </ToolbarIconButton>
+            )}
             {explorerOpen && changesCount > 0 && (
               <ToolbarIconButton
                 onClick={() => setChangesCollapsed((v) => !v)}
@@ -2360,6 +2376,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 onUploadBusyChange={setExplorerUploadBusy}
                 changesCollapsed={changesCollapsed}
                 onChangesCountChange={setChangesCount}
+                hideDotDirs={hideDotDirs}
+                onHideDotDirsChange={setHideDotDirsState}
               />
             </div>
           )}

@@ -60,6 +60,7 @@ export function GitPanel({ cwd, sessionId, onClose, onChanged, onOpenFile }: { c
   const [busy, setBusy] = useState<Action | null>(null);
   const [confirmingDiscardAll, setConfirmingDiscardAll] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [checkedUpdate, setCheckedUpdate] = useState(false);
 
   // Prefill the credential form from the encrypted store so users can tell at a
   // glance whether they already saved a credential for this remote. The secret
@@ -91,6 +92,17 @@ export function GitPanel({ cwd, sessionId, onClose, onChanged, onOpenFile }: { c
   }, [cwd]);
 
   useEffect(() => { void refresh().catch((reason: unknown) => setError(reason instanceof Error ? reason.message : String(reason))); }, [refresh]);
+
+  // When the panel opens and there are remote updates (behind > 0), show a gentle reminder.
+  useEffect(() => {
+    if (!summary || !summary.upstream || summary.behind <= 0) {
+      setCheckedUpdate(false);
+      return;
+    }
+    // Only remind once per panel open session.
+    if (checkedUpdate) return;
+    setCheckedUpdate(true);
+  }, [summary, checkedUpdate]);
 
   const run = useCallback(async (action: Action, extra: Record<string, unknown> = {}) => {
     setBusy(action);
@@ -256,6 +268,12 @@ export function GitPanel({ cwd, sessionId, onClose, onChanged, onOpenFile }: { c
               <span style={{ color: "var(--text-muted)", fontSize: 11 }}>{t("git.branch")}</span><strong style={{ fontFamily: "var(--font-mono)", fontSize: 12 }}>{summary.branch ?? t("git.detachedHead")}</strong>
               <span style={{ color: "var(--text-muted)", fontSize: 11 }}>{t("git.sync")}</span><span>{summary.upstream ? <SyncIndicator ahead={summary.ahead} behind={summary.behind} /> : <span style={{ fontFamily: "var(--font-mono)", fontSize: 12 }}>{t("git.noUpstream")}</span>}</span>
             </div>
+            {summary.upstream && summary.behind > 0 && !checkedUpdate && (
+              <div style={{ marginTop: 10, padding: "9px 10px", border: "1px solid rgba(74,222,128,.5)", background: "rgba(74,222,128,.08)", color: "#16a34a", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                <span>{t("git.availableUpdate", { count: summary.behind })}</span>
+                <ActionButton label={t("git.updateNow")} action="pull" busy={busy} onClick={() => { setCheckedUpdate(true); void run("pull", { rebase: pullRebase }); }} />
+              </div>
+            )}
             {summary.operation && <div style={{ marginTop: 10, padding: "9px 10px", border: "1px solid rgba(214,168,75,.5)", background: "rgba(214,168,75,.10)", color: "var(--text)", fontSize: 12 }}>{t("git.operationInProgress", { operation: t(`git.operation.${summary.operation}`) })}{conflictCount ? ` ${t("git.operationConflicts", { count: conflictCount })}` : ""}<div style={{ display: "flex", gap: 6, marginTop: 8 }}><ActionButton label={t("git.continue")} busy={busy} action="continue" onClick={() => void run("continue")} /><ActionButton label={t("git.abort")} busy={busy} action="abort" danger onClick={() => void run("abort")} /></div></div>}
             <div style={sectionStyle}><SectionTitle title={t("git.changesSummary", { additions: summary.changes.additions, deletions: summary.changes.deletions })} action={<div style={{ display: "flex", gap: 6 }}>{unstaged.length > 0 && <ActionButton label={t("git.stageAll")} action="stage" busy={busy} onClick={() => void run("stage", { paths: unstaged.map((file) => file.filePath) })} />}{summary?.changes.files.length > 0 && <ActionButton label={t("git.discardAll")} action="discard_all" busy={busy} danger disabled={conflictCount > 0} title={t("git.discardAllTitle")} onClick={() => setConfirmingDiscardAll(true)} />}</div>} /><FileList files={unstaged} empty={t("git.noUnstagedChanges")} busy={busy} onOpenDiff={openDiff} onStage={(filePath) => void run("stage", { paths: [filePath] })} onDiscard={(file) => { if (file.status !== "untracked" && window.confirm(t("git.discardFileConfirm", { file: fileName(file.filePath) }))) void run("discard", { paths: [file.filePath] }); }} /></div>
             <div style={sectionStyle}><SectionTitle title={t("git.stagedSummary", { count: staged.length })} action={staged.length > 0 ? <ActionButton label={t("git.unstageAll")} action="unstage" busy={busy} onClick={() => void run("unstage", { paths: staged.map((file) => file.filePath) })} /> : undefined} /><FileList files={staged} empty={t("git.nothingStaged")} busy={busy} onOpenDiff={openDiff} onUnstage={(filePath) => void run("unstage", { paths: [filePath] })} /></div>

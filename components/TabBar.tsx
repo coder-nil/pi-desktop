@@ -16,6 +16,8 @@ export interface Tab {
   revealLine?: number;
   viewerState?: FileViewerState;
   viewerRevision?: number;
+  /** 编辑器里有未写入磁盘的改动；用于标签圆点与关闭前确认。 */
+  dirty?: boolean;
 }
 
 interface Props {
@@ -23,6 +25,31 @@ interface Props {
   activeTabId: string;
   onSelectTab: (id: string) => void;
   onCloseTab: (id: string) => void;
+}
+
+function TabLabel({ tab, isActive }: { tab: Tab; isActive: boolean }) {
+  const { t } = useI18n();
+  return (
+    <>
+      {getFileIcon(tab.label, 13)}
+      <span>{tab.label}</span>
+      {tab.dirty && (
+        <span
+          data-testid="tab-dirty-dot"
+          title={t("i18n.unsavedChanges")}
+          aria-label={t("i18n.unsavedChanges")}
+          style={{
+            width: 6,
+            height: 6,
+            borderRadius: "50%",
+            background: "#f59e0b",
+            flexShrink: 0,
+            marginRight: 2,
+          }}
+        />
+      )}
+    </>
+  );
 }
 
 export function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab }: Props) {
@@ -75,13 +102,27 @@ export function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab }: Props) {
               transition: "background 0.1s, color 0.1s",
             }}
           >
-            <span style={{ flexShrink: 0, opacity: isActive ? 1 : 0.7, display: "flex", alignItems: "center" }}>
+            <span style={{ flexShrink: 0, opacity: isActive ? 1 : 0.7, display: "flex", alignItems: "center", gap: 4 }}>
               {tab.kind === "console" ? (
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <polyline points="4 17 10 11 4 5" />
                   <line x1="12" y1="19" x2="20" y2="19" />
                 </svg>
               ) : getFileIcon(tab.label, 13)}
+              {tab.dirty && (
+                <span
+                  data-testid="tab-dirty-dot"
+                  title={t("i18n.unsavedChanges")}
+                  aria-label={t("i18n.unsavedChanges")}
+                  style={{
+                    width: 6,
+                    height: 6,
+                    borderRadius: "50%",
+                    background: "#f59e0b",
+                    flexShrink: 0,
+                  }}
+                />
+              )}
             </span>
             <span
               style={{

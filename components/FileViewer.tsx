@@ -23,9 +23,10 @@ import { parseFrontmatter } from "@/lib/frontmatter";
 import { markdownPreviewRehypePlugins, markdownPreviewRemarkPlugins, normalizeDisplayMath } from "@/lib/markdown";
 import { CodeBlock, MermaidBlock } from "./MermaidBlock";
 import { FrontmatterCard } from "./FrontmatterCard";
-import { CaseSensitive, ChevronDown, ChevronUp, Search, X } from "lucide-react";
+import { CaseSensitive, ChevronDown, ChevronUp, Search, X, Pencil } from "lucide-react";
 import { parseUnifiedPatch } from "@/lib/patch";
 import type { GitFileDiffResponse } from "@/lib/git-types";
+import { MonacoFileEditor, type MonacoEditorHandle } from "./MonacoEditor";
 import { useI18n } from "@/hooks/useI18n";
 import { darkSyntaxTheme, lightSyntaxTheme } from "@/lib/syntax-highlighter-theme";
 import {
@@ -60,6 +61,14 @@ interface Props {
   onRevealHandled?: () => void;
   onStateChange?: (state: FileViewerState) => void;
   watchEnabled?: boolean;
+  /** 允许用户进入编辑模式（手动保存）。 */
+  editable?: boolean;
+  /** 未保存改动变化：脏/干净，用于标签圆点与关闭前确认。 */
+  onDirtyChange?: (tabId: string, dirty: boolean) => void;
+  /** 标签页 ID，供 onDirtyChange 上报。 */
+  tabId?: string;
+  /** 选中的会话 ID（编辑保存回调用）。 */
+  sessionId?: string | null;
 }
 
 interface FileData {
@@ -343,7 +352,7 @@ function DiffView({ patch }: { patch: string }) {
   const hasChanges = diff.some((l) => l.type !== "unchanged");
   if (!hasChanges) {
     return (
-      <div style={{ padding: "12px 16px", fontSize: 12, color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>
+      <div style={{ padding: "12px 16px", fontSize: "var(--code-font-size)", color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>
         {t("i18n.noChanges")}
       </div>
     );
@@ -987,6 +996,10 @@ export function FileViewer({
   onRevealHandled,
   onStateChange,
   watchEnabled = true,
+  editable = false,
+  onDirtyChange,
+  tabId,
+  sessionId,
 }: Props) {
   if (isImagePath(filePath)) {
     return <ImageViewer filePath={filePath} cwd={cwd} sourceSessionId={sourceSessionId} watchEnabled={watchEnabled} />;
@@ -1012,6 +1025,9 @@ export function FileViewer({
       onRevealHandled={onRevealHandled}
       onStateChange={onStateChange}
       watchEnabled={watchEnabled}
+      editable={editable}
+      onDirtyChange={onDirtyChange}
+      tabId={tabId}
     />
   );
 }
@@ -1030,6 +1046,9 @@ function TextFileViewer({
   onRevealHandled,
   onStateChange,
   watchEnabled = true,
+  editable = false,
+  onDirtyChange,
+  tabId,
 }: Props) {
   const { isDark } = useTheme();
   const { t } = useI18n();
@@ -1046,6 +1065,15 @@ function TextFileViewer({
   const [displayMode, setDisplayMode] = useState<DisplayMode>(requestedInitialDisplayMode);
   const [wrapLines, setWrapLines] = useState(initialWrapLines);
   const [watching, setWatching] = useState(false);
+  // --- 编辑模式 ---
+  // editing 期间 watch 的 synchronize 会把磁盘内容写回 data，直接覆盖草稿，
+  // 所以编辑态下整个 watch 装配被跳过（见 useEffect 的 !editing 提前返回）。
+  const [editing, setEditing] = useState(false);
+  /** 编辑缓冲区：null = 未进入编辑态或已与磁盘同步；字符串 = 草稿。 */
+  const [draft, setDraft] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const editorHandleRef = useRef<MonacoEditorHandle | null>(null);
   const esRef = useRef<EventSource | null>(null);
   const contentRequestRef = useRef(0);
   const gitDiffRequestRef = useRef(0);
@@ -1104,6 +1132,82 @@ function TextFileViewer({
       return next;
     });
   }, []);
+
+  // --- 编辑模式控制流 ---
+  const isDirty = editing && draft !== null && draft !== (data?.content ?? "");
+
+  const persistContent = useCallback(async () => {
+    // 防重入：自动保存的定时器可能和手动保存、退出保存同时触发。
+    if (!draft || saving) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const res = await fetch(getFileApiUrl(filePath, "read", sourceSessionId), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: draft }),
+      });
+      const next = await res.json() as { size?: number; error?: string };
+      if (!res.ok || next.error) throw new Error(next.error ?? `HTTP ${res.status}`);
+      // 以服务端返回的 size 对齐基线；dirty 随之清零。watch 在编辑态本来
+      // 就是暂停的，所以直接把已保存内容写回 data，省掉一次再拉取。
+      setData((current) => current
+        ? { ...current, content: draft!, size: next.size ?? current.size }
+        : current);
+      setDraft(null);
+      setEditing(false);
+    } catch (reason) {
+      setSaveError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setSaving(false);
+    }
+  }, [draft, saving, sourceSessionId, filePath]);
+
+  // 失焦即存（IDEA 行为）：先在 ref 里留最新值，失焦回调触发保存。
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
+  const persistRef = useRef(persistContent);
+  persistRef.current = persistContent;
+
+  const startEditing = useCallback(() => {
+    if (!data) return;
+    setDraft(data.content);
+    setEditing(true);
+    setSaveError(null);
+  }, [data]);
+
+  const handleEditorChange = useCallback((next: string) => {
+    setDraft(next);
+  }, []);
+
+  const handleExitEditing = useCallback(() => {
+    // Monaco 内部已完成失焦/防抖保存，这里只负责退出编辑态。
+    setDraft(null);
+    setEditing(false);
+    setSaveError(null);
+  }, []);
+
+  // dirty 变化上报给 Tab 层（圆点标记 + 关闭确认）。
+  useEffect(() => {
+    if (!onDirtyChange || !tabId) return;
+    onDirtyChange(tabId, isDirty);
+    return () => onDirtyChange?.(tabId, false);
+  }, [isDirty, onDirtyChange, tabId]);
+
+  // 切走/关闭标签前如有未保存草稿，退出前保存（IDEA 的 Save on deactivate）。
+  useEffect(() => {
+    if (!editing) return;
+    const flushIfDirty = () => {
+      if (draftRef.current !== null && draftRef.current !== (data?.content ?? "")) {
+        void persistRef.current();
+      }
+    };
+    window.addEventListener("beforeunload", flushIfDirty);
+    return () => {
+      window.removeEventListener("beforeunload", flushIfDirty);
+      flushIfDirty();
+    };
+  }, [editing, data?.content]);
 
   useEffect(() => {
     const nextState: FileViewerState = {
@@ -1200,43 +1304,17 @@ function TextFileViewer({
   }, [filePath, fetchContent, sourceSessionId]);
 
   useEffect(() => {
-    setWatching(false);
+    // 进入编辑模式后暂停 watch —— 否则会一边打字一边把磁盘变化写回，草稿就被覆盖了。
+    if (watchEnabled && !editing) return;
 
     if (esRef.current) {
       esRef.current.close();
       esRef.current = null;
     }
 
-    if (!watchEnabled) return;
-
-    const synchronize = () => {
-      void fetchContent(filePath);
-      void fetchGitDiff(filePath);
-    };
-
-    const es = new EventSource(getFileApiUrl(filePath, "watch", sourceSessionId));
-    esRef.current = es;
-
-    es.addEventListener("connected", () => {
-      setWatching(true);
-      // The server emits connected only after its watcher exists. Reading now
-      // closes the gap between the last snapshot and live events.
-      synchronize();
-    });
-
-    es.addEventListener("change", synchronize);
-
-    const markDisconnected = () => {
-      setWatching(false);
-    };
-    es.addEventListener("error", markDisconnected);
-    es.onerror = markDisconnected;
-
-    return () => {
-      es.close();
-      if (esRef.current === es) esRef.current = null;
-    };
-  }, [filePath, fetchContent, fetchGitDiff, sourceSessionId, watchEnabled]);
+    setWatching(false);
+    return;
+  }, [watchEnabled, editing]);
 
   useEffect(() => {
     void fetchGitDiff(filePath);
@@ -1613,11 +1691,34 @@ function TextFileViewer({
                 </button>
               </>
             )}
+            {editable && data && (
+              <button
+                type="button"
+                onPointerDown={(event) => event.preventDefault()}
+                onClick={editing ? handleExitEditing : startEditing}
+                title={editing ? t("i18n.saveAndExit") : t("i18n.editFile")}
+                aria-label={editing ? t("i18n.saveAndExit") : t("i18n.editFile")}
+                className="file-viewer-icon-button"
+                disabled={saving}
+                style={{
+                  background: editing ? "var(--bg-selected)" : "transparent",
+                  color: editing ? "var(--text)" : "var(--text-muted)",
+                }}
+              >
+                <Pencil size={14} strokeWidth={2} aria-hidden="true" />
+              </button>
+            )}
           </div>
 
           {!isDeletedDiff && <RevealFileButton filePath={filePath} sourceSessionId={sourceSessionId} className="file-viewer-icon-button" />}
         </div>
       </div>
+
+      {saveError && (
+        <div className="file-editor-error-bar" role="alert">
+          {saveError}
+        </div>
+      )}
 
       {searchOpen && effectiveDisplayMode === "source" && (
         <div className="file-viewer-search">
@@ -1706,7 +1807,16 @@ function TextFileViewer({
         }}
         style={{ flex: 1, overflow: "auto", background: "var(--bg)" }}
       >
-        {effectiveDisplayMode === "diff" && hasGitDiff ? (
+        {editing && data ? (
+          <MonacoFileEditor
+            value={draft ?? data.content}
+            language={data.language}
+            dark={isDark}
+            onChange={handleEditorChange}
+            onSave={() => void persistContent()}
+            handleRef={editorHandleRef}
+          />
+        ) : effectiveDisplayMode === "diff" && hasGitDiff ? (
           <DiffView patch={gitDiff.patch!} />
         ) : isHtml && effectiveDisplayMode === "preview" ? (
           <iframe

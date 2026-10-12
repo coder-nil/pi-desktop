@@ -238,6 +238,9 @@
   --chat-content-max-width: 820px;
   --chat-content-font-size: 14px;
   --chat-font-size-offset: calc(var(--chat-content-font-size) - 14px);
+  /* 代码阅读面统一字号：FileViewer 的源码视图、diff、编辑器（CodeMirror）共用，
+     避免预览 12px vs 编辑 14px 的“保存后字号跳变”。 */
+  --code-font-size: 12.5px;
   --bg: #ffffff;
   --bg-panel: #f5f5f5;
   --bg-hover: #eeeeee;
@@ -2190,3 +2193,19 @@ span.token.table {
   .mobile-typing-dot { opacity: 0.6; }
   .mobile-skeleton { opacity: 0.75; }
 }
+
+/* ── File editor (CodeMirror) ── */
+.file-editor-error-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: color-mix(in srgb, var(--danger) 12%, var(--bg));
+  color: var(--danger);
+  font-size: 12px;
+  border-top: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
+}
+
+.file-editor-surface { height: 100%; }
+.file-editor-surface .cm-editor { height: 100%; }
+.file-editor-surface .cm-scroller { overflow: auto; }

@@ -7,7 +7,7 @@ import { useGlobalKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { SessionSidebar } from "./SessionSidebar";
 import { ChatWindow } from "./ChatWindow";
 import { TabBar, type Tab } from "./TabBar";
-import { openFileTab, markFileTabRevealHandled, saveFileViewerState } from "./file-tab-state";
+import { openFileTab, markFileTabRevealHandled, saveFileViewerState, saveFileDirtyState } from "./file-tab-state";
 import { ProjectTrustDialog } from "./ProjectTrustDialog";
 import { SettingsPanel } from "./SettingsPanel";
 import { AboutDialog } from "./AboutDialog";
@@ -481,6 +481,10 @@ export function AppShell() {
     viewerState: FileViewerState,
   ) => {
     setFileTabs((prev) => saveFileViewerState(prev, tabId, viewerRevision, viewerState));
+  }, []);
+
+  const handleFileTabDirtyChange = useCallback((tabId: string, dirty: boolean) => {
+    setFileTabs((prev) => saveFileDirtyState(prev, tabId, dirty));
   }, []);
 
   useEffect(() => {
@@ -2488,6 +2492,10 @@ export function AppShell() {
                 getFileName(filePath),
                 { sourceSessionId: activeFileTab.sourceSessionId, line: location?.line },
               )}
+              editable={true}
+              tabId={activeFileTab.id}
+              sessionId={selectedSession?.id}
+              onDirtyChange={handleFileTabDirtyChange}
             />
           ) : (
             <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-dim)", fontSize: 12 }}>

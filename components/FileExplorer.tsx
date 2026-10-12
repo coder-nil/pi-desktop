@@ -13,6 +13,8 @@ import {
 } from "@/lib/file-paths";
 import type { GitFileStatus, GitFileStatusKind, GitStatusResponse } from "@/lib/git-types";
 import { useI18n } from "@/hooks/useI18n";
+import { Eye, EyeOff } from "lucide-react";
+import { samePath } from "@/lib/paths";
 type Translate = ReturnType<typeof useI18n>["t"];
 
 interface FileEntry {
@@ -40,10 +42,14 @@ interface Props {
   onUploadBusyChange?: (busy: boolean) => void;
   changesCollapsed: boolean;
   onChangesCountChange?: (count: number) => void;
+  hideDotDirs?: boolean;
+  onHideDotDirsChange?: (hide: boolean) => void;
 }
 
 export interface FileExplorerHandle {
   openUploadPicker: () => void;
+  setHideDotDirs: (updater: (prev: boolean) => boolean) => void;
+  getHideDotDirs: () => boolean;
 }
 
 type UploadPhase = "idle" | "checking" | "uploading";
@@ -75,9 +81,11 @@ interface PendingConflict {
   nonReplaceable: string[];
 }
 
-async function fetchEntries(dirPath: string): Promise<FileNode[]> {
+async function fetchEntries(dirPath: string, cwd: string, hideDotDirs = false): Promise<FileNode[]> {
   const encoded = encodeFilePathForApi(dirPath);
-  const res = await fetch(`/api/files/${encoded}?type=list`);
+  const isRoot = samePath(dirPath, cwd);
+  const query = hideDotDirs && isRoot ? "?type=list&hideDotDirs=true" : "?type=list";
+  const res = await fetch(`/api/files/${encoded}${query}`);
   if (!res.ok) {
     let message = `Failed to load files (HTTP ${res.status})`;
     try {
@@ -222,6 +230,7 @@ function TreeNode({
   highlightedPaths,
   gitStatusByPath,
   changedDirectoryPaths,
+  hideDotDirs,
   t,
 }: {
   node: FileNode;
@@ -235,6 +244,7 @@ function TreeNode({
   highlightedPaths: Set<string>;
   gitStatusByPath: Map<string, GitFileStatus>;
   changedDirectoryPaths: Set<string>;
+  hideDotDirs: boolean;
   t: Translate;
 }) {
   const open = expandedPaths.has(node.fullPath);
@@ -253,7 +263,7 @@ function TreeNode({
     if (loaded && !force) return;
     setLoading(true);
     try {
-      const entries = await fetchEntries(node.fullPath);
+      const entries = await fetchEntries(node.fullPath, cwd, hideDotDirs);
       setChildren(entries);
       setLoaded(true);
     } catch {
@@ -261,7 +271,7 @@ function TreeNode({
     } finally {
       setLoading(false);
     }
-  }, [loaded, node.fullPath]);
+  }, [loaded, node.fullPath, cwd, hideDotDirs]);
 
   // Re-fetch children when the tree refreshes and the directory is open.
   useEffect(() => {
@@ -422,21 +432,22 @@ function TreeNode({
       {node.isDir && open && (
         <div>
           {children.map((child) => (
-            <TreeNode
-              key={child.fullPath}
-              node={child}
-              depth={depth + 1}
-              cwd={cwd}
-              onOpenFile={onOpenFile}
-              onAtMention={onAtMention}
-              expandedPaths={expandedPaths}
-              onToggleExpanded={onToggleExpanded}
-              refreshToken={refreshToken}
-              highlightedPaths={highlightedPaths}
-              gitStatusByPath={gitStatusByPath}
-              changedDirectoryPaths={changedDirectoryPaths}
-              t={t}
-            />
+              <TreeNode
+                key={child.fullPath}
+                node={child}
+                depth={depth + 1}
+                cwd={cwd}
+                onOpenFile={onOpenFile}
+                onAtMention={onAtMention}
+                expandedPaths={expandedPaths}
+                onToggleExpanded={onToggleExpanded}
+                refreshToken={refreshToken}
+                highlightedPaths={highlightedPaths}
+                gitStatusByPath={gitStatusByPath}
+                changedDirectoryPaths={changedDirectoryPaths}
+                hideDotDirs={hideDotDirs}
+                t={t}
+              />
           ))}
           {children.length === 0 && loaded && (
             <div style={{ paddingLeft: 8 + (depth + 1) * 14, fontSize: 11, color: "var(--text-dim)", height: 22, display: "flex", alignItems: "center" }}>
@@ -515,6 +526,8 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
   onUploadBusyChange,
   changesCollapsed,
   onChangesCountChange,
+  hideDotDirs: propHideDotDirs,
+  onHideDotDirsChange,
 }, ref) {
   const { t } = useI18n();
   const [roots, setRoots] = useState<FileNode[]>([]);
@@ -530,6 +543,14 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadSummary, setUploadSummary] = useState<UploadSummary | null>(null);
   const [pendingConflict, setPendingConflict] = useState<PendingConflict | null>(null);
+  const [hideDotDirs, setHideDotDirs] = useState(propHideDotDirs ?? false);
+
+  // Sync local state with prop changes
+  useEffect(() => {
+    if (typeof propHideDotDirs === "boolean" && propHideDotDirs !== hideDotDirs) {
+      setHideDotDirs(propHideDotDirs);
+    }
+  }, [propHideDotDirs]);
   const prevCwdRef = useRef<string | null>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const refreshToken = `${refreshKey ?? 0}:${treeRefreshKey}`;
@@ -561,6 +582,10 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
       if (open) next.add(fullPath); else next.delete(fullPath);
       return next;
     });
+  }, []);
+
+  const handleToggleHideDotDirs = useCallback(() => {
+    setHideDotDirs((prev) => !prev);
   }, []);
 
   const applyUploadResult = useCallback((data: UploadResponse) => {
@@ -654,7 +679,16 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
     openUploadPicker() {
       if (!uploadBusy) uploadInputRef.current?.click();
     },
-  }), [uploadBusy]);
+    setHideDotDirs(updater) {
+      // updater is either a boolean or a function
+      const next = typeof updater === "function" ? updater(hideDotDirs) : updater;
+      setHideDotDirs(next);
+      onHideDotDirsChange?.(next);
+    },
+    getHideDotDirs() {
+      return hideDotDirs;
+    },
+  }), [uploadBusy, hideDotDirs, onHideDotDirsChange]);
 
   useEffect(() => {
     onUploadBusyChange?.(uploadBusy);
@@ -678,12 +712,12 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
     setLoading(cwdChanged);
     setError(null);
     let cancelled = false;
-    fetchEntries(cwd)
+    fetchEntries(cwd, cwd, hideDotDirs)
       .then((entries) => { if (!cancelled) setRoots(entries); })
       .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : String(e)); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [cwd, refreshKey, treeRefreshKey]);
+  }, [cwd, refreshKey, treeRefreshKey, hideDotDirs]);
 
   useEffect(() => {
     let cancelled = false;
@@ -862,7 +896,8 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
       )}
 
       {(changesCollapsed || gitFiles.length === 0) && (
-        <div style={{ padding: "2px 4px" }}>
+        <div>
+          <div style={{ padding: "2px 4px" }}>
           {loading ? (
             <div style={{ padding: "8px 12px", fontSize: 11, color: "var(--text-dim)" }}>Loading files...</div>
           ) : error ? (
@@ -882,6 +917,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
                 highlightedPaths={highlightedPaths}
                 gitStatusByPath={gitStatusByPath}
                 changedDirectoryPaths={changedDirectoryPaths}
+                hideDotDirs={hideDotDirs}
                 t={t}
               />
             ))
@@ -891,6 +927,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
               {t("files.noFiles")}
             </div>
           )}
+          </div>
         </div>
       )}
     </div>

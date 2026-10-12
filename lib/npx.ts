@@ -16,17 +16,17 @@ const execFileAsync = promisify(execFile);
  * directly via the current `node` binary, which works identically on every
  * platform and needs no shell.
  */
-function findNpxCli(): string | null {
+function findNpxCli(): { path: string; layout: string } | null {
   const nodeDir = dirname(execPath);
   const candidates = [
     // Windows MSI installer layout: node.exe and node_modules share a dir
-    join(nodeDir, "node_modules", "npm", "bin", "npx-cli.js"),
+    { path: join(nodeDir, "node_modules", "npm", "bin", "npx-cli.js"), layout: "Windows MSI" },
     // Unix layout: .../bin/node + .../lib/node_modules/npm/bin/npx-cli.js
-    join(nodeDir, "..", "lib", "node_modules", "npm", "bin", "npx-cli.js"),
+    { path: join(nodeDir, "..", "lib", "node_modules", "npm", "bin", "npx-cli.js"), layout: "Unix/nvm" },
   ];
-  for (const p of candidates) {
+  for (const { path, layout } of candidates) {
     try {
-      if (existsSync(p)) return p;
+      if (existsSync(path)) return { path, layout };
     } catch {
       // ignore
     }
@@ -52,13 +52,45 @@ export interface RunNpxResult {
  */
 export async function runNpx(args: string[], opts: RunNpxOptions = {}): Promise<RunNpxResult> {
   const npxCli = findNpxCli();
-  const { command, commandArgs } = npxCli
-    ? { command: execPath, commandArgs: [npxCli, ...args] }
-    : { command: "npx", commandArgs: args };
-  return execFileAsync(command, commandArgs, {
-    timeout: opts.timeout,
-    maxBuffer: opts.maxBuffer,
-    cwd: opts.cwd,
-    env: opts.env,
-  });
+  
+  console.log('[npx] execPath:', execPath);
+  console.log('[npx] findNpxCli result:', npxCli);
+  
+  if (!npxCli) {
+    throw new Error(
+      `Cannot locate npx-cli.js for Node.js at ${execPath}. ` +
+      `Please ensure npm is installed globally. ` +
+      `You may need to run 'npm install -g npm' or reinstall Node.js.`
+    );
+  }
+
+  console.log(`[npx] using ${npxCli.layout} layout: ${npxCli.path}`);
+  
+  const command = execPath;
+  const commandArgs = [npxCli.path, ...args];
+  
+  console.log(`[npx] executing: ${command} ${commandArgs.join(' ')}`);
+  console.log(`[npx] cwd: ${opts.cwd || process.cwd()}`);
+  console.log(`[npx] env.PATH: ${opts.env?.PATH || process.env.PATH}`);
+  
+  try {
+    return await execFileAsync(command, commandArgs, {
+      timeout: opts.timeout,
+      maxBuffer: opts.maxBuffer,
+      cwd: opts.cwd,
+      env: opts.env,
+    });
+  } catch (error) {
+    const err = error as { code?: string; message?: string; errno?: number };
+    console.error('[npx] execution failed:', err);
+    
+    if (err.code === 'ENOENT' || err.errno === -2) {
+      throw new Error(
+        `Failed to spawn Node.js process (${execPath}). ` +
+        `This usually means the environment is misconfigured or the file does not exist. ` +
+        `Error: ${err.message}`
+      );
+    }
+    throw error;
+  }
 }
