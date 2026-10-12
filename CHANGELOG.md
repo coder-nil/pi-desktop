@@ -5,28 +5,19 @@
 本文件只记录**已发布版本**：每个小节对应一个 git tag（`v0.85.1-alpha.14` → `## [0.85.1-alpha.14]`）。
 发布前未打 tag 的中间提交不单独成节，会被归入其后最近的那个版本。
 
+## [1.1.0-alpha.16] - 2026-10-12
+
+### Added
+
+- 集成 Monaco 编辑器：文件查看器改用 Monaco Editor，提升代码编辑与浏览体验。
+- 文件预览中新增查找功能：支持在文件查看器中搜索文本内容。
+- 模型配置支持立即删除：新增自定义提供商和模型的即时删除能力。
+
+### Changed
+
+- 应用、npm、Tauri 和 Cargo 版本号统一为 `1.1.0-alpha.16`。
+
 ## [1.1.0-alpha.15] - 2026-10-08
-
-### Changed
-
-- 应用版本号改为跟随 Pi SDK：本次将应用从 `0.87.1-alpha.16` 提升为 `1.1.0-alpha.15`，与内置的 Pi SDK 1.1.0 对齐。
-- 应用、npm、Tauri 和 Cargo 版本号统一为 `1.1.0-alpha.15`。
-
-## [0.87.1-alpha.16] - 2026-10-08
-
-### Changed
-
-- Pi SDK 升级到 1.1.0（`@earendil-works/pi-agent-core` / `pi-ai` / `pi-coding-agent` / `pi-tui`，0.87.1 → 1.1.0）。
-- `preflightResult` 自 pi 1.0 起回报派发结果（`"handled" | "queued" | "started"`）而非布尔值，且被拒绝的 prompt 改为 reject 返回的 Promise：`prompt` 命令相应改为「任何回调都算已接受」，失败由 Promise 抛出，并在响应里回报 `disposition`；`steer` / `follow_up` 也带上 `{ source: "rpc" }`。
-- `models-store.json` 自 pi 1.0 起保存任意类型的模型目录（chat / image / classifier），`lib/desktop-providers.ts` 改用 `isModelType(model, "chat")` 收窄后再按 provider 过滤。
-- Azure 服务商在 pi 1.0.3 由 `azure-openai-responses` 改名为 `azure`：设置页的图标映射同时保留新旧两个 id，未迁移的 `models.json` / `auth.json` 仍能正确显示。
-- 应用、npm、Tauri 和 Cargo 版本号统一为 `0.87.1-alpha.16`。
-
-### Fixed
-
-- 修复 `npm run version:check` 在 Windows 上误判 `data/changelog.json` 过期（`core.autocrlf` 检出成 CRLF 时逐字节比较失败），比较前先归一化行尾。
-
-## [0.87.1-alpha.15] - 2026-09-23
 
 ### Added
 
@@ -35,15 +26,20 @@
 
 ### Changed
 
-- Pi SDK 升级到 0.87.1（`@earendil-works/pi-agent-core` / `pi-ai` / `pi-coding-agent` / `pi-tui`，0.85.1 → 0.87.1）。
+- Pi SDK 升级到 1.1.0（`@earendil-works/pi-agent-core` / `pi-ai` / `pi-coding-agent` / `pi-tui`，0.85.1 → 1.1.0）。
 - `agent.state.systemPrompt` 自 0.86 起变为只读 getter（改由会话 transcript 的首条 system 消息回放），赋值会抛 `TypeError`。改为在读取 `get_state` 与系统提示面板时计算生效值；界面语言指令仍通过 `before_agent_start` 扩展下发给模型，行为不变。
+- `preflightResult` 自 pi 1.0 起回报派发结果（`"handled" | "queued" | "started"`）而非布尔值，且被拒绝的 prompt 改为 reject 返回的 Promise：`prompt` 命令相应改为「任何回调都算已接受」，失败由 Promise 抛出，并在响应里回报 `disposition`；`steer` / `follow_up` 也带上 `{ source: "rpc" }`。
+- `models-store.json` 自 pi 1.0 起保存任意类型的模型目录（chat / image / classifier），`lib/desktop-providers.ts` 改用 `isModelType(model, "chat")` 收窄后再按 provider 过滤。
+- Azure 服务商在 pi 1.0.3 由 `azure-openai-responses` 改名为 `azure`：设置页的图标映射同时保留新旧两个 id，未迁移的 `models.json` / `auth.json` 仍能正确显示。
 - 对话输入框改为整个输入框滚动：文本超出高度时滚动条贴在输入框外沿，π 标记与发送/队列按钮始终固定在框内可见位置，不再暴露内部 textarea 的边界。
-- 应用、npm、Tauri 和 Cargo 版本号统一为 `0.87.1-alpha.15`。
+- 应用版本号改为跟随 Pi SDK：本次将应用从 `0.85.1-alpha.14` 提升为 `1.1.0-alpha.15`，跨越 0.87.1 系列直接与 Pi SDK 1.1.0 对齐。
+- 应用、npm、Tauri 和 Cargo 版本号统一为 `1.1.0-alpha.15`。
 
 ### Fixed
 
 - 修复升级到 Pi 0.87 后无法创建会话的问题（写入只读的 `systemPrompt` 触发 `TypeError`）。
 - 隐藏 Pi 0.86 起写入会话 transcript 的 `role: "system"` 条目（系统提示、工具清单与 sections 补丁）：不再出现在聊天记录、手机遥控页、滚动缩略图和分支导航的标签与预览中。
+- 修复 `npm run version:check` 在 Windows 上误判 `data/changelog.json` 过期（`core.autocrlf` 检出成 CRLF 时逐字节比较失败），比较前先归一化行尾。
 
 ## [0.85.1-alpha.14] - 2026-09-22
 
