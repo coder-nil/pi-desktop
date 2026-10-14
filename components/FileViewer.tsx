@@ -1844,6 +1844,7 @@ function TextFileViewer({
             value={draft ?? data.content}
             language={data.language}
             dark={isDark}
+            path={filePath}
             onChange={handleEditorChange}
             onSave={(content) => void persistContent(content)}
             handleRef={editorHandleRef}

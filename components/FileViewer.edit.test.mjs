@@ -27,6 +27,22 @@ test("editor keeps Monaco content internal after the initial mount", () => {
   assert.doesNotMatch(editorSource, /\n\s+value=\{value\}/);
 });
 
+test("the editor model carries a real path and skips project-less semantic checks", () => {
+  // 文件名后缀决定 Monaco 的 ScriptKind；没有 .tsx 会把 JSX 当普通 TS 解析。
+  assert.match(editorSource, /path\?: string;/);
+  assert.match(editorSource, /path=\{path\}/);
+  assert.match(viewerSource, /<MonacoFileEditor[\s\S]*?path=\{filePath\}/);
+  // 无项目上下文时语义校验全是误报，只保留语法校验；jsx 必须显式配置。
+  assert.match(editorSource, /function configureLanguageServices\(monacoApi: unknown\)/);
+  assert.match(editorSource, /jsx: 4, \/\/ JsxEmit\.ReactJSX/);
+  assert.match(editorSource, /noSemanticValidation: true/);
+  assert.match(editorSource, /defaults\.setCompilerOptions\(compilerOptions\)/);
+  assert.match(editorSource, /defaults\.setDiagnosticsOptions\(diagnosticsOptions\)/);
+  // 配置要用 @monaco-editor/react 交回的真实实例（beforeMount），否则 jsx 落不到编辑器上。
+  assert.match(editorSource, /beforeMount=\{handleBeforeMount\}/);
+  assert.match(editorSource, /handleBeforeMount[\s\S]*configureLanguageServices\(monacoApi\)/);
+});
+
 test("edit is a first-class display mode and editable files open straight into it", () => {
   assert.match(stateSource, /export type FileViewerDisplayMode = "edit" \| "source" \| "preview" \| "diff";/);
   assert.match(viewerSource, /const requestedInitialDisplayMode: DisplayMode = \(/);

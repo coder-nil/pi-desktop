@@ -17,6 +17,11 @@ interface MonacoFileEditorProps {
   value: string;
   language: string;
   dark: boolean;
+  /**
+   * 模型要带上真实文件路径：Monaco 的 TS worker 只按文件名后缀判定 ScriptKind，
+   * 缺了 `.tsx`/`.jsx` 就会把 JSX 当普通 TS 解析，整片报语法错。
+   */
+  path?: string;
   onChange: (next: string) => void;
   onSave: (value: string) => void;
   onBlur?: () => void;
@@ -64,12 +69,68 @@ function mapLanguage(lang: string): string {
   return map[lang] ?? lang;
 }
 
+interface TypeScriptLanguageDefaults {
+  setCompilerOptions: (options: Record<string, unknown>) => void;
+  setDiagnosticsOptions: (options: Record<string, unknown>) => void;
+}
+
+interface TypeScriptNamespace {
+  typescriptDefaults?: TypeScriptLanguageDefaults;
+  javascriptDefaults?: TypeScriptLanguageDefaults;
+}
+
+/**
+ * 0.57 起顶层是 `monaco.typescript`，旧的 `monaco.languages.typescript` 只剩一个
+ * `{ deprecated: true }` 空壳；但不同构建入口下能拿到的那个不一样，两个都试。
+ */
+function resolveTypeScriptNamespace(monacoApi: unknown): TypeScriptNamespace | null {
+  const api = monacoApi as {
+    typescript?: TypeScriptNamespace;
+    languages?: { typescript?: TypeScriptNamespace };
+  } | null | undefined;
+  return api?.typescript ?? api?.languages?.typescript ?? null;
+}
+
+/**
+ * 这是文件编辑器，没有 tsconfig / node_modules / 项目文件图，TS 语言的语义校验
+ * （Cannot find module、缺 JSX 命名空间等）几乎全是误报，所以只保留语法校验。
+ * 但 compilerOptions 必须配好，尤其是 jsx：缺了它 .tsx 会一直报
+ * "Cannot use JSX unless the '--jsx' flag is provided"。枚举用数值传入，避免依赖
+ * 不同入口下可能缺失的 JsxEmit/ScriptTarget 导出名。
+ */
+function configureLanguageServices(monacoApi: unknown) {
+  const ts = resolveTypeScriptNamespace(monacoApi);
+  if (!ts) return;
+  const compilerOptions = {
+    jsx: 4, // JsxEmit.ReactJSX
+    target: 99, // ScriptTarget.ESNext
+    module: 99, // ModuleKind.ESNext
+    moduleResolution: 2, // ModuleResolutionKind.NodeJs
+    allowJs: true,
+    allowNonTsExtensions: true,
+    esModuleInterop: true,
+    resolveJsonModule: true,
+    isolatedModules: true,
+    skipLibCheck: true,
+  };
+  const diagnosticsOptions = {
+    noSemanticValidation: true,
+    noSuggestionDiagnostics: true,
+  };
+  for (const defaults of [ts.typescriptDefaults, ts.javascriptDefaults]) {
+    if (!defaults) continue;
+    defaults.setCompilerOptions(compilerOptions);
+    defaults.setDiagnosticsOptions(diagnosticsOptions);
+  }
+}
+
 const LazyEditor = lazy(async (): Promise<{ default: React.ComponentType<EditorProps> }> => {
   const [{ default: loader }, monaco] = await Promise.all([
     import("@monaco-editor/loader"),
     import("monaco-editor"),
   ]);
   loader.config({ monaco: monaco as unknown as Parameters<typeof loader.config>[0]["monaco"] });
+  configureLanguageServices(monaco);
   const mod = await import("@monaco-editor/react");
   const Editor = mod.Editor as unknown as React.ComponentType<EditorProps>;
   return { default: Editor };
@@ -79,6 +140,7 @@ export function MonacoFileEditor({
   value,
   language,
   dark,
+  path,
   onChange,
   onSave,
   handleRef,
@@ -112,6 +174,12 @@ export function MonacoFileEditor({
       theme: monacoTheme,
     };
   }, [monacoTheme]);
+
+  // 用 @monaco-editor/react 实际交回的那个 monaco 实例来配置最可靠：
+  // LazyEditor 初始化时拿到的模块命名空间未必就是编辑器用的同一份。
+  const handleBeforeMount = useCallback<NonNullable<EditorProps["beforeMount"]>>((monacoApi) => {
+    configureLanguageServices(monacoApi);
+  }, []);
 
   const handleEditorChange = useCallback((next: string | undefined) => {
     if (typeof next !== "string") return;
@@ -157,6 +225,8 @@ export function MonacoFileEditor({
       <LazyEditor
         defaultValue={value}
         language={mapLanguage(language)}
+        path={path}
+        beforeMount={handleBeforeMount}
         onChange={handleEditorChange}
         onMount={handleMount}
         options={editorOptions}
