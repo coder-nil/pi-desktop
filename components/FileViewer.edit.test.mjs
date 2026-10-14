@@ -73,7 +73,7 @@ test("saving keeps the editor open and only advances the baseline", () => {
   // 保存成功后基线前移、草稿与磁盘同步，但仍在 Edit 模式。
   assert.match(
     viewerSource,
-    /originalContentRef\.current = content;\n\s+userEditedRef\.current = false;\n\s+draftRef\.current = content;\n\s+setDraft\(content\);/,
+    /originalContentRef\.current = content;\n\s+userEditedRef\.current = false;\n\s+draftRef\.current = content;\n\s+dirtyRef\.current = false;\n\s+setDraft\(content\);/,
   );
   assert.doesNotMatch(viewerSource, /setEditing\(/);
   assert.match(viewerSource, /const handleSave = useCallback\(\(\) => \{\n\s+void persistContent\(draftRef\.current \?\? draft\);/);
@@ -84,4 +84,38 @@ test("draft dirty state outlives leaving the editor and entering edit keeps the 
   assert.match(viewerSource, /const isDirty = draft !== null && draft !== \(data\?\.content \?\? ""\)/);
   assert.match(viewerSource, /if \(draftRef\.current === null\) \{/);
   assert.doesNotMatch(viewerSource, /handleExitEditing/);
+});
+
+test("external edits never clobber a dirty draft, they only surface a reload notice", async () => {
+  // watch 的 synchronize 先看 savingRef（自己的写入）再看 dirty。
+  assert.match(viewerSource, /if \(savingRef\.current\) \{\n\s+resyncAfterSaveRef\.current = true;/);
+  assert.match(viewerSource, /if \(dirtyRef\.current\) \{\n\s+setDiskChangePending\(true\);/);
+  assert.match(viewerSource, /const dirtyRef = useRef\(isDirty\);/);
+  // 保存期间收到的磁盘事件在保存结束后补核对一次。
+  assert.match(viewerSource, /if \(resyncAfterSaveRef\.current\) \{\n\s+resyncAfterSaveRef\.current = false;\n\s+resyncRef\.current\?\.\(\);/);
+  // 提示条只在磁盘变化且未能应用时出现，动作是显式重载。
+  assert.match(viewerSource, /\{diskChangePending && \(/);
+  assert.match(viewerSource, /onClick=\{\(\) => void handleReloadFromDisk\(\)\}/);
+  assert.match(viewerSource, /const handleReloadFromDisk = useCallback\(async \(\) => \{/);
+  // 保存成功等于用户选择以本地草稿为准，提示作废。
+  assert.match(viewerSource, /setDiskChangePending\(false\);/);
+
+  const [en, zh] = await Promise.all([
+    readFile(new URL("../lib/i18n/messages/en.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/i18n/messages/zh-CN.ts", import.meta.url), "utf8"),
+  ]);
+  for (const source of [en, zh]) {
+    assert.match(source, /"i18n\.fileChangedOnDisk": "/);
+    assert.match(source, /"i18n\.reloadFromDisk": "/);
+  }
+});
+
+test("applying disk content moves the baseline without marking a user edit", () => {
+  assert.match(viewerSource, /const applyingExternalRef = useRef\(false\);/);
+  assert.match(viewerSource, /if \(applyingExternalRef\.current\) return;/);
+  // Monaco 用 defaultValue 建模型，prop 变化不会回写，只能直接 setValue。
+  assert.match(viewerSource, /applyingExternalRef\.current = true;[\s\S]{0,200}model\.setValue\(next\.content\);/);
+  assert.match(viewerSource, /originalContentRef\.current = next\.content;/);
+  // 从未进入编辑态时只更新只读视图，不凭空造草稿。
+  assert.match(viewerSource, /if \(draftRef\.current === null && !model\) return;/);
 });

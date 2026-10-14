@@ -636,6 +636,8 @@ export const zhCNLocale: LocalePlugin = {
     "i18n.downloadFile": "下载文件",
     "i18n.liveSync": "实时同步已启用",
     "i18n.notWatching": "未监视",
+    "i18n.fileChangedOnDisk": "文件已在磁盘上更改，本地草稿未同步",
+    "i18n.reloadFromDisk": "重新加载",
     "i18n.fileViewMode": "文件视图模式",
     "i18n.compareHead": "比较工作区与 HEAD",
     "i18n.mentionSelectedLines": "提及所选行",

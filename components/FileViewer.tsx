@@ -1083,8 +1083,16 @@ function TextFileViewer({
   const editing = displayMode === "edit" && editable && data !== null;
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
+  /** 保存期间落盘的 watch 事件：保存结束后重新核对一次，避免漏掉外部写入。 */
+  const resyncAfterSaveRef = useRef(false);
+  /** 由 watch effect 装配的同步函数，供保存流程在结束后调用。 */
+  const resyncRef = useRef<(() => void) | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  /** 磁盘内容变了但本地草稿是脏的：不覆盖草稿，只提示。 */
+  const [diskChangePending, setDiskChangePending] = useState(false);
   const editorHandleRef = useRef<MonacoEditorHandle | null>(null);
+  /** 把磁盘内容写回 Monaco 时也会触发 onChange，用它把这次变更排除在“用户编辑”之外。 */
+  const applyingExternalRef = useRef(false);
   const esRef = useRef<EventSource | null>(null);
   const contentRequestRef = useRef(0);
   const gitDiffRequestRef = useRef(0);
@@ -1152,6 +1160,9 @@ function TextFileViewer({
   const userEditedRef = useRef(false);
   // 有未保存改动即为 dirty，与当前是否停在 Edit 模式无关。
   const isDirty = draft !== null && draft !== (data?.content ?? "");
+  // watch 的事件回调在 effect 里，读 ref 才能拿到最新的 dirty 状态。
+  const dirtyRef = useRef(isDirty);
+  dirtyRef.current = isDirty;
 
   const persistContent = useCallback(async (content = draft) => {
     // Timers, blur, and the toolbar can all save the same edit nearly at once.
@@ -1188,13 +1199,20 @@ function TextFileViewer({
       originalContentRef.current = content;
       userEditedRef.current = false;
       draftRef.current = content;
+      dirtyRef.current = false;
       setDraft(content);
+      // 用户选择以本地草稿为准，之前记下的磁盘变更提示随之作废。
+      setDiskChangePending(false);
     } catch (reason) {
       setDraft(content);
       setSaveError(reason instanceof Error ? reason.message : String(reason));
     } finally {
       savingRef.current = false;
       setSaving(false);
+      if (resyncAfterSaveRef.current) {
+        resyncAfterSaveRef.current = false;
+        resyncRef.current?.();
+      }
     }
   }, [data?.content, draft, sourceSessionId, filePath, t]);
 
@@ -1216,6 +1234,8 @@ function TextFileViewer({
   }, [data, updateDisplayMode]);
 
   const handleEditorChange = useCallback((next: string) => {
+    // 写回磁盘内容时 Monaco 也会回调 onChange，这不是用户编辑。
+    if (applyingExternalRef.current) return;
     // 只有 Monaco 的实际变更回调才会标记为用户编辑。
     userEditedRef.current = true;
     draftRef.current = next;
@@ -1253,6 +1273,7 @@ function TextFileViewer({
     userEditedRef.current = false;
     setDraft(null);
     setSaveError(null);
+    setDiskChangePending(false);
 
     return () => {
       onStateChangeRef.current?.({ ...viewerStateRef.current });
@@ -1313,6 +1334,32 @@ function TextFileViewer({
     }
   }, [cwd]);
 
+  /**
+   * 把磁盘上的新内容落到 data、草稿基线与 Monaco 模型上。调用方必须先确认草稿
+   * 不脏：这里会直接丢弃当前草稿。
+   */
+  const applyDiskContent = useCallback((next: FileData) => {
+    setData(next);
+    setError(null);
+    setDiskChangePending(false);
+    const model = editorHandleRef.current?.getModel();
+    // 从未进入过编辑态：只需要更新只读视图。
+    if (draftRef.current === null && !model) return;
+    originalContentRef.current = next.content;
+    userEditedRef.current = false;
+    draftRef.current = next.content;
+    setDraft(next.content);
+    // 编辑态下 Monaco 用 defaultValue 建模型，prop 变化不会回写，必须直接更新模型。
+    if (model && !model.isDisposed() && model.getValue() !== next.content) {
+      applyingExternalRef.current = true;
+      try {
+        model.setValue(next.content);
+      } finally {
+        applyingExternalRef.current = false;
+      }
+    }
+  }, []);
+
   // Reset and load the file itself when its identity changes. Live watching is
   // managed separately so pausing it never clears the displayed content.
   useEffect(() => {
@@ -1333,18 +1380,69 @@ function TextFileViewer({
     };
   }, [filePath, fetchContent, sourceSessionId]);
 
+  // 当前标签实时跟随磁盘变化：AppShell 只挂载当前标签的查看器，所以这里天然只
+  // 监视正在看的那一个文件。磁盘内容绝不覆盖未保存的草稿，只置提示标志。
   useEffect(() => {
-    // 进入编辑模式后暂停 watch —— 否则会一边打字一边把磁盘变化写回，草稿就被覆盖了。
-    if (watchEnabled && !editing) return;
+    if (!watchEnabled) return;
 
     if (esRef.current) {
       esRef.current.close();
       esRef.current = null;
     }
-
     setWatching(false);
-    return;
-  }, [watchEnabled, editing]);
+
+    let active = true;
+    const synchronize = () => {
+      if (!active) return;
+      // 保存期间的事件可能只是自己的写入（此时草稿还是脏的），记下来等保存结束再核对。
+      if (savingRef.current) {
+        resyncAfterSaveRef.current = true;
+        return;
+      }
+      if (dirtyRef.current) {
+        setDiskChangePending(true);
+        return;
+      }
+      void fetchContent(filePath).then((next) => {
+        if (!active || !next) return;
+        applyDiskContent(next);
+        void fetchGitDiff(filePath);
+      });
+    };
+    resyncRef.current = synchronize;
+
+    const es = new EventSource(getFileApiUrl(filePath, "watch", sourceSessionId));
+    esRef.current = es;
+
+    es.addEventListener("connected", () => {
+      // 服务端只在 watcher 就绪后才发 connected，所以这次快照不会漏掉装配期间的
+      // 变化；草稿脏时不校对，否则重连会被当成一次磁盘变更。
+      setWatching(true);
+      if (!dirtyRef.current) synchronize();
+    });
+    es.addEventListener("change", synchronize);
+    const markDisconnected = () => {
+      setWatching(false);
+    };
+    es.addEventListener("error", markDisconnected);
+    es.onerror = markDisconnected;
+
+    return () => {
+      active = false;
+      if (resyncRef.current === synchronize) resyncRef.current = null;
+      es.close();
+      if (esRef.current === es) esRef.current = null;
+      setWatching(false);
+    };
+  }, [filePath, sourceSessionId, watchEnabled, fetchContent, applyDiskContent, fetchGitDiff]);
+
+  /** 用户明确选择“以磁盘为准”：丢弃本地草稿，重新读取文件。 */
+  const handleReloadFromDisk = useCallback(async () => {
+    const next = await fetchContent(filePath);
+    if (!next) return;
+    applyDiskContent(next);
+    void fetchGitDiff(filePath);
+  }, [applyDiskContent, fetchContent, fetchGitDiff, filePath]);
 
   useEffect(() => {
     void fetchGitDiff(filePath);
@@ -1623,12 +1721,18 @@ function TextFileViewer({
         <span className="file-viewer-meta" title={metadata}>{metadata}</span>
         {!isDeletedDiff && (
           <span
-            title={watching ? t("i18n.liveSync") : t("i18n.notWatching")}
-            aria-label={watching ? t("i18n.liveSync") : t("i18n.notWatching")}
+            title={diskChangePending
+              ? t("i18n.fileChangedOnDisk")
+              : watching ? t("i18n.liveSync") : t("i18n.notWatching")}
+            aria-label={diskChangePending
+              ? t("i18n.fileChangedOnDisk")
+              : watching ? t("i18n.liveSync") : t("i18n.notWatching")}
             className="file-viewer-live-indicator"
             style={{
-              background: watching ? "#4ade80" : "var(--border)",
-              boxShadow: watching ? "0 0 4px #4ade80" : "none",
+              background: diskChangePending ? "#fbbf24" : watching ? "#4ade80" : "var(--border)",
+              boxShadow: diskChangePending
+                ? "0 0 4px #fbbf24"
+                : watching ? "0 0 4px #4ade80" : "none",
             }}
           />
         )}
@@ -1749,6 +1853,19 @@ function TextFileViewer({
       {saveError && (
         <div className="file-editor-error-bar" role="alert">
           {saveError}
+        </div>
+      )}
+
+      {diskChangePending && (
+        <div className="file-editor-notice-bar" role="status">
+          <span>{t("i18n.fileChangedOnDisk")}</span>
+          <button
+            type="button"
+            className="file-editor-notice-action"
+            onClick={() => void handleReloadFromDisk()}
+          >
+            {t("i18n.reloadFromDisk")}
+          </button>
         </div>
       )}
 

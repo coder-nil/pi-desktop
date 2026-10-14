@@ -2206,6 +2206,33 @@ span.token.table {
   border-top: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
 }
 
+.file-editor-notice-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg));
+  color: var(--text);
+  font-size: 12px;
+  border-top: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.file-editor-notice-action {
+  margin-left: auto;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-panel);
+  color: var(--text);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.file-editor-notice-action:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .file-editor-surface { height: 100%; }
 .file-editor-surface .cm-editor { height: 100%; }
 .file-editor-surface .cm-scroller { overflow: auto; }

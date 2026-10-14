@@ -233,6 +233,12 @@ Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `au
 - `/api/cwd/validate`, `/api/default-cwd`, and `/api/worktrees` call `allowFileRoot()` when they make a new location browsable.
 - Allowed roots are stored slash-normalized, but that is a Set-key convention, not a correctness requirement: `isPathWithinRoots()` (`lib/path-security.ts`, the single implementation behind `isFilePathAllowed()`) re-resolves and case-folds both sides, so either path form authorizes correctly. Keep that one implementation — it is the security boundary.
 
+### 打开的文件实时跟随磁盘变化
+- **只有当前标签需要实时同步**：`AppShell` 只挂载 `activeFileTab` 的查看器，所以每个查看器自己开 `?type=watch` 的 SSE 就等价于只监视正在看的那个文件。图片/音频/文档查看器一直如此；`TextFileViewer` 的监听在集成 Monaco 时被误删过（只剩一个“进编辑态就断开”的桩，`components/FileViewer.state.test.mjs` 因此失败），别再把它改回按 `editing` 断开。
+- 文本文件收到 `change` 后走 `applyDiskContent()`：一次更新 `data`、基线、草稿，并把内容写回 Monaco 模型。Monaco 用 `defaultValue` 建模，prop 变化不会回写，只能靠 `handleRef` 里的 `getModel().setValue()`；`applyingExternalRef` 用来把这次 `setValue` 触发的 `onChange` 排除在“用户编辑”之外，否则刚同步完就变脏。
+- **磁盘内容绝不覆盖脏草稿**：`dirtyRef` 为真时只置 `diskChangePending`，工具条指示灯转黄并弹出提示条，用户点“重新加载”才以磁盘为准。保存期间到达的事件记在 `resyncAfterSaveRef`，保存结束后补核对一次，否则和自己的 PUT 撞在一起就会漏掉外部写入。
+- `watchEnabled={rightPanelOpen}`：面板关掉就不再占用 watcher。`connected` 只在草稿不脏时校对一遍，否则一次 SSE 重连会被误判成磁盘变更。
+
 ### Plugins and skills
 - `/api/plugins` uses pi's `SettingsManager` + `DefaultPackageManager` for global/project package install, remove, update, enable, and disable. Disabling writes empty `extensions/skills/prompts/themes` arrays for that package entry.
 - `/api/skills` uses `DefaultResourceLoader` so settings paths, package skills, and project `.agents/skills` are listed the same way the runtime sees them.

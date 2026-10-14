@@ -635,6 +635,8 @@ export const enLocale: LocalePlugin = {
     "i18n.downloadFile": "Download file",
     "i18n.liveSync": "Live sync active",
     "i18n.notWatching": "Not watching",
+    "i18n.fileChangedOnDisk": "File changed on disk; local draft not synced",
+    "i18n.reloadFromDisk": "Reload",
     "i18n.fileViewMode": "File view mode",
     "i18n.compareHead": "Compare working tree with HEAD",
     "i18n.mentionSelectedLines": "Mention selected lines",
