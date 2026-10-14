@@ -1060,12 +1060,16 @@ function TextFileViewer({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const explicitInitialDisplayMode = resolveInitialFileDisplayMode(initialState, initialDisplayMode);
+  // “打开时是否带行号”只在挂载时算一次：行号被消费后 initialLine 会变回 undefined，
+  // 若继续跟随它，默认模式会在链接定位完成后从 source 翻成 edit —— 点链接看代码
+  // 会突然变成编辑器，而且这次切换里 Monaco 只停在自己的 loading 占位上。
+  const openedWithLineRef = useRef(initialLine !== undefined);
   // 可编辑文件默认打开即 Edit；显式模式提示、恢复的标签状态或行号跳转优先。
   const requestedInitialDisplayMode: DisplayMode = (
     initialState === undefined
     && initialDisplayMode === undefined
     && editable
-    && initialLine === undefined
+    && !openedWithLineRef.current
   )
     ? "edit"
     : explicitInitialDisplayMode;

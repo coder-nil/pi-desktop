@@ -48,9 +48,13 @@ test("edit is a first-class display mode and editable files open straight into i
   assert.match(viewerSource, /const requestedInitialDisplayMode: DisplayMode = \(/);
   assert.match(
     viewerSource,
-    /initialState === undefined\n\s+&& initialDisplayMode === undefined\n\s+&& editable\n\s+&& initialLine === undefined/,
+    /initialState === undefined\n\s+&& initialDisplayMode === undefined\n\s+&& editable\n\s+&& !openedWithLineRef\.current/,
   );
   assert.match(viewerSource, /\? "edit"\n\s+: explicitInitialDisplayMode;/);
+  // 行号被消费后 initialLine 会变 undefined，默认模式必须只按挂载时的值算，
+  // 否则源码查看会在定位完成后自己翻成 Edit。
+  assert.match(viewerSource, /const openedWithLineRef = useRef\(initialLine !== undefined\)/);
+  assert.doesNotMatch(viewerSource, /&& initialLine === undefined\n\s+\)\n\s+\? "edit"/);
   assert.match(viewerSource, /\.\.\.\(editable \? \["edit" as const\] : \[\]\),/);
   assert.match(viewerSource, /edit: "Edit",/);
   // editing 由当前模式推导，不再是独立开关。
