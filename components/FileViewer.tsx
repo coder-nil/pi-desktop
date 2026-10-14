@@ -23,7 +23,7 @@ import { parseFrontmatter } from "@/lib/frontmatter";
 import { markdownPreviewRehypePlugins, markdownPreviewRemarkPlugins, normalizeDisplayMath } from "@/lib/markdown";
 import { CodeBlock, MermaidBlock } from "./MermaidBlock";
 import { FrontmatterCard } from "./FrontmatterCard";
-import { CaseSensitive, ChevronDown, ChevronUp, Search, X, Pencil } from "lucide-react";
+import { CaseSensitive, ChevronDown, ChevronUp, Save, Search, X } from "lucide-react";
 import { parseUnifiedPatch } from "@/lib/patch";
 import type { GitFileDiffResponse } from "@/lib/git-types";
 import { MonacoFileEditor, type MonacoEditorHandle } from "./MonacoEditor";
@@ -78,6 +78,7 @@ interface FileData {
 }
 
 const DISPLAY_MODE_LABELS: Record<DisplayMode, string> = {
+  edit: "Edit",
   source: "Source",
   preview: "Preview",
   diff: "Diff",
@@ -1058,7 +1059,16 @@ function TextFileViewer({
   const [gitDiffResolved, setGitDiffResolved] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const requestedInitialDisplayMode = resolveInitialFileDisplayMode(initialState, initialDisplayMode);
+  const explicitInitialDisplayMode = resolveInitialFileDisplayMode(initialState, initialDisplayMode);
+  // 可编辑文件默认打开即 Edit；显式模式提示、恢复的标签状态或行号跳转优先。
+  const requestedInitialDisplayMode: DisplayMode = (
+    initialState === undefined
+    && initialDisplayMode === undefined
+    && editable
+    && initialLine === undefined
+  )
+    ? "edit"
+    : explicitInitialDisplayMode;
   const initialWrapLines = initialState?.wrapLines ?? false;
   const initialScrollTop = initialState?.scrollTop ?? 0;
   const initialScrollLeft = initialState?.scrollLeft ?? 0;
@@ -1066,11 +1076,11 @@ function TextFileViewer({
   const [wrapLines, setWrapLines] = useState(initialWrapLines);
   const [watching, setWatching] = useState(false);
   // --- 编辑模式 ---
-  // editing 期间 watch 的 synchronize 会把磁盘内容写回 data，直接覆盖草稿，
-  // 所以编辑态下整个 watch 装配被跳过（见 useEffect 的 !editing 提前返回）。
-  const [editing, setEditing] = useState(false);
-  /** 编辑缓冲区：null = 未进入编辑态或已与磁盘同步；字符串 = 草稿。 */
+  // 编辑是 displayMode 的第四种取值（edit/source/preview/diff），editing 由当前
+  // 模式推导，不再是独立开关；草稿在保存后仍保留，切走再切回不会丢。
+  /** 编辑缓冲区：null = 尚未进入编辑态；字符串 = 当前草稿。 */
   const [draft, setDraft] = useState<string | null>(null);
+  const editing = displayMode === "edit" && editable && data !== null;
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -1080,13 +1090,10 @@ function TextFileViewer({
   const gitDiffRequestRef = useRef(0);
   const contentRef = useRef<HTMLDivElement | null>(null);
   const autoDiffAppliedRef = useRef(false);
+  // Markdown/HTML 只有在该查看器不可编辑时才默认走预览；可编辑时默认 Edit。
   const defaultPreviewEligibleRef = useRef(
-    initialState === undefined && initialDisplayMode === undefined,
+    !editable && initialState === undefined && initialDisplayMode === undefined,
   );
-  /** 已加载内容对应的文件路径，避免切换文件时用旧内容触发自动编辑。 */
-  const dataPathRef = useRef<string | null>(null);
-  /** 自动进入编辑态每个文件只消费一次，退出编辑后不再强制拉回。 */
-  const autoEditAppliedRef = useRef(false);
   const scrollRestorePendingRef = useRef(true);
   const viewerStateRef = useRef<FileViewerState>({
     displayMode: requestedInitialDisplayMode,
@@ -1143,16 +1150,15 @@ function TextFileViewer({
   draftRef.current = draft;
   const originalContentRef = useRef<string | null>(null);
   const userEditedRef = useRef(false);
-  const isDirty = editing && draft !== null && draft !== (data?.content ?? "");
+  // 有未保存改动即为 dirty，与当前是否停在 Edit 模式无关。
+  const isDirty = draft !== null && draft !== (data?.content ?? "");
 
   const persistContent = useCallback(async (content = draft) => {
     // Timers, blur, and the toolbar can all save the same edit nearly at once.
     if (content === null || savingRef.current) return;
     const originalContent = originalContentRef.current ?? data?.content ?? "";
     if (!userEditedRef.current || content === originalContent) {
-      draftRef.current = null;
-      setDraft(null);
-      setEditing(false);
+      // 没有实际改动就保持现状，保存不再把人踢出编辑模式。
       setSaveError(null);
       return;
     }
@@ -1178,11 +1184,11 @@ function TextFileViewer({
       setData((current) => current
         ? { ...current, content, size: next.size ?? current.size }
         : current);
+      // 保存成功后继续留在编辑模式：基线前移，草稿与磁盘同步。
       originalContentRef.current = content;
       userEditedRef.current = false;
-      draftRef.current = null;
-      setDraft(null);
-      setEditing(false);
+      draftRef.current = content;
+      setDraft(content);
     } catch (reason) {
       setDraft(content);
       setSaveError(reason instanceof Error ? reason.message : String(reason));
@@ -1194,18 +1200,20 @@ function TextFileViewer({
 
   // 编辑草稿只在显式保存时提交；切换标签或关闭窗口不会隐式写文件。
   // 这样可以避免失焦、定时器和组件卸载时把瞬时空值写入磁盘。
-  const startEditing = useCallback(() => {
+  const enterEditMode = useCallback(() => {
     if (!data) return;
-    // 记录进入编辑时的基线；没有实际变化时退出不会触发 PUT。
-    originalContentRef.current = data.content;
-    userEditedRef.current = false;
-    draftRef.current = data.content;
-    setDraft(data.content);
-    setEditing(true);
+    // 首次进入编辑时记录基线；再次切回 Edit 保留尚未保存的草稿。
+    if (draftRef.current === null) {
+      originalContentRef.current = data.content;
+      userEditedRef.current = false;
+      draftRef.current = data.content;
+      setDraft(data.content);
+    }
     setSaveError(null);
     // 只读搜索栏与 Monaco 无关，进入编辑态时收起，退出后不再自动弹出。
     setSearchOpen(false);
-  }, [data]);
+    updateDisplayMode("edit");
+  }, [data, updateDisplayMode]);
 
   const handleEditorChange = useCallback((next: string) => {
     // 只有 Monaco 的实际变更回调才会标记为用户编辑。
@@ -1214,7 +1222,7 @@ function TextFileViewer({
     setDraft(next);
   }, []);
 
-  const handleSaveAndExit = useCallback(() => {
+  const handleSave = useCallback(() => {
     void persistContent(draftRef.current ?? draft);
   }, [draft, persistContent]);
 
@@ -1236,11 +1244,15 @@ function TextFileViewer({
     viewerStateRef.current = nextState;
     scrollRestorePendingRef.current = true;
     autoDiffAppliedRef.current = false;
-    dataPathRef.current = null;
-    autoEditAppliedRef.current = false;
     setFlashLine(null);
     setDisplayMode(requestedInitialDisplayMode);
     setWrapLines(initialWrapLines);
+    // 文件身份变化时丢弃上一个文件的草稿，避免跨文件残留。
+    draftRef.current = null;
+    originalContentRef.current = null;
+    userEditedRef.current = false;
+    setDraft(null);
+    setSaveError(null);
 
     return () => {
       onStateChangeRef.current?.({ ...viewerStateRef.current });
@@ -1265,7 +1277,6 @@ function TextFileViewer({
           return null;
         }
         setError(null);
-        dataPathRef.current = filePath;
         setData(d);
         return d;
       })
@@ -1309,7 +1320,6 @@ function TextFileViewer({
     setLoading(true);
     setError(null);
     setData(null);
-    dataPathRef.current = null;
     setGitDiff(null);
     setGitDiffResolved(false);
     setWatching(false);
@@ -1322,19 +1332,6 @@ function TextFileViewer({
       active = false;
     };
   }, [filePath, fetchContent, sourceSessionId]);
-
-  // 打开可编辑文本文件时直接进入编辑态。diff、指定行跳转以及 markdown/html
-  // 的预览优先行为保持不变，避免覆盖这些显式意图。
-  useEffect(() => {
-    if (!editable || autoEditAppliedRef.current) return;
-    if (!data || loading || error || dataPathRef.current !== filePath) return;
-    if (requestedInitialDisplayMode === "diff") return;
-    if (pendingRevealLineRef.current !== null) return;
-    if (data.language === "markdown" || data.language === "html") return;
-
-    autoEditAppliedRef.current = true;
-    startEditing();
-  }, [editable, data, loading, error, filePath, requestedInitialDisplayMode, startEditing]);
 
   useEffect(() => {
     // 进入编辑模式后暂停 watch —— 否则会一边打字一边把磁盘变化写回，草稿就被覆盖了。
@@ -1518,7 +1515,7 @@ function TextFileViewer({
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.repeat) return;
       if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return;
-      if (event.key.toLowerCase() !== "f" || editing || displayMode !== "source") return;
+      if (event.key.toLowerCase() !== "f" || displayMode !== "source") return;
 
       const shell = shellRef.current;
       const focusInside = shell ? shell.contains(document.activeElement) : false;
@@ -1530,7 +1527,7 @@ function TextFileViewer({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [displayMode, editing]);
+  }, [displayMode]);
 
   // 输入时就要跳到第一个匹配；导航时滚动当前匹配所在行（必要时也横向滚动）。
   useEffect(() => {
@@ -1588,6 +1585,7 @@ function TextFileViewer({
   const displayModes: DisplayMode[] = isDeletedDiff
     ? ["diff"]
     : [
+        ...(editable ? ["edit" as const] : []),
         "source",
         ...(hasPreview ? ["preview" as const] : []),
         ...(hasGitDiff ? ["diff" as const] : []),
@@ -1636,9 +1634,7 @@ function TextFileViewer({
         )}
 
         <div className="file-viewer-controls">
-          {/* 编辑态下内容区由 Monaco 独占，切换 source/preview/diff 会让按钮高亮
-              与实际内容对不上，所以只在查看态展示模式切换。 */}
-          {!editing && displayModes.length > 1 && (
+          {displayModes.length > 1 && (
             <div className="file-viewer-mode-switch" aria-label={t("i18n.fileViewMode")}>
               {displayModes.map((mode) => {
                 const active = effectiveDisplayMode === mode;
@@ -1646,7 +1642,8 @@ function TextFileViewer({
                   <button
                     key={mode}
                     type="button"
-                    onClick={() => updateDisplayMode(mode)}
+                    onClick={() => (mode === "edit" ? enterEditMode() : updateDisplayMode(mode))}
+                    disabled={mode === "edit" && !data}
                     title={mode === "diff" ? t("i18n.compareHead") : undefined}
                     aria-pressed={active}
                     className="file-viewer-mode-button"
@@ -1689,7 +1686,7 @@ function TextFileViewer({
                 <MentionIcon />
               </button>
             )}
-            {!editing && effectiveDisplayMode === "source" && (
+            {effectiveDisplayMode === "source" && (
               <>
                 <button
                   type="button"
@@ -1726,21 +1723,21 @@ function TextFileViewer({
                 </button>
               </>
             )}
-            {editable && data && (
+            {editing && data && (
               <button
                 type="button"
                 onPointerDown={(event) => event.preventDefault()}
-                onClick={editing ? handleSaveAndExit : startEditing}
-                title={editing ? t("i18n.saveAndExit") : t("i18n.editFile")}
-                aria-label={editing ? t("i18n.saveAndExit") : t("i18n.editFile")}
+                onClick={handleSave}
+                title={t("i18n.save")}
+                aria-label={t("i18n.save")}
                 className="file-viewer-icon-button"
                 disabled={saving}
                 style={{
-                  background: editing ? "var(--bg-selected)" : "transparent",
-                  color: editing ? "var(--text)" : "var(--text-muted)",
+                  background: isDirty ? "var(--bg-selected)" : "transparent",
+                  color: isDirty ? "var(--text)" : "var(--text-muted)",
                 }}
               >
-                <Pencil size={14} strokeWidth={2} aria-hidden="true" />
+                <Save size={14} strokeWidth={2} aria-hidden="true" />
               </button>
             )}
           </div>
@@ -1755,7 +1752,7 @@ function TextFileViewer({
         </div>
       )}
 
-      {!editing && searchOpen && effectiveDisplayMode === "source" && (
+      {searchOpen && effectiveDisplayMode === "source" && (
         <div className="file-viewer-search">
           <Search className="file-viewer-search-icon" size={13} strokeWidth={2} aria-hidden="true" />
           <input

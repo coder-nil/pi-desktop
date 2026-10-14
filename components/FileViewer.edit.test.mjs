@@ -4,6 +4,7 @@ import test from "node:test";
 
 const viewerSource = await readFile(new URL("./FileViewer.tsx", import.meta.url), "utf8");
 const editorSource = await readFile(new URL("./MonacoEditor.tsx", import.meta.url), "utf8");
+const stateSource = await readFile(new URL("../lib/file-viewer-state.ts", import.meta.url), "utf8");
 
 test("file editing saves empty content and parses non-JSON failures safely", () => {
   assert.match(viewerSource, /if \(content === null \|\| savingRef\.current\) return/);
@@ -25,28 +26,46 @@ test("editor keeps Monaco content internal after the initial mount", () => {
   assert.match(editorSource, /defaultValue=\{value\}/);
   assert.doesNotMatch(editorSource, /\n\s+value=\{value\}/);
 });
-test("editable files open straight into the editor without overriding explicit view intents", () => {
-  assert.match(viewerSource, /const autoEditAppliedRef = useRef\(false\)/);
-  assert.match(viewerSource, /if \(!editable \|\| autoEditAppliedRef\.current\) return/);
-  assert.match(viewerSource, /dataPathRef\.current !== filePath/);
-  assert.match(viewerSource, /requestedInitialDisplayMode === "diff"/);
-  assert.match(viewerSource, /pendingRevealLineRef\.current !== null/);
-  assert.match(viewerSource, /data\.language === "markdown" \|\| data\.language === "html"/);
-  assert.match(viewerSource, /autoEditAppliedRef\.current = true;\n\s+startEditing\(\);/);
+
+test("edit is a first-class display mode and editable files open straight into it", () => {
+  assert.match(stateSource, /export type FileViewerDisplayMode = "edit" \| "source" \| "preview" \| "diff";/);
+  assert.match(viewerSource, /const requestedInitialDisplayMode: DisplayMode = \(/);
+  assert.match(
+    viewerSource,
+    /initialState === undefined\n\s+&& initialDisplayMode === undefined\n\s+&& editable\n\s+&& initialLine === undefined/,
+  );
+  assert.match(viewerSource, /\? "edit"\n\s+: explicitInitialDisplayMode;/);
+  assert.match(viewerSource, /\.\.\.\(editable \? \["edit" as const\] : \[\]\),/);
+  assert.match(viewerSource, /edit: "Edit",/);
+  // editing 由当前模式推导，不再是独立开关。
+  assert.match(viewerSource, /const editing = displayMode === "edit" && editable && data !== null;/);
+  assert.doesNotMatch(viewerSource, /useState\(false\);\n\s*\/\*\* 编辑缓冲区/);
 });
 
-test("edit mode owns the surface and hides the view-mode switch", () => {
-  assert.match(viewerSource, /\{!editing && displayModes\.length > 1 && \(/);
-  assert.match(viewerSource, /\{!editing && effectiveDisplayMode === "source" && \(/);
-  assert.match(viewerSource, /\{!editing && searchOpen && effectiveDisplayMode === "source" && \(/);
-  assert.match(viewerSource, /if \(event\.key\.toLowerCase\(\) !== "f" \|\| editing \|\| displayMode !== "source"\) return;/);
-  assert.match(viewerSource, /setEditing\(true\);\n\s+setSaveError\(null\);\n\s+\/\/ [\s\S]*\n\s+setSearchOpen\(false\);/);
+test("the mode switch is the single control for edit, source, preview and diff", () => {
+  assert.match(viewerSource, /onClick=\{\(\) => \(mode === "edit" \? enterEditMode\(\) : updateDisplayMode\(mode\)\)\}/);
+  assert.match(viewerSource, /disabled=\{mode === "edit" && !data\}/);
+  assert.match(viewerSource, /\{displayModes\.length > 1 && \(/);
 });
 
-test("the save-and-exit command persists the latest draft instead of a stale editor handle", () => {
-  assert.match(viewerSource, /draftRef\.current = data\.content/);
-  assert.match(viewerSource, /draftRef\.current = next/);
-  assert.match(viewerSource, /handleSaveAndExit[\s\S]*persistContent\(draftRef\.current \?\? draft\)/);
-  assert.match(viewerSource, /onClick=\{editing \? handleSaveAndExit : startEditing\}/);
+test("saving keeps the editor open and only advances the baseline", () => {
+  // 没有实际改动时直接返回，不退出编辑。
+  assert.match(
+    viewerSource,
+    /if \(!userEditedRef\.current \|\| content === originalContent\) \{[\s\S]*setSaveError\(null\);\n\s+return;\n\s+\}/,
+  );
+  // 保存成功后基线前移、草稿与磁盘同步，但仍在 Edit 模式。
+  assert.match(
+    viewerSource,
+    /originalContentRef\.current = content;\n\s+userEditedRef\.current = false;\n\s+draftRef\.current = content;\n\s+setDraft\(content\);/,
+  );
+  assert.doesNotMatch(viewerSource, /setEditing\(/);
+  assert.match(viewerSource, /const handleSave = useCallback\(\(\) => \{\n\s+void persistContent\(draftRef\.current \?\? draft\);/);
+  assert.match(viewerSource, /onClick=\{handleSave\}/);
+});
+
+test("draft dirty state outlives leaving the editor and entering edit keeps the draft", () => {
+  assert.match(viewerSource, /const isDirty = draft !== null && draft !== \(data\?\.content \?\? ""\)/);
+  assert.match(viewerSource, /if \(draftRef\.current === null\) \{/);
   assert.doesNotMatch(viewerSource, /handleExitEditing/);
 });
