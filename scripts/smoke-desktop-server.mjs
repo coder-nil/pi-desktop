@@ -20,7 +20,8 @@ const codingAgentRoot = join(serverRoot, "node_modules", "@earendil-works", "pi-
 const requiredRuntimeAssets = [
   join(codingAgentRoot, "modes", "interactive", "theme", "dark.json"),
   join(codingAgentRoot, "modes", "interactive", "theme", "light.json"),
-  join(codingAgentRoot, "modes", "interactive", "theme", "theme-schema.json"),
+  // 主题 schema 自 pi 1.2.0 起由 `theme-schema.js` 在运行时生成，静态文件改为
+  // 发布在远端 `https://pi.dev/schemas/theme.schema.json`，不再随 dist 分发。
   join(codingAgentRoot, "modes", "interactive", "assets", "clankolas.png"),
   join(codingAgentRoot, "core", "export-html", "template.html"),
   join(codingAgentRoot, "core", "export-html", "template.css"),
