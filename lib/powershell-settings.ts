@@ -2,6 +2,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "n
 import { dirname, join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import lockfile from "proper-lockfile";
+import { withSettingsSchema } from "./settings-schema";
 
 // The PowerShell switch is stored as pi's own `defaultTools` setting (the same
 // file the CLI reads) instead of a desktop-only preference: `bash` and
@@ -110,7 +111,7 @@ export async function writePowerShellToolEnabled(
   if (platform !== "win32") throw new Error("PowerShell tool settings are only available on Windows");
 
   return withSettingsLock(settingsPath, () => {
-    const settings = parseSettings(settingsPath);
+    const settings = withSettingsSchema(parseSettings(settingsPath));
     const currentTools = configuredTools(settings) ?? DEFAULT_TOOLS;
     const nextTools = replaceShellTool(currentTools, enabled);
     // A tool list that has no shell slot at all still needs one, otherwise the

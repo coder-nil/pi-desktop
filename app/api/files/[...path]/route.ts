@@ -28,6 +28,7 @@ import {
 } from "@/lib/file-upload";
 import { parseFormDataWithinLimit, RequestBodyTooLargeError } from "@/lib/bounded-form-data";
 import { samePath } from "@/lib/paths";
+import { parseFileRenameName } from "@/lib/file-rename";
 
 const IGNORED_NAMES = new Set([
   "node_modules", ".git", ".next", "dist", "build", "__pycache__",
@@ -410,6 +411,128 @@ ${bodyHtml}
 </main>
 </body>
 </html>`;
+}
+
+export async function PUT(
+  request: NextRequest,
+  { params }: { params: Promise<{ path: string[] }> }
+) {
+  if (!isApiRequestAllowed(request)) {
+    return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
+  }
+
+  try {
+    const { path: segments } = await params;
+    const filePath = filePathFromSegments(segments);
+    const allowedRoots = await getAllowedFileRoots();
+    if (
+      !isFilePathAllowed(filePath, allowedRoots)
+      || !isExistingFilePathAllowed(filePath, allowedRoots)
+    ) {
+      return NextResponse.json({ error: "Access denied" }, { status: 403 });
+    }
+
+    let stat: fs.Stats;
+    try {
+      stat = fs.statSync(filePath);
+    } catch {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+    if (!stat.isFile()) {
+      return NextResponse.json({ error: "Not a file" }, { status: 400 });
+    }
+
+    const body = await request.json().catch(() => null) as {
+      content?: unknown;
+      allowEmpty?: unknown;
+    } | null;
+    if (typeof body?.content !== "string") {
+      return NextResponse.json({ error: "content must be a string" }, { status: 400 });
+    }
+    if (Buffer.byteLength(body.content, "utf8") > TEXT_PREVIEW_MAX_BYTES) {
+      return NextResponse.json({ error: "File too large to edit (>256KB)" }, { status: 413 });
+    }
+    // 防止编辑器竞态把非空文件误写成空文件。只有用户明确在编辑器中
+    // 删除全部内容时，前端才会传 allowEmpty=true。
+    if (body.content === "" && stat.size > 0 && body.allowEmpty !== true) {
+      return NextResponse.json(
+        { error: "Empty overwrite blocked; explicit confirmation is required", code: "empty_overwrite_blocked" },
+        { status: 409 },
+      );
+    }
+
+    fs.writeFileSync(filePath, body.content, "utf8");
+    const nextStat = fs.statSync(filePath);
+    return NextResponse.json({ size: nextStat.size, modified: nextStat.mtime.toISOString() });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
+  }
+}
+
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ path: string[] }> }
+) {
+  if (!isApiRequestAllowed(request)) {
+    return NextResponse.json({ error: "Untrusted API request", code: "untrusted" }, { status: 403 });
+  }
+
+  try {
+    const { path: segments } = await params;
+    const sourcePath = filePathFromSegments(segments);
+    const body = await request.json().catch(() => null) as { name?: unknown } | null;
+    const name = parseFileRenameName(body?.name);
+    if (!name) {
+      return NextResponse.json({ error: "Invalid file name", code: "invalid_name" }, { status: 400 });
+    }
+
+    const allowedRoots = await getAllowedFileRoots();
+    const parentPath = path.dirname(sourcePath);
+    const destinationPath = path.join(parentPath, name);
+    if (
+      !isFilePathAllowed(sourcePath, allowedRoots)
+      || !isFilePathAllowed(destinationPath, allowedRoots)
+      || !isExistingFilePathAllowed(sourcePath, allowedRoots)
+      || !isExistingFilePathAllowed(parentPath, allowedRoots)
+    ) {
+      return NextResponse.json({ error: "Access denied", code: "access_denied" }, { status: 403 });
+    }
+
+    let sourceStat: fs.Stats;
+    try {
+      sourceStat = fs.lstatSync(sourcePath);
+    } catch {
+      return NextResponse.json({ error: "Not found", code: "not_found" }, { status: 404 });
+    }
+    if (path.basename(sourcePath) === name) {
+      return NextResponse.json({ path: sourcePath, name });
+    }
+
+    if (fs.existsSync(destinationPath)) {
+      const destinationStat = fs.lstatSync(destinationPath);
+      const sameEntry = sourceStat.dev === destinationStat.dev && sourceStat.ino === destinationStat.ino;
+      if (!sameEntry) {
+        return NextResponse.json({ error: "A file with that name already exists", code: "already_exists" }, { status: 409 });
+      }
+    }
+
+    try {
+      fs.renameSync(sourcePath, destinationPath);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === "EEXIST" || code === "ENOTEMPTY") {
+        return NextResponse.json({ error: "A file with that name already exists", code: "already_exists" }, { status: 409 });
+      }
+      if (code === "ENOENT") {
+        return NextResponse.json({ error: "Not found", code: "not_found" }, { status: 404 });
+      }
+      throw error;
+    }
+
+    return NextResponse.json({ path: destinationPath, name });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : String(error), code: "rename_failed" }, { status: 500 });
+  }
 }
 
 export async function GET(

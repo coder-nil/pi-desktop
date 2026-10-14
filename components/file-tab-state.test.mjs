@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { openFileTab, markFileTabRevealHandled, saveFileViewerState } from "./file-tab-state.ts";
+import { openFileTab, markFileTabRevealHandled, renameFileTab, saveFileViewerState } from "./file-tab-state.ts";
 
 const tabA = {
   id: "file:/repo/a.ts",
@@ -47,6 +47,32 @@ test("saving an unchanged viewer state preserves the tab array", () => {
   const saved = saveFileViewerState(tabs, tabA.id, 0, { ...tabA.viewerState });
 
   assert.strictEqual(saved, tabs);
+});
+
+test("renaming an open file updates its tab identity and remounts the viewer", () => {
+  const renamed = renameFileTab([tabA, tabB], "/repo/a.ts", "/repo/renamed.ts");
+
+  assert.equal(renamed[0].id, "file:/repo/renamed.ts");
+  assert.equal(renamed[0].label, "renamed.ts");
+  assert.equal(renamed[0].filePath, "/repo/renamed.ts");
+  assert.equal(renamed[0].viewerRevision, 1);
+  assert.strictEqual(renamed[0].viewerState, tabA.viewerState);
+  assert.strictEqual(renamed[1], tabB);
+});
+
+test("renaming a file with no open tab preserves the tab array", () => {
+  const tabs = [tabA, tabB];
+  assert.strictEqual(renameFileTab(tabs, "/repo/missing.ts", "/repo/new.ts"), tabs);
+});
+
+test("renaming a directory updates nested open file paths", () => {
+  const nested = { ...tabA, id: "file:/repo/src/a.ts", filePath: "/repo/src/a.ts", label: "a.ts" };
+  const [renamed] = renameFileTab([nested], "/repo/src", "/repo/lib");
+
+  assert.equal(renamed.id, "file:/repo/lib/a.ts");
+  assert.equal(renamed.filePath, "/repo/lib/a.ts");
+  assert.equal(renamed.label, "a.ts");
+  assert.equal(renamed.viewerRevision, 1);
 });
 
 test("opening an existing tab normally preserves its state and revision", () => {

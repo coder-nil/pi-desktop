@@ -1,4 +1,4 @@
-import { createDesktopModelRuntime } from "@/lib/desktop-providers";
+import { createDesktopModelRuntime, refreshDesktopProviderCatalogs } from "@/lib/desktop-providers";
 import { invalidateModelsCache } from "@/lib/models-cache";
 import { removeStoredCredentialIfType } from "@/lib/provider-credential-store";
 
@@ -17,6 +17,9 @@ export async function POST(
   if (removal.status === "type_mismatch") {
     return Response.json({ error: `${provider} is authenticated with an API key, not OAuth` }, { status: 409 });
   }
+  // Clear Pi 1.2's credential-scoped OpenRouter catalog after OAuth logout.
+  const refreshedRuntime = await createDesktopModelRuntime();
+  await refreshDesktopProviderCatalogs(refreshedRuntime, AbortSignal.timeout(20_000)).catch(() => {});
   invalidateModelsCache();
   return Response.json({ ok: true });
 }

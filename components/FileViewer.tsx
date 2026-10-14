@@ -1072,6 +1072,7 @@ function TextFileViewer({
   /** 编辑缓冲区：null = 未进入编辑态或已与磁盘同步；字符串 = 草稿。 */
   const [draft, setDraft] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const editorHandleRef = useRef<MonacoEditorHandle | null>(null);
   const esRef = useRef<EventSource | null>(null);
@@ -1082,6 +1083,10 @@ function TextFileViewer({
   const defaultPreviewEligibleRef = useRef(
     initialState === undefined && initialDisplayMode === undefined,
   );
+  /** 已加载内容对应的文件路径，避免切换文件时用旧内容触发自动编辑。 */
+  const dataPathRef = useRef<string | null>(null);
+  /** 自动进入编辑态每个文件只消费一次，退出编辑后不再强制拉回。 */
+  const autoEditAppliedRef = useRef(false);
   const scrollRestorePendingRef = useRef(true);
   const viewerStateRef = useRef<FileViewerState>({
     displayMode: requestedInitialDisplayMode,
@@ -1134,58 +1139,84 @@ function TextFileViewer({
   }, []);
 
   // --- 编辑模式控制流 ---
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
+  const originalContentRef = useRef<string | null>(null);
+  const userEditedRef = useRef(false);
   const isDirty = editing && draft !== null && draft !== (data?.content ?? "");
 
-  const persistContent = useCallback(async () => {
-    // 防重入：自动保存的定时器可能和手动保存、退出保存同时触发。
-    if (!draft || saving) return;
+  const persistContent = useCallback(async (content = draft) => {
+    // Timers, blur, and the toolbar can all save the same edit nearly at once.
+    if (content === null || savingRef.current) return;
+    const originalContent = originalContentRef.current ?? data?.content ?? "";
+    if (!userEditedRef.current || content === originalContent) {
+      draftRef.current = null;
+      setDraft(null);
+      setEditing(false);
+      setSaveError(null);
+      return;
+    }
+    if (content === "" && originalContent !== "" && !window.confirm(t("i18n.confirmEmptyFile"))) {
+      return;
+    }
+
+    savingRef.current = true;
     setSaving(true);
+    setDraft(content);
     setSaveError(null);
     try {
       const res = await fetch(getFileApiUrl(filePath, "read", sourceSessionId), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: draft }),
+        body: JSON.stringify({
+          content,
+          allowEmpty: content === "",
+        }),
       });
-      const next = await res.json() as { size?: number; error?: string };
+      const next = await res.json().catch(() => ({})) as { size?: number; error?: string };
       if (!res.ok || next.error) throw new Error(next.error ?? `HTTP ${res.status}`);
-      // 以服务端返回的 size 对齐基线；dirty 随之清零。watch 在编辑态本来
-      // 就是暂停的，所以直接把已保存内容写回 data，省掉一次再拉取。
       setData((current) => current
-        ? { ...current, content: draft!, size: next.size ?? current.size }
+        ? { ...current, content, size: next.size ?? current.size }
         : current);
+      originalContentRef.current = content;
+      userEditedRef.current = false;
+      draftRef.current = null;
       setDraft(null);
       setEditing(false);
     } catch (reason) {
+      setDraft(content);
       setSaveError(reason instanceof Error ? reason.message : String(reason));
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
-  }, [draft, saving, sourceSessionId, filePath]);
+  }, [data?.content, draft, sourceSessionId, filePath, t]);
 
-  // 失焦即存（IDEA 行为）：先在 ref 里留最新值，失焦回调触发保存。
-  const draftRef = useRef(draft);
-  draftRef.current = draft;
-  const persistRef = useRef(persistContent);
-  persistRef.current = persistContent;
-
+  // 编辑草稿只在显式保存时提交；切换标签或关闭窗口不会隐式写文件。
+  // 这样可以避免失焦、定时器和组件卸载时把瞬时空值写入磁盘。
   const startEditing = useCallback(() => {
     if (!data) return;
+    // 记录进入编辑时的基线；没有实际变化时退出不会触发 PUT。
+    originalContentRef.current = data.content;
+    userEditedRef.current = false;
+    draftRef.current = data.content;
     setDraft(data.content);
     setEditing(true);
     setSaveError(null);
+    // 只读搜索栏与 Monaco 无关，进入编辑态时收起，退出后不再自动弹出。
+    setSearchOpen(false);
   }, [data]);
 
   const handleEditorChange = useCallback((next: string) => {
+    // 只有 Monaco 的实际变更回调才会标记为用户编辑。
+    userEditedRef.current = true;
+    draftRef.current = next;
     setDraft(next);
   }, []);
 
-  const handleExitEditing = useCallback(() => {
-    // Monaco 内部已完成失焦/防抖保存，这里只负责退出编辑态。
-    setDraft(null);
-    setEditing(false);
-    setSaveError(null);
-  }, []);
+  const handleSaveAndExit = useCallback(() => {
+    void persistContent(draftRef.current ?? draft);
+  }, [draft, persistContent]);
 
   // dirty 变化上报给 Tab 层（圆点标记 + 关闭确认）。
   useEffect(() => {
@@ -1193,21 +1224,6 @@ function TextFileViewer({
     onDirtyChange(tabId, isDirty);
     return () => onDirtyChange?.(tabId, false);
   }, [isDirty, onDirtyChange, tabId]);
-
-  // 切走/关闭标签前如有未保存草稿，退出前保存（IDEA 的 Save on deactivate）。
-  useEffect(() => {
-    if (!editing) return;
-    const flushIfDirty = () => {
-      if (draftRef.current !== null && draftRef.current !== (data?.content ?? "")) {
-        void persistRef.current();
-      }
-    };
-    window.addEventListener("beforeunload", flushIfDirty);
-    return () => {
-      window.removeEventListener("beforeunload", flushIfDirty);
-      flushIfDirty();
-    };
-  }, [editing, data?.content]);
 
   useEffect(() => {
     const nextState: FileViewerState = {
@@ -1220,6 +1236,8 @@ function TextFileViewer({
     viewerStateRef.current = nextState;
     scrollRestorePendingRef.current = true;
     autoDiffAppliedRef.current = false;
+    dataPathRef.current = null;
+    autoEditAppliedRef.current = false;
     setFlashLine(null);
     setDisplayMode(requestedInitialDisplayMode);
     setWrapLines(initialWrapLines);
@@ -1247,6 +1265,7 @@ function TextFileViewer({
           return null;
         }
         setError(null);
+        dataPathRef.current = filePath;
         setData(d);
         return d;
       })
@@ -1290,6 +1309,7 @@ function TextFileViewer({
     setLoading(true);
     setError(null);
     setData(null);
+    dataPathRef.current = null;
     setGitDiff(null);
     setGitDiffResolved(false);
     setWatching(false);
@@ -1302,6 +1322,19 @@ function TextFileViewer({
       active = false;
     };
   }, [filePath, fetchContent, sourceSessionId]);
+
+  // 打开可编辑文本文件时直接进入编辑态。diff、指定行跳转以及 markdown/html
+  // 的预览优先行为保持不变，避免覆盖这些显式意图。
+  useEffect(() => {
+    if (!editable || autoEditAppliedRef.current) return;
+    if (!data || loading || error || dataPathRef.current !== filePath) return;
+    if (requestedInitialDisplayMode === "diff") return;
+    if (pendingRevealLineRef.current !== null) return;
+    if (data.language === "markdown" || data.language === "html") return;
+
+    autoEditAppliedRef.current = true;
+    startEditing();
+  }, [editable, data, loading, error, filePath, requestedInitialDisplayMode, startEditing]);
 
   useEffect(() => {
     // 进入编辑模式后暂停 watch —— 否则会一边打字一边把磁盘变化写回，草稿就被覆盖了。
@@ -1485,7 +1518,7 @@ function TextFileViewer({
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.repeat) return;
       if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return;
-      if (event.key.toLowerCase() !== "f" || displayMode !== "source") return;
+      if (event.key.toLowerCase() !== "f" || editing || displayMode !== "source") return;
 
       const shell = shellRef.current;
       const focusInside = shell ? shell.contains(document.activeElement) : false;
@@ -1497,7 +1530,7 @@ function TextFileViewer({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [displayMode]);
+  }, [displayMode, editing]);
 
   // 输入时就要跳到第一个匹配；导航时滚动当前匹配所在行（必要时也横向滚动）。
   useEffect(() => {
@@ -1603,7 +1636,9 @@ function TextFileViewer({
         )}
 
         <div className="file-viewer-controls">
-          {displayModes.length > 1 && (
+          {/* 编辑态下内容区由 Monaco 独占，切换 source/preview/diff 会让按钮高亮
+              与实际内容对不上，所以只在查看态展示模式切换。 */}
+          {!editing && displayModes.length > 1 && (
             <div className="file-viewer-mode-switch" aria-label={t("i18n.fileViewMode")}>
               {displayModes.map((mode) => {
                 const active = effectiveDisplayMode === mode;
@@ -1654,7 +1689,7 @@ function TextFileViewer({
                 <MentionIcon />
               </button>
             )}
-            {effectiveDisplayMode === "source" && (
+            {!editing && effectiveDisplayMode === "source" && (
               <>
                 <button
                   type="button"
@@ -1695,7 +1730,7 @@ function TextFileViewer({
               <button
                 type="button"
                 onPointerDown={(event) => event.preventDefault()}
-                onClick={editing ? handleExitEditing : startEditing}
+                onClick={editing ? handleSaveAndExit : startEditing}
                 title={editing ? t("i18n.saveAndExit") : t("i18n.editFile")}
                 aria-label={editing ? t("i18n.saveAndExit") : t("i18n.editFile")}
                 className="file-viewer-icon-button"
@@ -1720,7 +1755,7 @@ function TextFileViewer({
         </div>
       )}
 
-      {searchOpen && effectiveDisplayMode === "source" && (
+      {!editing && searchOpen && effectiveDisplayMode === "source" && (
         <div className="file-viewer-search">
           <Search className="file-viewer-search-icon" size={13} strokeWidth={2} aria-hidden="true" />
           <input
@@ -1813,7 +1848,7 @@ function TextFileViewer({
             language={data.language}
             dark={isDark}
             onChange={handleEditorChange}
-            onSave={() => void persistContent()}
+            onSave={(content) => void persistContent(content)}
             handleRef={editorHandleRef}
           />
         ) : effectiveDisplayMode === "diff" && hasGitDiff ? (

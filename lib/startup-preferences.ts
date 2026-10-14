@@ -1,5 +1,8 @@
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { join } from "node:path";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { SettingsManager } from "@earendil-works/pi-coding-agent";
+import { ensureSettingsSchemaFile } from "./settings-schema";
 
 export interface ExplicitStartupPreferences {
   model?: { provider: string; modelId: string };
@@ -51,5 +54,6 @@ export async function persistExplicitStartupPreferences(
   }
 
   await settingsManager.flush();
+  ensureSettingsSchemaFile(join(getAgentDir(), "settings.json"));
   return { modelDefaultChanged };
 }

@@ -7,7 +7,7 @@ import { useGlobalKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { SessionSidebar } from "./SessionSidebar";
 import { ChatWindow } from "./ChatWindow";
 import { TabBar, type Tab } from "./TabBar";
-import { openFileTab, markFileTabRevealHandled, saveFileViewerState, saveFileDirtyState } from "./file-tab-state";
+import { openFileTab, markFileTabRevealHandled, renameFileTab, saveFileViewerState, saveFileDirtyState } from "./file-tab-state";
 import { ProjectTrustDialog } from "./ProjectTrustDialog";
 import { SettingsPanel } from "./SettingsPanel";
 import { AboutDialog } from "./AboutDialog";
@@ -485,6 +485,28 @@ export function AppShell() {
 
   const handleFileTabDirtyChange = useCallback((tabId: string, dirty: boolean) => {
     setFileTabs((prev) => saveFileDirtyState(prev, tabId, dirty));
+  }, []);
+
+  const canRenamePath = useCallback((filePath: string) => (
+    !fileTabs.some((tab) => (
+      tab.kind !== "console"
+      && tab.dirty
+      && (tab.filePath === filePath || tab.filePath.startsWith(`${filePath}/`))
+    ))
+  ), [fileTabs]);
+
+  const handleFileRenamed = useCallback((oldPath: string, newPath: string) => {
+    const oldPrefix = `${oldPath}/`;
+    const newPrefix = `${newPath}/`;
+    setFileTabs((prev) => renameFileTab(prev, oldPath, newPath));
+    setActiveFileTabId((current) => {
+      if (!current) return current;
+      if (current === `file:${oldPath}`) return `file:${newPath}`;
+      if (current.startsWith(`file:${oldPrefix}`)) {
+        return `file:${newPrefix}${current.slice(`file:${oldPrefix}`.length)}`;
+      }
+      return current;
+    });
   }, []);
 
   useEffect(() => {
@@ -1152,6 +1174,8 @@ export function AppShell() {
         selectedCwd={selectedSession?.cwd ?? newSessionCwd ?? null}
         onCwdChange={handleCwdChange}
         onOpenFile={handleOpenFile}
+        onFileRenamed={handleFileRenamed}
+        canRenamePath={canRenamePath}
         explorerRefreshKey={explorerRefreshKey}
         onExplorerRefresh={handleExplorerRefresh}
         onAtMention={handleAtMention}

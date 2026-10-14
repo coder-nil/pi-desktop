@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { getAgentDir, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { createDesktopModelRuntime, refreshDesktopProviderCatalogs } from "@/lib/desktop-providers";
+import { join } from "node:path";
 import { invalidateModelsCache } from "@/lib/models-cache";
+import { ensureSettingsSchemaFile } from "@/lib/settings-schema";
 import { resolveVisibleModels } from "@/lib/model-scope";
 import { applyProviderSelection, buildEnabledModelPatterns, modelKey, type EnabledModelRef } from "@/lib/enabled-models";
 
@@ -132,6 +134,7 @@ export async function PUT(req: Request) {
 
     settings.setEnabledModels(nextPatterns);
     await settings.flush();
+    ensureSettingsSchemaFile(join(getAgentDir(), "settings.json"));
     invalidateModelsCache();
 
     return NextResponse.json({ enabledModels: nextPatterns ?? null, saved: true });

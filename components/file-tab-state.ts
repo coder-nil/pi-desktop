@@ -1,4 +1,15 @@
 import type { FileViewerState } from "@/lib/file-viewer-state";
+
+function normalizeFilePathSlashes(filePath: string): string {
+  return /^[a-zA-Z]:[\\/]/.test(filePath) || filePath.startsWith("\\\\")
+    ? filePath.replace(/\\/g, "/")
+    : filePath;
+}
+
+function getFileName(filePath: string): string {
+  const normalized = normalizeFilePathSlashes(filePath).replace(/\/+$/, "");
+  return normalized.split("/").pop() ?? normalized;
+}
 import type { Tab } from "./TabBar";
 
 interface OpenFileTabInput {
@@ -58,6 +69,37 @@ export function openFileTab(tabs: Tab[], input: OpenFileTabInput): Tab[] {
     }
     return next;
   });
+}
+
+function pathMatchesOrContains(candidatePath: string, parentPath: string): boolean {
+  const candidate = normalizeFilePathSlashes(candidatePath).replace(/\/+$/, "");
+  const parent = normalizeFilePathSlashes(parentPath).replace(/\/+$/, "");
+  const caseInsensitive = /^[a-zA-Z]:\//.test(candidate) || candidate.startsWith("//");
+  const left = caseInsensitive ? candidate.toLowerCase() : candidate;
+  const right = caseInsensitive ? parent.toLowerCase() : parent;
+  return left === right || left.startsWith(`${right}/`);
+}
+
+export function renameFileTab(
+  tabs: Tab[],
+  oldPath: string,
+  newPath: string,
+): Tab[] {
+  let changed = false;
+  const next = tabs.map((tab) => {
+    if (tab.kind === "console" || !pathMatchesOrContains(tab.filePath, oldPath)) return tab;
+    changed = true;
+    const suffix = normalizeFilePathSlashes(tab.filePath).slice(normalizeFilePathSlashes(oldPath).length);
+    const filePath = `${normalizeFilePathSlashes(newPath)}${suffix}`;
+    return {
+      ...tab,
+      id: `file:${filePath}`,
+      label: getFileName(filePath),
+      filePath,
+      viewerRevision: (tab.viewerRevision ?? 0) + 1,
+    };
+  });
+  return changed ? next : tabs;
 }
 
 /** 查看器已经跳到目标行，丢掉待跳标记，这样切走再切回来不会重复跳。 */

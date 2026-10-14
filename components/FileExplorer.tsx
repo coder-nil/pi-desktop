@@ -36,6 +36,8 @@ interface FileNode {
 interface Props {
   cwd: string;
   onOpenFile: (filePath: string, fileName: string, options?: OpenFileOptions) => void;
+  onFileRenamed?: (oldPath: string, newPath: string, newName: string) => void;
+  canRenamePath?: (filePath: string) => boolean;
   refreshKey?: number;
   onAtMention?: (relativePath: string, isDir: boolean) => void;
   onAtMentions?: (relativePaths: string[]) => void;
@@ -79,6 +81,13 @@ interface PendingConflict {
   files: File[];
   conflicts: string[];
   nonReplaceable: string[];
+}
+
+interface RenameResponse {
+  path?: string;
+  name?: string;
+  error?: string;
+  code?: string;
 }
 
 async function fetchEntries(dirPath: string, cwd: string, hideDotDirs = false): Promise<FileNode[]> {
@@ -223,6 +232,8 @@ function TreeNode({
   depth,
   cwd,
   onOpenFile,
+  onFileRenamed,
+  canRenamePath,
   onAtMention,
   expandedPaths,
   onToggleExpanded,
@@ -237,6 +248,8 @@ function TreeNode({
   depth: number;
   cwd: string;
   onOpenFile: (filePath: string, fileName: string, options?: OpenFileOptions) => void;
+  onFileRenamed?: (oldPath: string, newPath: string, newName: string) => void;
+  canRenamePath?: (filePath: string) => boolean;
   onAtMention?: (relativePath: string, isDir: boolean) => void;
   expandedPaths: Set<string>;
   onToggleExpanded: (fullPath: string, open: boolean) => void;
@@ -258,6 +271,13 @@ function TreeNode({
   const [loaded, setLoaded] = useState(node.loaded ?? false);
   const [loading, setLoading] = useState(false);
   const [hovered, setHovered] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  const [renameValue, setRenameValue] = useState(node.name);
+  const [renamePending, setRenamePending] = useState(false);
+  const [renameError, setRenameError] = useState<string | null>(null);
+  const renameInputRef = useRef<HTMLInputElement>(null);
+  const renamePendingRef = useRef(false);
+  const renameCancelledRef = useRef(false);
 
   const loadChildren = useCallback(async (force = false) => {
     if (loaded && !force) return;
@@ -282,6 +302,7 @@ function TreeNode({
   }, [refreshToken]);
 
   const handleClick = useCallback(() => {
+    if (renaming) return;
     if (node.isDir) {
       const next = !open;
       onToggleExpanded(node.fullPath, next);
@@ -289,7 +310,88 @@ function TreeNode({
     } else {
       onOpenFile(node.fullPath, node.name);
     }
-  }, [node.isDir, node.fullPath, node.name, loaded, open, loadChildren, onOpenFile, onToggleExpanded]);
+  }, [renaming, node.isDir, node.fullPath, node.name, loaded, open, loadChildren, onOpenFile, onToggleExpanded]);
+
+  useEffect(() => {
+    if (!renaming) return;
+    const frame = requestAnimationFrame(() => {
+      const input = renameInputRef.current;
+      if (!input) return;
+      input.focus();
+      const extensionIndex = node.name.lastIndexOf(".");
+      input.setSelectionRange(0, extensionIndex > 0 ? extensionIndex : node.name.length);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [node.name, renaming]);
+
+  const renameErrorMessage = useCallback((code?: string, fallback?: string) => {
+    if (code === "invalid_name") return t("files.renameInvalid");
+    if (code === "already_exists") return t("files.renameExists");
+    if (code === "not_found") return t("files.renameMissing");
+    return fallback || t("files.renameFailed");
+  }, [t]);
+
+  const startRename = useCallback(() => {
+    if (canRenamePath && !canRenamePath(node.fullPath)) {
+      setRenameError(t("files.renameUnsaved"));
+      return;
+    }
+    renameCancelledRef.current = false;
+    setRenameValue(node.name);
+    setRenameError(null);
+    setRenaming(true);
+  }, [canRenamePath, node.fullPath, node.name, t]);
+
+  const commitRename = useCallback(async () => {
+    if (renamePendingRef.current || renameCancelledRef.current) return;
+    const name = renameValue.trim();
+    if (name === node.name) {
+      setRenaming(false);
+      setRenameError(null);
+      return;
+    }
+    if (!name || name === "." || name === ".." || /[\\/\0]/.test(name)) {
+      setRenameError(t("files.renameInvalid"));
+      requestAnimationFrame(() => renameInputRef.current?.focus());
+      return;
+    }
+    if (canRenamePath && !canRenamePath(node.fullPath)) {
+      setRenameError(t("files.renameUnsaved"));
+      requestAnimationFrame(() => renameInputRef.current?.focus());
+      return;
+    }
+
+    renamePendingRef.current = true;
+    setRenamePending(true);
+    setRenameError(null);
+    try {
+      const res = await fetch(`/api/files/${encodeFilePathForApi(node.fullPath)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      const data = await res.json().catch(() => ({})) as RenameResponse;
+      if (!res.ok || !data.path) {
+        throw Object.assign(new Error(renameErrorMessage(data.code, data.error)), { renameCode: data.code });
+      }
+      onFileRenamed?.(node.fullPath, data.path, data.name ?? name);
+      setRenaming(false);
+      setRenameError(null);
+    } catch (reason) {
+      const error = reason as Error & { renameCode?: string };
+      setRenameError(renameErrorMessage(error.renameCode, error.message));
+      requestAnimationFrame(() => renameInputRef.current?.focus());
+    } finally {
+      renamePendingRef.current = false;
+      setRenamePending(false);
+    }
+  }, [canRenamePath, node.fullPath, node.name, onFileRenamed, renameErrorMessage, renameValue, t]);
+
+  const cancelRename = useCallback(() => {
+    renameCancelledRef.current = true;
+    setRenaming(false);
+    setRenameError(null);
+  }, []);
 
   return (
     <div>
@@ -324,19 +426,62 @@ function TreeNode({
         <span style={{ flexShrink: 0, display: "flex", alignItems: "center" }}>
           {node.isDir ? <FolderIcon size={14} open={open} /> : getFileIcon(node.name, 14)}
         </span>
-        <span
-          style={{
-            fontSize: 12,
-            color: "var(--text)",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-            flex: 1,
-          }}
-          title={node.fullPath}
-        >
-          {node.name}
-        </span>
+        {renaming ? (
+          <input
+            ref={renameInputRef}
+            value={renameValue}
+            disabled={renamePending}
+            aria-label={t("i18n.rename")}
+            onChange={(event) => setRenameValue(event.target.value)}
+            onClick={(event) => event.stopPropagation()}
+            onDoubleClick={(event) => event.stopPropagation()}
+            onBlur={() => { void commitRename(); }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                event.currentTarget.blur();
+              } else if (event.key === "Escape") {
+                event.preventDefault();
+                event.stopPropagation();
+                cancelRename();
+              }
+            }}
+            style={{
+              minWidth: 0,
+              height: 20,
+              flex: 1,
+              padding: "0 4px",
+              border: `1px solid ${renameError ? "#f87171" : "var(--accent)"}`,
+              borderRadius: 3,
+              outline: "none",
+              background: "var(--bg)",
+              color: "var(--text)",
+              fontSize: 12,
+            }}
+          />
+        ) : (
+          <span
+            onClick={(event) => {
+              if (event.detail > 1) event.stopPropagation();
+            }}
+            onDoubleClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              startRename();
+            }}
+            style={{
+              fontSize: 12,
+              color: "var(--text)",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              flex: 1,
+            }}
+            title={node.fullPath}
+          >
+            {node.name}
+          </span>
+        )}
         {highlighted && (
           <span
             title={t("files.newlyUploaded")}
@@ -370,7 +515,7 @@ function TreeNode({
             <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4" />
           </svg>
         )}
-        {onAtMention && hovered && (
+        {onAtMention && hovered && !renaming && (
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -402,7 +547,7 @@ function TreeNode({
             {t("files.mention")}
           </button>
         )}
-        {hovered && (
+        {hovered && !renaming && (
           <RevealFileButton
             filePath={node.fullPath}
             style={{
@@ -429,6 +574,23 @@ function TreeNode({
           />
         )}
       </div>
+      {renameError && (
+        <div
+          role="alert"
+          style={{
+            minHeight: 18,
+            paddingLeft: 32 + depth * 14,
+            paddingRight: 8,
+            display: "flex",
+            alignItems: "center",
+            color: "#f87171",
+            fontSize: 10,
+            lineHeight: 1.3,
+          }}
+        >
+          {renameError}
+        </div>
+      )}
       {node.isDir && open && (
         <div>
           {children.map((child) => (
@@ -438,6 +600,8 @@ function TreeNode({
                 depth={depth + 1}
                 cwd={cwd}
                 onOpenFile={onOpenFile}
+                onFileRenamed={onFileRenamed}
+                canRenamePath={canRenamePath}
                 onAtMention={onAtMention}
                 expandedPaths={expandedPaths}
                 onToggleExpanded={onToggleExpanded}
@@ -520,6 +684,8 @@ function ChangeRow({
 export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileExplorer({
   cwd,
   onOpenFile,
+  onFileRenamed,
+  canRenamePath,
   refreshKey,
   onAtMention,
   onAtMentions,
@@ -534,6 +700,19 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
+  const migrateExpandedPaths = useCallback((oldPath: string, newPath: string) => {
+    setExpandedPaths((previous) => {
+      const next = new Set<string>();
+      for (const expandedPath of previous) {
+        if (expandedPath === oldPath || expandedPath.startsWith(`${oldPath}/`)) {
+          next.add(`${newPath}${expandedPath.slice(oldPath.length)}`);
+        } else {
+          next.add(expandedPath);
+        }
+      }
+      return next;
+    });
+  }, []);
   const [treeRefreshKey, setTreeRefreshKey] = useState(0);
   const [highlightedPaths, setHighlightedPaths] = useState<Set<string>>(new Set());
   const [gitFiles, setGitFiles] = useState<GitFileStatus[]>([]);
@@ -910,6 +1089,12 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
                 depth={0}
                 cwd={cwd}
                 onOpenFile={onOpenFile}
+                onFileRenamed={(oldPath, newPath, newName) => {
+                  setTreeRefreshKey((key) => key + 1);
+                  migrateExpandedPaths(oldPath, newPath);
+                  onFileRenamed?.(oldPath, newPath, newName);
+                }}
+                canRenamePath={canRenamePath}
                 onAtMention={onAtMention}
                 expandedPaths={expandedPaths}
                 onToggleExpanded={handleToggleExpanded}

@@ -82,6 +82,10 @@ export async function DELETE(_req: Request, { params }: Params) {
         { status: 409 },
       );
     }
+    // Pi 1.2 persists OpenRouter's personalized catalog. Rebuild it after removal
+    // so a subsequent runtime cannot restore models from the deleted credential.
+    const refreshedRuntime = await createDesktopModelRuntime();
+    await refreshDesktopProviderCatalogs(refreshedRuntime, AbortSignal.timeout(20_000)).catch(() => {});
     invalidateModelsCache();
     return NextResponse.json({ success: true });
   } catch (error) {

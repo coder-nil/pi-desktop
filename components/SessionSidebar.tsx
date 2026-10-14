@@ -107,6 +107,8 @@ interface Props {
     projectKey?: string | null,
   ) => void;
   onOpenFile?: (filePath: string, fileName: string, options?: { sourceSessionId?: string | null; modeHint?: "diff" }) => void;
+  onFileRenamed?: (oldPath: string, newPath: string, newName: string) => void;
+  canRenamePath?: (filePath: string) => boolean;
   explorerRefreshKey?: number;
   onExplorerRefresh?: () => void;
   onAtMention?: (relativePath: string, isDir: boolean) => void;
@@ -448,7 +450,7 @@ function PiWebTitle({ onAboutClick }: { onAboutClick?: () => void }) {
   );
 }
 
-export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onProjectGitStateChange, onGenerateTitle, titleGenerationStatus, appUpdate, onAppUpdateClick, onAboutClick, onHideSidebar, openDirectoryRequest }: Props) {
+export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onFileRenamed, canRenamePath, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onProjectGitStateChange, onGenerateTitle, titleGenerationStatus, appUpdate, onAppUpdateClick, onAboutClick, onHideSidebar, openDirectoryRequest }: Props) {
   const { t } = useI18n();
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -2370,6 +2372,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 ref={fileExplorerRef}
                 cwd={selectedCwd ?? selectedCwdProp!}
                 onOpenFile={onOpenFile ?? (() => {})}
+                onFileRenamed={onFileRenamed}
+                canRenamePath={canRenamePath}
                 refreshKey={explorerKey}
                 onAtMention={onAtMention}
                 onAtMentions={onAtMentions}

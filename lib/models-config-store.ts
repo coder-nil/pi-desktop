@@ -4,6 +4,8 @@ import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { writePrivateFileAtomicSync } from "./atomic-file";
 import { invalidateModelsCache } from "./models-cache";
 
+const MODELS_SCHEMA_URL = "https://pi.dev/schemas/models.schema.json";
+
 const MODEL_COST_KEYS = ["input", "output", "cacheRead", "cacheWrite"] as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -79,6 +81,9 @@ export function writeModelsConfig(
   const dir = dirname(modelsPath);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   const normalized = normalizeModelsConfigCosts(sanitizeModelsConfig(data));
-  writePrivateFileAtomicSync(modelsPath, JSON.stringify(normalized, null, 2));
+  const withSchema = Object.hasOwn(normalized, "$schema")
+    ? normalized
+    : { $schema: MODELS_SCHEMA_URL, ...normalized };
+  writePrivateFileAtomicSync(modelsPath, JSON.stringify(withSchema, null, 2));
   invalidateModelsCache();
 }

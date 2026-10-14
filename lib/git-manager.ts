@@ -1,5 +1,5 @@
 import { execFile } from "child_process";
-import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import { chmodSync, existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import path from "path";
 import { join } from "path";
@@ -160,9 +160,23 @@ function assertPaths(paths: unknown): asserts paths is string[] {
   }
 }
 
+function canonicalPath(filePath: string): string {
+  const resolved = path.resolve(filePath);
+  try {
+    return realpathSync.native(resolved);
+  } catch {
+    try {
+      return path.join(realpathSync.native(path.dirname(resolved)), path.basename(resolved));
+    } catch {
+      return resolved;
+    }
+  }
+}
+
 function relativePaths(root: string, paths: string[]): string[] {
+  const canonicalRoot = canonicalPath(root);
   return paths.map((filePath) => {
-    const relative = path.relative(root, path.resolve(filePath));
+    const relative = path.relative(canonicalRoot, canonicalPath(filePath));
     if (!relative || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
       throw new Error("A requested file is outside this repository");
     }
@@ -273,12 +287,14 @@ export async function runGitAction(cwd: string, action: GitAction, input: { path
         if (action === "stage") await git(cwd, ["add", "--", ...paths]);
         if (action === "unstage") await git(cwd, ["restore", "--staged", "--", ...paths]);
         if (action === "discard") {
-          // A staged rename/copy holds two paths: the new one and the original.
-          // Restoring only the new path leaves the index entry behind, so the
-          // discard silently does nothing. Unstage first, then restore the
-          // worktree; `--source=HEAD` supplies the file contents.
+          // Unstage first so a newly-added file becomes an ordinary untracked
+          // path. Only paths that already exist in HEAD can be restored from
+          // HEAD; the rest must be removed with clean.
           await git(cwd, ["restore", "--staged", "--", ...paths]);
-          await git(cwd, ["restore", "--worktree", "--source=HEAD", "--", ...paths]);
+          const headPaths = await git(cwd, ["ls-tree", "-r", "--name-only", "HEAD", "--", ...paths]).catch(() => "");
+          const pathsInHead = headPaths.split("\n").filter(Boolean);
+          if (pathsInHead.length > 0) await git(cwd, ["restore", "--worktree", "--source=HEAD", "--", ...pathsInHead]);
+          await git(cwd, ["clean", "-f", "--quiet", "--", ...paths]);
         }
       } else if (action === "discard_all") {
         // "Discard all" restores the whole checkout to its pre-edit state, so it

@@ -18,7 +18,7 @@ interface MonacoFileEditorProps {
   language: string;
   dark: boolean;
   onChange: (next: string) => void;
-  onSave: () => void;
+  onSave: (value: string) => void;
   onBlur?: () => void;
   handleRef?: Ref<MonacoEditorHandle>;
 }
@@ -84,7 +84,6 @@ export function MonacoFileEditor({
   handleRef,
 }: MonacoFileEditorProps) {
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
-  const saveTimerRef = useRef<number | null>(null);
 
   useImperativeHandle(handleRef, () => ({
     focus: () => editorRef.current?.focus(),
@@ -114,40 +113,19 @@ export function MonacoFileEditor({
     };
   }, [monacoTheme]);
 
-  const handleBlur = useCallback(() => {
-    if (saveTimerRef.current) {
-      clearTimeout(saveTimerRef.current);
-      saveTimerRef.current = null;
-    }
-    onSave();
-  }, [onSave]);
-
-  const scheduleSave = useCallback((next: string) => {
-    if (saveTimerRef.current !== null) clearTimeout(saveTimerRef.current);
-    if (next === value) return;
-    saveTimerRef.current = window.setTimeout(onSave, 1500);
-  }, [onSave, value]);
-
-  const valueRef = useRef(value);
-  valueRef.current = value;
-
   const handleEditorChange = useCallback((next: string | undefined) => {
     if (typeof next !== "string") return;
-    if (next !== valueRef.current) onChange(next);
-    scheduleSave(next);
-  }, [onChange, scheduleSave]);
+    onChange(next);
+  }, [onChange]);
 
-  useEffect(() => () => {
-    if (saveTimerRef.current !== null) clearTimeout(saveTimerRef.current);
-  }, []);
+  const handleExplicitSave = useCallback(() => {
+    onSave(editorRef.current?.getValue() ?? value);
+  }, [onSave, value]);
 
   const handleMount = useCallback<OnMount>((editor, monacoApi) => {
     editorRef.current = editor;
-    // 失焦即存（IDEA 行为）。
-    editor.onDidBlurEditorText(handleBlur);
-    
-    // Cmd/Ctrl+S：保存文件
-    editor.addCommand(monacoApi.KeyMod.CtrlCmd | monacoApi.KeyCode.KeyS, handleBlur);
+    // 只通过明确的保存命令写入文件，避免失焦或定时器提交瞬时空值。
+    editor.addCommand(monacoApi.KeyMod.CtrlCmd | monacoApi.KeyCode.KeyS, handleExplicitSave);
     
     // Cmd+/ 或 Ctrl+/：注释/取消注释当前行
     editor.addCommand(
@@ -172,12 +150,12 @@ export function MonacoFileEditor({
       monacoApi.KeyMod.CtrlCmd | monacoApi.KeyCode.Space,
       () => editor.trigger('keyboard', 'editor.action.triggerSuggest', {})
     );
-  }, [handleBlur]);
+  }, [handleExplicitSave]);
 
   return (
     <Suspense fallback={<div style={{ padding: 24, color: "var(--text-muted)", fontSize: 12 }}>Loading editor...</div>}>
       <LazyEditor
-        value={value}
+        defaultValue={value}
         language={mapLanguage(language)}
         onChange={handleEditorChange}
         onMount={handleMount}

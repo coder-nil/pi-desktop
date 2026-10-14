@@ -4,7 +4,9 @@ import {
   removeModelFromEnabledModels,
   removeProviderFromEnabledModels,
 } from "@/lib/enabled-models";
+import { join } from "node:path";
 import { invalidateModelsCache } from "@/lib/models-cache";
+import { ensureSettingsSchemaFile } from "@/lib/settings-schema";
 import { readModelsConfig, writeModelsConfig } from "@/lib/models-config-store";
 
 export const dynamic = "force-dynamic";
@@ -74,6 +76,7 @@ async function removeFromEnabledModels(input: {
   // undefined to restore the normal unscoped state when nothing remains.
   settings.setEnabledModels(nextPatterns.length > 0 ? nextPatterns : undefined);
   await settings.flush();
+  ensureSettingsSchemaFile(join(getAgentDir(), "settings.json"));
   invalidateModelsCache();
 }
 

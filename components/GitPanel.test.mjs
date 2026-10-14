@@ -33,6 +33,14 @@ test("supports staging, unstaging, and discarding all visible changes in one Git
   assert.doesNotMatch(source, /window\.confirm\(t\("git\.discardAllConfirm"\)\)/);
 });
 
+test("uses an in-panel confirmation for individual discards", () => {
+  assert.match(source, /setConfirmingDiscardFile\(file\.filePath\)/);
+  assert.match(source, /<DiscardFileConfirmDialog filePath=\{confirmingDiscardFile\}/);
+  assert.match(source, /<ActionButton label=\{t\("git\.discard"\)\} action="discard" busy=\{busy\} danger onClick=\{onConfirm\}/);
+  assert.match(source, /role="alertdialog"/);
+  assert.doesNotMatch(source, /window\.confirm\(t\("git\.discardFileConfirm"/);
+});
+
 test("confirms discard-all against the untracked files it is about to delete", () => {
   assert.match(source, /untrackedPaths: string\[\]/);
   assert.match(source, /<DiscardAllConfirmDialog summary=\{summary\} untrackedPaths=\{untrackedPaths\}/);
@@ -79,7 +87,7 @@ test("summarizes staged changes with or without a selected session", () => {
   assert.match(source, /sessionId: string \| null/);
   assert.match(source, /fetch\("\/api\/git\/commit-message"/);
   assert.match(source, /JSON\.stringify\(\{ cwd, locale/);
-  assert.match(source, /setMessage\(data\.message\)/);
+  assert.match(source, /setMessage\(reveal\.displayed\)/);
   assert.match(source, /rows=\{7\}/);
   assert.match(source, /git\.summarizeCommit/);
   assert.doesNotMatch(source, /if \(!sessionId\) return/);

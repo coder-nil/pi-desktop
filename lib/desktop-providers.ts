@@ -9,6 +9,7 @@ import type { ModelCatalogEntry } from "./model-catalog";
 import { responsesTerminalFetch } from "./responses-terminal-fetch";
 import { isModelType } from "@earendil-works/pi-ai";
 import type { AnyModel, Api, FetchFunction, Model, Provider } from "@earendil-works/pi-ai";
+import { invalidateModelsCache } from "./models-cache";
 
 function withResponsesFetch<T extends { fetch?: FetchFunction }>(options: T | undefined): T {
   return { ...options, fetch: responsesTerminalFetch(options?.fetch) } as T;
@@ -18,6 +19,7 @@ export { APISETS_BASE_URL, APISETS_PROVIDER_ID } from "./desktop-provider-consta
 
 const DEEPSEEK_PROVIDER_ID = "deepseek";
 const DEEPSEEK_BASE_URL = "https://api.deepseek.com";
+const OPENROUTER_PROVIDER_ID = "openrouter";
 
 function modelsDevDeepSeekModels(
   entries: readonly ModelCatalogEntry[],
@@ -203,11 +205,31 @@ export async function createDesktopModelRuntime(options?: CreateModelRuntimeOpti
   return modelRuntime;
 }
 
-/** Refresh the application-owned model catalogs. */
-export async function refreshDesktopProviderCatalogs(modelRuntime: ModelRuntime, signal?: AbortSignal): Promise<void> {
+export interface DesktopCatalogRefreshResult {
+  changedProviders: string[];
+}
+
+function modelCatalogSnapshot(modelRuntime: ModelRuntime, provider: string): string {
+  return JSON.stringify(modelRuntime.getModels(provider));
+}
+
+/** Refresh application-owned catalogs and Pi 1.2's credential-scoped OpenRouter catalog. */
+export async function refreshDesktopProviderCatalogs(
+  modelRuntime: ModelRuntime,
+  signal?: AbortSignal,
+): Promise<DesktopCatalogRefreshResult> {
+  const providers = [APISETS_PROVIDER_ID, DEEPSEEK_PROVIDER_ID, OPENROUTER_PROVIDER_ID];
+  const before = new Map(providers.map((provider) => [provider, modelCatalogSnapshot(modelRuntime, provider)]));
+
   await modelRuntime.refresh({
     allowNetwork: true,
-    providers: [APISETS_PROVIDER_ID, DEEPSEEK_PROVIDER_ID],
+    providers,
     ...(signal ? { signal } : {}),
   });
+
+  const changedProviders = providers.filter((provider) => (
+    before.get(provider) !== modelCatalogSnapshot(modelRuntime, provider)
+  ));
+  if (changedProviders.length > 0) invalidateModelsCache();
+  return { changedProviders };
 }

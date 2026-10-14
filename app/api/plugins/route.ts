@@ -12,6 +12,7 @@ import {
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 import { getProjectTrustStatus } from "@/lib/project-trust";
+import { ensureSettingsSchemaFile } from "@/lib/settings-schema";
 import type {
   PluginDiagnostic,
   PluginPackageInfo,
@@ -336,6 +337,9 @@ export async function POST(req: Request) {
     });
     const source = body.source?.trim();
     const local = scope === "project";
+    const settingsPath = local
+      ? join(body.cwd, ".pi", "settings.json")
+      : join(agentDir, "settings.json");
 
     if (body.action === "install") {
       if (!source) return NextResponse.json({ error: "source required" }, { status: 400 });
@@ -357,6 +361,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: `Unsupported action: ${body.action}` }, { status: 400 });
     }
 
+    ensureSettingsSchemaFile(settingsPath);
     return NextResponse.json(await readPlugins(body.cwd));
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });

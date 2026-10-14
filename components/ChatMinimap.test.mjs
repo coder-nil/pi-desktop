@@ -85,6 +85,20 @@ test("portals the interactive node layer into the rail column", () => {
   );
 });
 
+test("delays passive minimap preview until the pointer rests for 500ms", () => {
+  assert.match(minimapSource, /const PREVIEW_SHOW_DELAY = 500;/);
+  assert.match(minimapSource, /onMouseEnter=\{schedulePreviewShow\}/);
+  assert.match(
+    minimapSource,
+    /const schedulePreviewShow = useCallback\([\s\S]*?setTimeout\([\s\S]*?setMinimapHovered\(true\);[\s\S]*?PREVIEW_SHOW_DELAY/,
+  );
+  assert.match(
+    minimapSource,
+    /const schedulePreviewHide = useCallback\([\s\S]*?cancelPreviewShow\(\);/,
+  );
+  assert.match(minimapSource, /draggingRef\.current = true;\s*showPreview\(\);/);
+});
+
 test("keeps the first minimap node clear of the rail's file-panel toggle", () => {
   const height = 900;
   const topInset = 36;

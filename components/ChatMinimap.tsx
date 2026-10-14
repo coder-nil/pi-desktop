@@ -35,6 +35,7 @@ const MAX_NODE_BORDER = 1.5;
 const MIN_NODE_SIZE = 2;
 /** 相邻方块之间至少保留的空白。 */
 const NODE_CLEARANCE = 1;
+const PREVIEW_SHOW_DELAY = 500;
 const PREVIEW_HIDE_DELAY = 250;
 const NAVIGATION_ACTIVE_LOCK_MS = 1600;
 
@@ -282,6 +283,7 @@ export function ChatMinimap({
   });
   const previewBoxRef = useRef<HTMLDivElement>(null);
   const previewItemRefs = useRef(new Map<number, HTMLDivElement>());
+  const previewShowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previewHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeNodeLockRef = useRef<{ index: number; until: number } | null>(null);
   const pendingNavigationRef = useRef<{
@@ -564,6 +566,12 @@ export function ChatMinimap({
     scrollEl.scrollTo({ top: Math.max(0, targetTop), behavior: "smooth" });
   }, [lockActiveNode, onRevealHistory, scrollContainer]);
 
+  const cancelPreviewShow = useCallback(() => {
+    if (!previewShowTimerRef.current) return;
+    clearTimeout(previewShowTimerRef.current);
+    previewShowTimerRef.current = null;
+  }, []);
+
   const cancelPreviewHide = useCallback(() => {
     if (!previewHideTimerRef.current) return;
     clearTimeout(previewHideTimerRef.current);
@@ -571,20 +579,34 @@ export function ChatMinimap({
   }, []);
 
   const showPreview = useCallback(() => {
+    cancelPreviewShow();
     cancelPreviewHide();
     setMinimapHovered(true);
+  }, [cancelPreviewHide, cancelPreviewShow]);
+
+  const schedulePreviewShow = useCallback(() => {
+    cancelPreviewHide();
+    if (previewShowTimerRef.current) return;
+    previewShowTimerRef.current = setTimeout(() => {
+      previewShowTimerRef.current = null;
+      setMinimapHovered(true);
+    }, PREVIEW_SHOW_DELAY);
   }, [cancelPreviewHide]);
 
   const schedulePreviewHide = useCallback(() => {
+    cancelPreviewShow();
     cancelPreviewHide();
     previewHideTimerRef.current = setTimeout(() => {
       previewHideTimerRef.current = null;
       setMinimapHovered(false);
       setMouseYRatio(null);
     }, PREVIEW_HIDE_DELAY);
-  }, [cancelPreviewHide]);
+  }, [cancelPreviewHide, cancelPreviewShow]);
 
-  useEffect(() => () => cancelPreviewHide(), [cancelPreviewHide]);
+  useEffect(() => () => {
+    cancelPreviewShow();
+    cancelPreviewHide();
+  }, [cancelPreviewHide, cancelPreviewShow]);
 
   const handleMouseDown = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
     if (!visible) return;
@@ -647,7 +669,7 @@ export function ChatMinimap({
       ref={containerRef}
       data-chat-minimap=""
       onMouseDown={handleMouseDown}
-      onMouseEnter={showPreview}
+      onMouseEnter={schedulePreviewShow}
       onMouseLeave={schedulePreviewHide}
       onMouseMove={(event) => {
         const rect = event.currentTarget.getBoundingClientRect();

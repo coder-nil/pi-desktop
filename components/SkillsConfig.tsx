@@ -102,6 +102,9 @@ function SkillDetail({
   updateError,
   onCheckUpdate,
   onUpdate,
+  onRemove,
+  removing,
+  removeError,
 }: {
   skill: Skill;
   cwd: string;
@@ -114,6 +117,9 @@ function SkillDetail({
   updateError: string | null;
   onCheckUpdate: () => void;
   onUpdate: () => void;
+  onRemove: (skill: Skill) => void;
+  removing: boolean;
+  removeError: string | null;
 }) {
   const { t } = useI18n();
   const label = sourceLabel(skill);
@@ -323,9 +329,31 @@ function SkillDetail({
                  {updating ? t("i18n.updating") : t("i18n.update")}
               </button>
             )}
+            {skill.install && (
+              <button
+                onClick={() => onRemove(skill)}
+                disabled={removing || updating}
+                style={{
+                  padding: "4px 10px",
+                  border: "1px solid rgba(239,68,68,0.45)",
+                  borderRadius: 5,
+                  background: "none",
+                  color: "#ef4444",
+                  cursor: removing || updating ? "not-allowed" : "pointer",
+                  opacity: removing || updating ? 0.5 : 1,
+                  fontSize: 11,
+                  fontWeight: 500,
+                }}
+              >
+                {removing ? t("i18n.removing") : t("i18n.removeSkill")}
+              </button>
+            )}
           </div>
           {updateError && (
             <span style={{ fontSize: 12, color: "#ef4444" }}>{updateError}</span>
+          )}
+          {removeError && (
+            <span style={{ fontSize: 12, color: "#ef4444" }}>{removeError}</span>
           )}
         </div>
       )}
@@ -730,6 +758,8 @@ export function SkillsConfig({
   const [checkingAll, setCheckingAll] = useState(false);
   const [updatingSkill, setUpdatingSkill] = useState<string | null>(null);
   const [updateError, setUpdateError] = useState<string | null>(null);
+  const [removingSkill, setRemovingSkill] = useState<string | null>(null);
+  const [removeError, setRemoveError] = useState<string | null>(null);
   const [projectResourcesLoaded, setProjectResourcesLoaded] = useState(true);
   const [dormantGroupsOpen, setDormantGroupsOpen] = useState<Record<string, boolean>>({});
 
@@ -889,6 +919,38 @@ export function SkillsConfig({
       setUpdateError(e instanceof Error ? e.message : String(e));
     } finally {
       setUpdatingSkill(null);
+    }
+  }, [cwd, loadSkills]);
+
+  const removeInstalledSkill = useCallback(async (skill: Skill) => {
+    if (!skill.install) return;
+    const key = updateKey(skill)!;
+    setRemovingSkill(key);
+    setRemoveError(null);
+    try {
+      const res = await fetch("/api/skills/remove", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          cwd,
+          package: skill.install.package,
+          scope: skill.install.scope,
+        }),
+      });
+      const data = (await res.json()) as {
+        success?: boolean;
+        output?: string;
+        error?: string;
+      };
+      if (!res.ok || data.error || !data.success) {
+        throw new Error(data.error ?? `HTTP ${res.status}`);
+      }
+      await loadSkills();
+      setSelected(null);
+    } catch (e) {
+      setRemoveError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRemovingSkill(null);
     }
   }, [cwd, loadSkills]);
 
@@ -1386,6 +1448,9 @@ export function SkillsConfig({
                 updateError={updateError}
                 onCheckUpdate={() => void checkForUpdates(selectedSkill)}
                 onUpdate={() => void updateInstalledSkill(selectedSkill)}
+                onRemove={() => void removeInstalledSkill(selectedSkill)}
+                removing={removingSkill === updateKey(selectedSkill)}
+                removeError={removeError}
               />
             ) : (
               <div
