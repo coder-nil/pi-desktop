@@ -2,10 +2,11 @@
 import { registerAbortHandler } from "@/hooks/useKeyboardShortcuts";
 import { createPortal } from "react-dom";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { AgentMessage, AssistantContentBlock, AssistantMessage, BashExecutionMessage, BlockingExtensionUiRequest, CustomMessage, ExtensionUiRequest, SessionInfo, SessionTreeNode, ToolResultMessage, UserMessage } from "@/lib/types";
+import type { AgentMessage, AssistantContentBlock, AssistantMessage, BashExecutionMessage, BlockingExtensionUiRequest, ExtensionUiRequest, SessionInfo, SessionTreeNode, ToolResultMessage, UserMessage } from "@/lib/types";
 import { normalizeCustomPanelLines, parseAnsiLine } from "@/lib/ansi";
 import { asBracketedPaste, toTerminalKeyData } from "@/lib/terminal-input";
-import { countToolCallBlocks, getAssistantErrorMessage, getDisplayableAssistantBlocks, splitFinalAssistantBlocks } from "@/lib/message-display";
+import { countToolCallBlocks, getAssistantErrorMessage, getDisplayableAssistantBlocks, hasDisplayableProcessMessage, splitFinalAssistantBlocks } from "@/lib/message-display";
+import { buildChatRenderUnits, type ChatRenderUnit } from "@/lib/chat-render-units";
 import { extractTurnWrittenFiles, type WrittenFile } from "@/lib/turn-written-files";
 import type { FileOpenLocation } from "@/lib/file-links";
 import { MessageView } from "./MessageView";
@@ -79,23 +80,6 @@ function phaseLabel(phase: AgentPhase, t: (key: string, params?: Record<string, 
 
 const CHAT_COLUMN_PADDING = 16;
 
-function hasFinalAssistantAnswer(message: AgentMessage): boolean {
-  if (message.role !== "assistant") return false;
-  return splitFinalAssistantBlocks(message as AssistantMessage).answerBlocks.some((block) => (
-    block.type === "image" || (block.type === "text" && block.text.trim().length > 0)
-  ));
-}
-
-function findFinalAssistantIndex(messages: AgentMessage[], userIdx: number, endIdx: number): number {
-  for (let candidateIdx = endIdx - 1; candidateIdx > userIdx; candidateIdx--) {
-    if (hasFinalAssistantAnswer(messages[candidateIdx])) return candidateIdx;
-  }
-  for (let candidateIdx = endIdx - 1; candidateIdx > userIdx; candidateIdx--) {
-    if (messages[candidateIdx]?.role === "assistant") return candidateIdx;
-  }
-  return -1;
-}
-
 function getUserInputText(message: AgentMessage): string | null {
   if (message.role !== "user") return null;
   if (typeof message.content === "string") {
@@ -118,26 +102,6 @@ function countToolCalls(messages: AgentMessage[], indices: number[]): number {
     count += countToolCallBlocks(getDisplayableAssistantBlocks(msg as AssistantMessage));
   }
   return count;
-}
-
-function hasDisplayableProcessMessage(message: AgentMessage): boolean {
-  if (message.role === "assistant") {
-    return getDisplayableAssistantBlocks(message as AssistantMessage).length > 0;
-  }
-  return message.role === "custom";
-}
-
-// A user message normally anchors a turn (user prompt → process → final
-// answer), and the process messages in between get folded into a collapsed
-// ProcessDetailsGroup. When compaction fires mid-turn, pi drops the original
-// user prompt and inserts a compaction summary (role "custom", customType
-// "compaction") in its place; the agent then keeps producing tool calls and a
-// final answer with no user message left to anchor them. Treat a compaction
-// summary as an anchor too, otherwise every post-compaction message renders
-// standalone and never collapses.
-function isGroupAnchor(message: AgentMessage): boolean {
-  if (message.role === "user") return true;
-  return message.role === "custom" && (message as CustomMessage).customType === "compaction";
 }
 
 function withAssistantBlocks(
@@ -228,6 +192,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     isAutoModelSelection,
     agentPhase,
     isNew,
+    hasEarlierMessages, totalMessageCount, loadEarlierMessages,
     sessionIdRef, messagesEndRef, scrollContainerRef,
     lastUserMsgRef, promptAnchorActive,
     handleSend, handleRetryPrompt, handleAbort, handleFork, handleEditFromHere, handleModelChange,
@@ -259,33 +224,63 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
   }, [sessionBusy, handleAbort]);
 
   // --- Lazy-load historical messages ---
-  // Only render the last N messages initially. When the user scrolls to the
-  // top, load another page while keeping the scroll position stable.
+  // Two layers, both bounded: the server ships only a tail page of the history
+  // (`loadEarlierMessages` walks further back on demand), and of what is loaded
+  // only the newest `visibleCount` render units are turned into JSX. Building
+  // every turn first and slicing afterwards is what made a long session stall
+  // on slow machines right after sending a prompt.
   const [visibleCount, setVisibleCount] = useState(VISIBLE_PAGE_SIZE);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const prevScrollDistanceRef = useRef<number | null>(null);
 
+  const renderUnits = useMemo(
+    () => buildChatRenderUnits(messages, { liveTail: sessionBusy || streamState.isStreaming }),
+    [messages, sessionBusy, streamState.isStreaming],
+  );
+  const { startIndex: unitStartIndex, hasMore: hasMoreUnits } = getVisibleRenderWindow(renderUnits.length, visibleCount);
+  // The pager needs both flags without re-subscribing its observer each render.
+  const pagingStateRef = useRef({ hasMoreUnits, hasEarlierMessages });
+  pagingStateRef.current = { hasMoreUnits, hasEarlierMessages };
+  const loadingEarlierUiRef = useRef(false);
+
   // IntersectionObserver on the sentinel div at the top of the message list.
-  // When it becomes visible, load the next page of older messages.
+  // It first consumes the loaded window; once that is fully rendered it asks
+  // the server for the page above.
   useEffect(() => {
     const sentinel = sentinelRef.current;
     const container = scrollContainerRef.current;
     if (!sentinel || !container) return;
+    let disposed = false;
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0]?.isIntersecting) {
+        if (!entries[0]?.isIntersecting || disposed) return;
+        const { hasMoreUnits: moreUnits, hasEarlierMessages: moreHistory } = pagingStateRef.current;
+        if (moreUnits) {
           // Save distance from top before prepending to restore scroll later
           prevScrollDistanceRef.current = captureScrollDistance(container.scrollHeight, container.scrollTop);
           setVisibleCount((prev) => getNextVisibleCount(prev));
+          return;
         }
+        if (!moreHistory || loadingEarlierUiRef.current) return;
+        loadingEarlierUiRef.current = true;
+        // Captured before the await: the prepended page changes scrollHeight but
+        // not scrollTop, so the reader would otherwise jump backwards.
+        const distance = captureScrollDistance(container.scrollHeight, container.scrollTop);
+        void loadEarlierMessages().then((added) => {
+          loadingEarlierUiRef.current = false;
+          if (added > 0) prevScrollDistanceRef.current = distance;
+        });
       },
       { root: container, threshold: 0 }
     );
     observer.observe(sentinel);
-    return () => observer.disconnect();
-  }, [visibleCount, messages.length, scrollContainerRef]);
+    return () => { disposed = true; observer.disconnect(); };
+    // Re-subscribed when the sentinel appears or disappears: a short session
+    // mounts without one, and the pager must start observing as soon as the
+    // history outgrows the loaded window.
+  }, [loadEarlierMessages, scrollContainerRef, hasMoreUnits, hasEarlierMessages]);
 
-  // After visibleCount increases (more messages prepended), restore the
+  // After visibleCount increases or an older page is prepended, restore the
   // scroll position so the viewport doesn't jump.
   useEffect(() => {
     if (prevScrollDistanceRef.current == null) return;
@@ -293,7 +288,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     if (!container) return;
     container.scrollTop = restoreScrollTop(container.scrollHeight, prevScrollDistanceRef.current);
     prevScrollDistanceRef.current = null;
-  }, [visibleCount, scrollContainerRef]);
+  }, [visibleCount, messages.length, scrollContainerRef]);
   // Push session stats up to AppShell for the top bar.
   // Compare scalar fields to avoid loops from new object identity each render.
   const statsKey = sessionStats
@@ -375,8 +370,8 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     onMinimapStateChange?.(next);
   }, [onMinimapStateChange]);
   const revealHistoryForMinimap = useCallback(() => {
-    setVisibleCount((current) => Math.max(current, messages.length * 2));
-  }, [messages.length]);
+    setVisibleCount((current) => Math.max(current, renderUnits.length));
+  }, [renderUnits.length]);
 
   const isEmptyNew = isNew && messages.length === 0 && !streamState.isStreaming && !sessionBusy;
   const hasStreamingContent = Boolean(streamState.streamingMessage?.content.length);
@@ -641,15 +636,6 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
               for (let i = messages.length - 1; i >= 0; i--) {
                 if (messages[i].role === "user") { lastUserIdx = i; break; }
               }
-              // Anchor for live-tail detection: the last user message, or a
-              // compaction summary when compaction has replaced it mid-turn.
-              // Computed independently from lastUserIdx (which is kept for the
-              // scroll-to-user ref) because a compaction summary can sit after
-              // the last user message and anchor the still-streaming segment.
-              let lastAnchorIdx = -1;
-              for (let i = messages.length - 1; i >= 0; i--) {
-                if (isGroupAnchor(messages[i])) { lastAnchorIdx = i; break; }
-              }
 
               const visibleRefIndexByMessage = new Map<number, number>();
               let refIdx = 0;
@@ -692,7 +678,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                     cwd={messageCwd}
                     onOpenFile={onOpenFile}
                     entryId={entryIds[idx]}
-                    onFork={sessionBusy || isNew || (idx === 0 && msg.role === "user") ? undefined : handleFork}
+                    onFork={sessionBusy || isNew || (idx === 0 && msg.role === "user" && !hasEarlierMessages) ? undefined : handleFork}
                     forking={forkingEntryId === entryIds[idx]}
                     onEditFromHere={sessionBusy ? undefined : handleEditFromHere}
                     onEditContent={handleEditContent}
@@ -710,39 +696,9 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                 );
               };
 
-              const rendered: ReactNode[] = [];
-              for (let idx = 0; idx < messages.length;) {
-                const msg = messages[idx];
-                if (!isGroupAnchor(msg)) {
-                  rendered.push(renderMessage(idx));
-                  idx += 1;
-                  continue;
-                }
-
-                const userIdx = idx;
-                let endIdx = userIdx + 1;
-                while (endIdx < messages.length && !isGroupAnchor(messages[endIdx])) endIdx += 1;
-
-                const finalAssistantIdx = findFinalAssistantIndex(messages, userIdx, endIdx);
-
-                if (finalAssistantIdx === -1) {
-                  for (let renderIdx = userIdx; renderIdx < endIdx; renderIdx++) {
-                    rendered.push(renderMessage(renderIdx));
-                  }
-                  idx = endIdx;
-                  continue;
-                }
-
-                const isLiveTail = (sessionBusy || streamState.isStreaming) && endIdx === messages.length && userIdx === lastAnchorIdx;
-                if (isLiveTail) {
-                  for (let renderIdx = userIdx; renderIdx < endIdx; renderIdx++) {
-                    rendered.push(renderMessage(renderIdx));
-                  }
-                  idx = endIdx;
-                  continue;
-                }
-
-                rendered.push(renderMessage(userIdx));
+              const renderTurnUnit = (unit: Extract<ChatRenderUnit, { kind: "turn" }>): ReactNode[] => {
+                const { userIdx, endIdx, finalAssistantIdx } = unit;
+                const rendered: ReactNode[] = [renderMessage(userIdx)];
 
                 const processIndices: number[] = [];
                 for (let processIdx = userIdx + 1; processIdx < finalAssistantIdx; processIdx++) {
@@ -803,17 +759,24 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                 for (let renderIdx = finalAssistantIdx + 1; renderIdx < endIdx; renderIdx++) {
                   rendered.push(renderMessage(renderIdx));
                 }
-                idx = endIdx;
-              }
-              const { startIndex, hasMore } = getVisibleRenderWindow(rendered.length, visibleCount);
+                return rendered;
+              };
+
+              // JSX is only built for the units inside the window. Everything
+              // above it stays raw data until the reader asks for more.
+              const visibleUnits = renderUnits.slice(unitStartIndex);
+              const firstVisibleIdx = visibleUnits[0]?.startIdx ?? messages.length;
+              const hiddenMessageCount = firstVisibleIdx + Math.max(0, totalMessageCount - messages.length);
               return (
                 <>
-                  {hasMore && (
-                     <div ref={sentinelRef} className="py-3 text-center text-xs text-text-muted">
-                       {t("chat.loadEarlier", { count: startIndex })}
+                  {(hasMoreUnits || hasEarlierMessages) && (
+                    <div ref={sentinelRef} className="py-3 text-center text-xs text-text-muted">
+                      {t("chat.loadEarlier", { count: hiddenMessageCount })}
                     </div>
                   )}
-                  {rendered.slice(startIndex)}
+                  {visibleUnits.flatMap((unit) => (
+                    unit.kind === "turn" ? renderTurnUnit(unit) : renderMessage(unit.idx)
+                  ))}
                 </>
               );
             })()}

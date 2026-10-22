@@ -34,6 +34,7 @@ import {
   streamReducer,
   type ClientAssistantMessageEvent,
 } from "@/lib/streaming-message";
+import { SESSION_PAGE_SIZE, prependContextPage } from "@/lib/session-paging";
 
 export interface SessionData {
   sessionId: string;
@@ -46,6 +47,13 @@ export interface SessionData {
     entryIds: string[];
     thinkingLevel: string;
     model: { provider: string; modelId: string } | null;
+  };
+  /** Present when the server paged the history instead of shipping all of it. */
+  paging?: {
+    hasEarlier: boolean;
+    totalMessages: number;
+    startIndex: number;
+    pageSize: number;
   };
 }
 
@@ -315,6 +323,20 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [activeLeafId, setActiveLeafId] = useState<string | null>(null);
   const [messages, setMessages] = useState<AgentMessage[]>([]);
   const [entryIds, setEntryIds] = useState<string[]>([]);
+  // History above the loaded window. Only long sessions get one: the tail page
+  // is what the server sends, and scrolling to the top asks for the page below.
+  const [hasEarlierMessages, setHasEarlierMessages] = useState(false);
+  const [totalMessageCount, setTotalMessageCount] = useState(0);
+  const entryIdsRef = useRef<string[]>([]);
+  entryIdsRef.current = entryIds;
+  const messagesRef = useRef<AgentMessage[]>([]);
+  messagesRef.current = messages;
+  const loadingEarlierRef = useRef(false);
+  const hasEarlierRef = useRef(false);
+  hasEarlierRef.current = hasEarlierMessages;
+  // Which session `messagesRef` currently holds. Guards the "keep the window I
+  // already paged open" limit from leaking across a session switch.
+  const messagesSessionIdRef = useRef<string | null>(null);
   const [streamState, dispatch] = useReducer(streamReducer, INITIAL_STREAMING_STATE);
   const [agentRunning, setAgentRunning] = useState(false);
   const [bashRunning, setBashRunning] = useState(false);
@@ -500,25 +522,35 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       assistantMessages,
       toolCalls,
       toolResults,
-      totalMessages: messages.length,
+      // A paged session knows its real size from the server; the loaded window
+      // is only the tail, so the counter would otherwise under-report.
+      totalMessages: Math.max(messages.length, totalMessageCount),
       tokens,
       cost,
       totalActiveMs: data?.totalActiveMs,
       ...(contextUsage ? { contextUsage } : {}),
     } satisfies SessionStatsInfo;
-  }, [messages, sessionStatsOverride, contextUsage, data?.filePath, data?.totalActiveMs, session?.id, session?.name]);
+  }, [messages, totalMessageCount, sessionStatsOverride, contextUsage, data?.filePath, data?.totalActiveMs, session?.id, session?.name]);
 
   const loadSession = useCallback(async (sid: string, showLoading = false, includeState = false) => {
     let messagesLoaded = false;
     try {
       if (showLoading) setLoading(true);
       const params = new URLSearchParams({ deferThinking: "1", deferMedia: "1" });
+      // A refresh after a run must not throw away the history the reader has
+      // already paged open, so ask for at least that much again.
+      const loadedCount = messagesSessionIdRef.current === sid ? messagesRef.current.length : 0;
+      if (loadedCount > SESSION_PAGE_SIZE) params.set("limit", String(loadedCount));
       const res = await fetch(`/api/sessions/${encodeURIComponent(sid)}?${params}`);
       if (res.status === 404) {
         if (showLoading) {
           setData(null);
           setActiveLeafId(null);
           setMessages([]);
+          setEntryIds([]);
+          setHasEarlierMessages(false);
+          setTotalMessageCount(0);
+          messagesSessionIdRef.current = null;
           setError(null);
         }
         return null;
@@ -531,6 +563,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setActiveLeafId(d.leafId);
       setMessages(persistedMessages);
       setEntryIds(d.context.entryIds ?? []);
+      setHasEarlierMessages(Boolean(d.paging?.hasEarlier));
+      setTotalMessageCount(d.paging?.totalMessages ?? persistedMessages.length);
+      messagesSessionIdRef.current = sid;
       setCurrentModelOverride((current) => modelSwitchPendingRef.current ? current : null);
       setError(null);
       if (d.context.thinkingLevel && d.context.thinkingLevel !== "off") {
@@ -579,14 +614,73 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     try {
       const params = new URLSearchParams({ deferThinking: "1", deferMedia: "1" });
       if (leafId) params.set("leafId", leafId);
+      const loadedCount = messagesSessionIdRef.current === sid ? messagesRef.current.length : 0;
+      if (loadedCount > SESSION_PAGE_SIZE) params.set("limit", String(loadedCount));
       const url = `/api/sessions/${encodeURIComponent(sid)}/context?${params}`;
       const res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const d = await res.json() as { context: { messages: AgentMessage[]; entryIds: string[] } };
+      const d = await res.json() as {
+        context: { messages: AgentMessage[]; entryIds: string[] };
+        paging?: { hasEarlier: boolean; totalMessages: number };
+      };
       setMessages(d.context.messages);
       setEntryIds(d.context.entryIds ?? []);
+      setHasEarlierMessages(Boolean(d.paging?.hasEarlier));
+      if (d.paging?.totalMessages !== undefined) setTotalMessageCount(d.paging.totalMessages);
+      messagesSessionIdRef.current = sid;
     } catch (e) {
       console.error("Failed to load context:", e);
+    }
+  }, []);
+
+  /**
+   * Fetches the page directly above the loaded window and prepends it.
+   * Returns the number of messages that were added so the caller can restore
+   * the scroll position it captured before asking.
+   */
+  const loadEarlierMessages = useCallback(async (): Promise<number> => {
+    const sid = sessionIdRef.current;
+    if (!sid || loadingEarlierRef.current || !hasEarlierRef.current) return 0;
+    if (messagesSessionIdRef.current !== sid) return 0;
+    const before = entryIdsRef.current[0];
+    if (!before) return 0;
+
+    loadingEarlierRef.current = true;
+    try {
+      const params = new URLSearchParams({
+        deferThinking: "1",
+        deferMedia: "1",
+        before,
+        limit: String(SESSION_PAGE_SIZE),
+      });
+      const res = await fetch(`/api/sessions/${encodeURIComponent(sid)}/context?${params}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const d = await res.json() as {
+        context: { messages: AgentMessage[]; entryIds: string[] };
+        paging?: { hasEarlier: boolean; totalMessages: number };
+      };
+      if (sessionIdRef.current !== sid) return 0;
+
+      const page = { messages: d.context.messages ?? [], entryIds: d.context.entryIds ?? [] };
+      const merged = prependContextPage(
+        { messages: messagesRef.current, entryIds: entryIdsRef.current },
+        page,
+      );
+      setHasEarlierMessages(Boolean(d.paging?.hasEarlier));
+      if (d.paging?.totalMessages !== undefined) setTotalMessageCount(d.paging.totalMessages);
+      if (merged.prepended === 0) return 0;
+
+      entryIdsRef.current = merged.entryIds;
+      setEntryIds(merged.entryIds);
+      // Only the prepended prefix is taken from the merge: `prev` is the live
+      // array, so anything appended while the page was in flight survives.
+      setMessages((prev) => [...merged.messages.slice(0, merged.prepended), ...prev]);
+      return merged.prepended;
+    } catch (e) {
+      console.error("Failed to load earlier messages:", e);
+      return 0;
+    } finally {
+      loadingEarlierRef.current = false;
     }
   }, []);
 
@@ -2149,6 +2243,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   return {
     // State
     data, loading, error, activeLeafId, messages, entryIds, streamState,
+    hasEarlierMessages, totalMessageCount, loadEarlierMessages,
     agentRunning, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, newSessionModel, toolPreset, chatMode, thinkingLevel,
     retryInfo, promptFailure, contextUsage, systemPrompt, forkingEntryId,
     isCompacting, compactError, compactResult, currentModel, displayModel, modelSwitching, sessionStats,

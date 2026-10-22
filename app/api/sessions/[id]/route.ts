@@ -14,6 +14,7 @@ import { sessionPathKey } from "@/lib/session-path";
 import { getRpcSession } from "@/lib/rpc-manager";
 import { projectTreeForResponse } from "@/lib/project-tree";
 import { computeSessionTotalActiveMs } from "@/lib/session-timing";
+import { SESSION_PAGE_SIZE, clampSessionPageSize, tailContextWindow } from "@/lib/session-paging";
 
 export async function GET(
   req: Request,
@@ -37,6 +38,11 @@ export async function GET(
     const deferThinking = searchParams.has("deferThinking");
     const deferToolResultImages = searchParams.has("deferMedia");
     const context = buildSessionContext(entries as never, leafId, { deferThinking, deferToolResultImages });
+    // Only the tail window is shipped. A long session used to arrive as one
+    // multi-megabyte payload that the browser then parsed and walked on every
+    // render; `paging.hasEarlier` tells the client it can ask for more.
+    const pageSize = clampSessionPageSize(searchParams.get("limit"), SESSION_PAGE_SIZE);
+    const window = tailContextWindow(context, pageSize);
     const totalActiveMs = computeSessionTotalActiveMs(entries);
 
     const header = sm.getHeader();
@@ -70,7 +76,13 @@ export async function GET(
       info,
       leafId,
       tree,
-      context,
+      context: { ...context, messages: window.messages, entryIds: window.entryIds },
+      paging: {
+        hasEarlier: window.hasEarlier,
+        totalMessages: window.totalMessages,
+        startIndex: window.startIndex,
+        pageSize,
+      },
       totalActiveMs,
     });
   } catch (error) {

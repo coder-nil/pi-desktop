@@ -1,4 +1,9 @@
-export const VISIBLE_PAGE_SIZE = 50;
+/**
+ * Visible render units per screen, not messages. One unit is a whole completed
+ * turn (prompt → process group → answer), so 25 units is roughly the 50 flat
+ * items this page size used to mean before turns were paged as one unit.
+ */
+export const VISIBLE_PAGE_SIZE = 25;
 export const CHAT_SCROLL_TAIL_TOLERANCE = 8;
 export const CHAT_SCROLL_REATTACH_TOLERANCE = 96;
 

@@ -76,6 +76,8 @@ lib/
   agent-client.ts      typed fetch helper for /api/agent commands
   chat-appearance.ts   chat reading surface constants + clamp + CSS-variable publish (设置 → 常规 → 聊天)
   chat-mode-prompt.ts  chat prompt for plain conversation mode (work ⇄ chat, composer π mark)
+  chat-render-units.ts  turn-aware render units for the chat window (one unit = one collapsed turn)
+  session-paging.ts    server-side history paging: tail page, earlier page, turn-boundary alignment
   chat-mode-preference.ts  browser-persisted work/chat mode
   draft-store.ts       local draft persistence helpers
   file-access.ts       allowed file roots for /api/files and worktrees
@@ -228,6 +230,15 @@ Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `au
 - `useAgentSession` treats per-session SSE as primary for chat events and opens it before each prompt. `prompt_done` completes the current UI stage and notification immediately, but the idle SSE stays open for a 30-second grace window and is reused by the next prompt. `agent_start` cancels that close timer; `agent_settled` finishes extension-injected runs that have no wrapper-level `prompt_done` and starts a fresh grace window. Do not close on the first `agent_end`: retries, compaction, and extension-queued messages can continue the same logical prompt.
 - While a run is active, `useAgentSession` periodically calls `GET /api/agent/[id]` and also reconciles on `visibilitychange`/`online`. This fixes missed terminal events from background tabs or half-open connections.
 - Prompt runs use a monotonic run id; late SSE or slow reconciliation responses from an old run must be ignored so they cannot resurrect stale streaming bubbles.
+
+### 聊天历史分页 + 渲染窗口（长会话不发白屏卡顿）
+- **两层窗口，缺一层都不够。** 服务端只发尾部一页（`lib/session-paging.ts`，`SESSION_PAGE_SIZE=120`，上限 `SESSION_PAGE_MAX=400`），前端只把最新 `VISIBLE_PAGE_SIZE`（**单位是「轮」，不是消息**，见 `lib/chat-lazy-load.ts`）个渲染单元变成 JSX。之前 `/api/sessions/[id]` 每次全量返回 context、ChatWindow 每次渲染都先把全部 messages 构建成 `rendered` 再 `slice`，所以一个 800+ 条消息的会话在慢机器上「发完消息列表迟迟不出现」。
+- **分页边界必须落在轮次错点上。** `isGroupAnchorMessage`（user 消息 / compaction 摘要）是分页与渲染共用的错点定义：窗口起点要向前对齐到最近错点，否则一轮被切两半，process 组会散成独立消息。压缩发生在轮次中间时 pi 会拿掉原 user 消息，所以 compaction 摘要也算错点。
+- **`buildChatRenderUnits` 先算索引再渲染。** 它是 O(n) 的纯索引运算（无 JSX），窗口外的一律不创建元素。不要在窗口之前调用 `renderMessage`。
+- **刷新必须带上已加载条数。** `loadSession` / `loadContext` 都会传 `limit = 已加载条数`（仅当 `messagesSessionIdRef` 就是这个会话），否则 prompt_done / agent_settled 的刷新会把用户翻开的几页丢掉、视口直接跳走。
+- **前插的滚动锁在 scrollHeight 差值上。** `loadEarlierMessages()` 返回前插条数，哨兵在 await 之前就 `captureScrollDistance`，effect 里 `restoreScrollTop` 恢复；本地窗口扩张走同一个 `prevScrollDistanceRef`，所以 effect 依赖 `[visibleCount, messages.length]`。
+- **`messages` 现在只是「已加载窗口」。** 因此 `inputHistory`、`ChatMinimap`、`entryIds` 都只覆盖已加载部分；`sessionStats.totalMessages` 用服务端 `paging.totalMessages` 兑底，顶部「隐藏 N 条」的文案同样基于这个总数。聊天缩略图点「完整历史」只能展开已加载的单元（`revealHistoryForMinimap`），不会自己去请求更多页。
+- 分页窗口首条不是会话首条，所以 fork 的「第一条 user 消息不给 fork」判断带上了 `!hasEarlierMessages`。手机端 `/m` 不受影响（它走 `lib/mobile-state.ts` 自己的投影）。
 
 ### Worktrees and project grouping
 - `lib/worktree.ts` resolves linked worktree top-levels back to the main repo `projectRoot`; `listAllSessions()` attaches that to each `SessionInfo` so all worktrees for one repo are grouped together in the sidebar.
