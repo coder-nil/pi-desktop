@@ -136,6 +136,61 @@ fn create_terminal(
     ))
 }
 
+/// PTY 里的 shell 必须跑在 UTF-8 locale 下。GUI 启动的进程既没有 `LANG` 也没有
+/// `LC_*`，继承下来就是 C locale，zsh 于是把中文输入法送来的 UTF-8 字节按单字节
+/// 回显——句号「。」会显示成 `\M-ã<0080><0082>`。
+fn is_utf8_locale(value: &str) -> bool {
+    let lower = value.trim().to_ascii_lowercase();
+    lower.contains("utf-8") || lower.contains("utf8")
+}
+
+fn utf8_locale_value() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "en_US.UTF-8"
+    } else {
+        "C.UTF-8"
+    }
+}
+
+/// 真正起作用的 locale 变量：`LC_ALL` 覆盖 `LC_CTYPE`，后者覆盖 `LANG`。
+fn effective_locale() -> Option<(String, String)> {
+    ["LC_ALL", "LC_CTYPE", "LANG"].iter().find_map(|key| {
+        let value = std::env::var(key).ok()?;
+        (!value.trim().is_empty()).then(|| (key.to_string(), value))
+    })
+}
+
+/// 需要写进 PTY 环境的覆盖项；空列表表示继承值已经是 UTF-8，保持原样
+/// （用户显式的 `zh_CN.UTF-8` 之类不应被改写）。
+fn utf8_locale_overrides(inherited: Option<(String, String)>) -> Vec<(String, &'static str)> {
+    let value = utf8_locale_value();
+    match inherited {
+        Some((_, current)) if is_utf8_locale(&current) => Vec::new(),
+        // 继承到的是非 UTF-8（常常是 C/POSIX）：换掉真正起作用的那一项，并补上
+        // LC_CTYPE，让宽字符与输入法在 shell 和各子进程之间保持一致。
+        Some((key, _)) => {
+            let needs_ctype = key != "LC_CTYPE";
+            let mut overrides = vec![(key, value)];
+            if needs_ctype {
+                overrides.push(("LC_CTYPE".to_string(), value));
+            }
+            overrides
+        }
+        None => vec![("LANG".to_string(), value), ("LC_CTYPE".to_string(), value)],
+    }
+}
+
+fn apply_locale_overrides(command: &mut CommandBuilder, inherited: Option<(String, String)>) {
+    for (key, value) in utf8_locale_overrides(inherited) {
+        command.env(key, value);
+    }
+}
+
+#[cfg(unix)]
+fn apply_utf8_locale(command: &mut CommandBuilder) {
+    apply_locale_overrides(command, effective_locale());
+}
+
 #[tauri::command]
 fn terminal_start(
     app: tauri::AppHandle,
@@ -157,6 +212,8 @@ fn terminal_start(
     command.cwd(&directory);
     command.env("TERM", "xterm-256color");
     command.env("COLORTERM", "truecolor");
+    #[cfg(unix)]
+    apply_utf8_locale(&mut command);
 
     let mut sessions = state
         .sessions
@@ -893,6 +950,62 @@ mod tests {
         let pid = session.child.process_id().unwrap() as i32;
         drop(session);
         assert_eq!(unsafe { libc::kill(pid, 0) }, -1);
+    }
+
+    #[test]
+    fn utf8_locale_detection_accepts_common_spellings() {
+        assert!(is_utf8_locale("en_US.UTF-8"));
+        assert!(is_utf8_locale("zh_CN.utf8"));
+        assert!(is_utf8_locale(" C.UTF-8 "));
+        assert!(!is_utf8_locale("C"));
+        assert!(!is_utf8_locale("POSIX"));
+        assert!(!is_utf8_locale(""));
+    }
+
+    #[test]
+    fn utf8_locale_overrides_replace_a_c_locale_and_keep_a_utf8_one() {
+        let value = utf8_locale_value();
+        // 用户已经明确了 UTF-8 时不动它。
+        assert!(utf8_locale_overrides(Some(("LANG".to_string(), "zh_CN.UTF-8".to_string()))).is_empty());
+        // LC_ALL 覆盖其它变量，所以必须连它一起换掉，否则覆盖不生效。
+        assert_eq!(
+            utf8_locale_overrides(Some(("LC_ALL".to_string(), "C".to_string()))),
+            vec![("LC_ALL".to_string(), value), ("LC_CTYPE".to_string(), value)]
+        );
+        assert_eq!(
+            utf8_locale_overrides(Some(("LC_CTYPE".to_string(), "POSIX".to_string()))),
+            vec![("LC_CTYPE".to_string(), value)]
+        );
+        // 完全没有 locale（从访达/程序坞启动的 GUI 进程）时两个都补上。
+        assert_eq!(
+            utf8_locale_overrides(None),
+            vec![("LANG".to_string(), value), ("LC_CTYPE".to_string(), value)]
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn terminal_shell_gets_a_utf8_charmap() {
+        let available = String::from_utf8_lossy(
+            &Command::new("locale")
+                .arg("-a")
+                .output()
+                .map(|output| output.stdout)
+                .unwrap_or_default(),
+        )
+        .to_lowercase();
+        if !available.contains(&utf8_locale_value().to_lowercase()) {
+            // 该平台没有这个 locale，回退值与系统无关，跳过。
+            return;
+        }
+        let mut command = CommandBuilder::new("/bin/sh");
+        command.args(["-c", "locale charmap"]);
+        apply_locale_overrides(&mut command, Some(("LC_ALL".to_string(), "C".to_string())));
+        let (_session, mut reader) = create_terminal(command, 80, 24).unwrap();
+        let mut output = Vec::new();
+        reader.read_to_end(&mut output).unwrap();
+        let text = String::from_utf8_lossy(&output).to_uppercase();
+        assert!(text.contains("UTF-8"), "{text}");
     }
 
     #[test]
