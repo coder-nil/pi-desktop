@@ -95,6 +95,44 @@ function findNpxCli(): NpxLocation | null {
   return null;
 }
 
+/**
+ * `npm exec` 会用 `sh`/`cmd` 去执行包自己的 launcher（skills 的 bin 是
+ * `#!/usr/bin/env node`），而 npx 只会把 prefix/bin 和 node_modules/.bin 补进子进程
+ * PATH，不会补 node 自己的目录。从 Dock/Finder 启动的 Pi Desktop 继承的 PATH 只有
+ * `/usr/bin:/bin:/usr/sbin:/sbin`，nvm、Homebrew 的 node 目录都写在 shell 的 rc 文件里，
+ * 于是 launcher 找不到解释器，装包成功但一执行就失败：
+ *
+ *   npm warn exec The following package was not found and will be installed: skills@1.5.18
+ *   env: node: No such file or directory
+ *
+ * 把实际用来跑 npx 的 node 目录补到子进程 PATH 最前面，launcher 就一定能找到解释器。
+ */
+export function withNodeOnPath(
+  environment: NodeJS.ProcessEnv,
+  nodeDirectories: readonly (string | undefined)[],
+  platform: NodeJS.Platform = process.platform,
+): NodeJS.ProcessEnv {
+  const delimiter = platform === "win32" ? ";" : ":";
+  // Windows 上环境块的键可能是 `Path`，且大小写不敏感；把所有变体合并成一个键，
+  // 否则会留下两个仅大小写不同的 PATH，spawn 时 libuv 会直接报错。
+  const pathKeys = platform === "win32"
+    ? Object.keys(environment).filter((name) => /^path$/i.test(name))
+    : ["PATH"];
+  const pathKey = pathKeys[0] ?? (platform === "win32" ? "Path" : "PATH");
+  const currentEntries = pathKeys
+    .flatMap((key) => (environment[key] ?? "").split(delimiter))
+    .filter(Boolean);
+  const nodeEntries = nodeDirectories
+    .map((directory) => directory?.trim())
+    .filter((directory): directory is string => Boolean(directory));
+  const entries = [...new Set([...nodeEntries, ...currentEntries])];
+
+  const result = { ...environment };
+  for (const key of pathKeys) delete result[key];
+  if (entries.length > 0) result[pathKey] = entries.join(delimiter);
+  return result;
+}
+
 export interface RunNpxOptions {
   timeout?: number;
   maxBuffer?: number;
@@ -148,7 +186,11 @@ export async function runNpx(args: string[], opts: RunNpxOptions = {}): Promise<
   const commandArgs = [npxCli.path, ...args];
   
   const effectiveCwd = opts.cwd || process.cwd();
-  const effectiveEnv = { ...process.env, ...(opts.env || {}), FORCE_COLOR: "0", GIT_TERMINAL_PROMPT: "0" };
+  // spawn 用的 node 目录必须进 PATH：npm exec 的 launcher 靠 `#!/usr/bin/env node` 启动。
+  const effectiveEnv = withNodeOnPath(
+    { ...process.env, ...(opts.env || {}), FORCE_COLOR: "0", GIT_TERMINAL_PROMPT: "0" },
+    [dirname(npxCli.nodeBin), dirname(execPath)],
+  );
 
   console.log(`[npx] Executing: ${command} ${commandArgs.join(" ")}`);
   console.log(`[npx] Working directory: ${effectiveCwd}`);

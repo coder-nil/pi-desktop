@@ -25,14 +25,19 @@ const MAX_SIZE = 100;
 const MAX_FROM = 1_000;
 const BUNDLED_SOURCE = "bundled:plugin-catalog.json";
 
-/** 官网目录每页 50 条；两者都拿不到时再退回内置快照。 */
+/**
+ * 官网首页列表每页 50 条，只抓前 3 页（150 条）；官网实际有 100 多页几千个包，
+ * 所以关键词搜索必须走官网自己的 `?name=` 搜索，不能在这 150 条里过滤。
+ */
 const PI_DEV_PAGES = ["", "?page=2", "?page=3"];
 const PI_DEV_CATALOG_KEY = "__pi_dev_catalog";
 const PI_DEV_FAILURE_TTL_MS = 60 * 1000;
 
+type CatalogValue = { plugins: PluginCatalogEntry[]; total: number; source?: string };
+
 interface CatalogCacheEntry {
   expiresAt: number;
-  value: { plugins: ReturnType<typeof sortPluginCatalog>; total: number; source?: string };
+  value: CatalogValue;
 }
 
 interface CatalogCacheState {
@@ -79,40 +84,70 @@ async function fetchRegistryCatalog(query: string, from: number, size: number): 
 }
 
 /** 官网顺序就是权威排序，这里只做切片。 */
-function pageOf(plugins: PluginCatalogEntry[], from: number, size: number) {
-  return {
-    plugins: plugins.slice(from, from + size),
-    total: plugins.length,
-  };
+function pageOf(plugins: PluginCatalogEntry[], from: number, size: number): PluginCatalogEntry[] {
+  return plugins.slice(from, from + size);
 }
 
 /**
- * 目录页：官网名单（权威排序）优先，缺页才补 npm 搜索结果。
- *
- * 注意 offset 必须回传给 registry：npm 搜索的结果顺序与官网不同，
- * 只取第 1 页再自己切片，翻页会原地跳回同一批插件。
+ * 官网搜索页：`${PI_DEV_CATALOG_URL}?name=<query>` 是站点自己的搜索（就是首页搜索框），
+ * 覆盖全部官网目录；搜索结果页不分页，一次给 30 条。
  */
-async function fetchCatalogPage(query: string, from: number, size: number) {
-  const official = getPiDevCache();
-  if (official && official.value.plugins.length > 0) {
-    const page = pageOf(official.value.plugins, from, size);
-    if (page.plugins.length === size || page.plugins.length === official.value.plugins.length) {
-      return { ...page, source: PI_DEV_CATALOG_URL };
-    }
-  }
+async function fetchPiDevSearch(query: string): Promise<PluginCatalogEntry[]> {
+  const url = new URL(PI_DEV_CATALOG_URL);
+  url.searchParams.set("name", query);
+  const response = await fetch(url, {
+    cache: "no-store",
+    headers: { Accept: "text/html", "User-Agent": "pi-desktop" },
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  });
+  if (!response.ok) throw new Error(`pi.dev returned HTTP ${response.status}`);
+  return parsePiDevCatalog(await response.text());
+}
 
-  const registry = await fetchRegistryCatalog(query, from, size);
+/**
+ * 关键词目录：官网搜索（权威排序 + 全目录覆盖）为主，npm 搜索补齐描述/作者与更深的分页。
+ *
+ * 两边都失败才抛错，由 GET 回退到内置快照；两边都成功但没命中时返回空列表，
+ * 让前端显示「没有匹配的插件」而不是把关键词悄悄忽略掉。
+ */
+async function fetchSearchCatalog(query: string): Promise<CatalogValue> {
+  const [official, registry] = await Promise.allSettled([
+    fetchPiDevSearch(query),
+    fetchRegistryCatalog(query, 0, MAX_SIZE),
+  ]);
+  if (official.status === "rejected" && registry.status === "rejected") {
+    const reason = registry.reason instanceof Error ? registry.reason.message : String(registry.reason);
+    throw new Error(`plugin search failed: ${reason}`);
+  }
+  const primary = official.status === "fulfilled" ? official.value : [];
+  const metadata = registry.status === "fulfilled"
+    ? applyPluginDownloads(registry.value.plugins, readPluginDownloads())
+    : [];
+
+  // 官网搜索页的召回顺序就是权威排序（匹配集合内按使用量），不能拿 npm 的模糊召回重排：
+  // npm 会为 `keywords:pi-package playwright` 召回一堆描述里蹭到关键词的大包，
+  // 按下载量重排会把 pi-playwright 这种下载量小的包直接挤到第一页之外。
+  const merged = mergeCatalogEntries(primary, metadata);
+  const seen = new Set(merged.map((entry) => entry.name));
+  // npm 搜索是模糊召回，补进来的包必须自己也能匹配关键词，否则整页都是无关插件；
+  // 官网搜索不可用时没有权威召回，只能整取 npm 结果（按使用量排）。
+  const extras = primary.length > 0
+    ? sortPluginCatalog(searchPluginCatalog(metadata, query)).filter((entry) => !seen.has(entry.name))
+    : sortPluginCatalog(metadata.filter((entry) => !seen.has(entry.name)));
+
+  const plugins = [...merged, ...extras];
   return {
-    plugins: applyPluginDownloads(registry.plugins, readPluginDownloads()),
-    total: registry.total,
-    source: NPM_SEARCH_URL,
+    plugins,
+    total: plugins.length,
+    source: `${PI_DEV_CATALOG_URL}?name=${encodeURIComponent(query)}`,
   };
 }
 
 function bundledPage(query: string, from: number, size: number) {
   const downloads = readPluginDownloads();
-  // 内置快照里的旧使用量是快照值，只用实时下载量补，不用它覆盖。
-  const all = applyPluginDownloads(searchPluginCatalog(bundledCatalog as PluginCatalogEntry[], query), downloads);
+  // 内置快照里的旧使用量是快照值，只用实时下载量补，不用它覆盖；
+  // 覆盖后必须重新排一次，否则拿实时下载量补完却沿用快照顺序。
+  const all = sortPluginCatalog(applyPluginDownloads(searchPluginCatalog(bundledCatalog as PluginCatalogEntry[], query), downloads));
   return {
     plugins: all.slice(from, from + size),
     total: all.length,
@@ -120,14 +155,18 @@ function bundledPage(query: string, from: number, size: number) {
   };
 }
 
-async function loadCatalog(query: string, from: number, size: number) {
-  const key = `${query}\0${from}\0${size}`;
+/**
+ * 整表按关键词缓存：官网搜索 + npm 搜索合并后只排一次序，翻页直接切片，
+ * 顺序不会因为两次请求的排序差异而漂移（旧实现按 from/size 缓存，翻页要靠 npm 的 offset）。
+ */
+async function loadSearchCatalog(query: string): Promise<CatalogValue> {
+  const key = `search\0${query}`;
   const cache = getCache();
   const cached = cache.entries.get(key);
   if (cached && cached.expiresAt > Date.now()) return cached.value;
   const existing = cache.inFlight.get(key);
-  if (existing) return existing as Promise<CatalogCacheEntry["value"]>;
-  const promise = fetchCatalogPage(query, from, size).then((value) => {
+  if (existing) return existing as Promise<CatalogValue>;
+  const promise = fetchSearchCatalog(query).then((value) => {
     cache.entries.set(key, { value, expiresAt: Date.now() + CACHE_TTL_MS });
     return value;
   }).finally(() => {
@@ -249,12 +288,15 @@ export async function GET(req: Request) {
         hasMore: from + size < result.total,
       });
     }
-    const result = await loadCatalog(query, from, size);
+    const catalog = await loadSearchCatalog(query);
+    const page = pageOf(catalog.plugins, from, size);
     return NextResponse.json({
-      ...result,
+      plugins: page,
+      total: catalog.total,
       from,
       size,
-      hasMore: from + result.plugins.length < result.total,
+      hasMore: from + page.length < catalog.total,
+      source: catalog.source,
     });
   } catch (error) {
     const fallback = bundledPage(query, from, size);
