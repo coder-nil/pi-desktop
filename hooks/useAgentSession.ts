@@ -301,7 +301,7 @@ function getUserMessageText(message: AgentMessage): string | null {
 }
 
 export function useAgentSession(opts: UseAgentSessionOptions) {
-  const { locale } = useI18n();
+  const { locale, t } = useI18n();
   const {
     session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked,
     modelsRefreshKey, onBranchDataChange, onSystemPromptChange, onSystemPromptLoaderChange, onSessionStatsPanelOpen,
@@ -1727,6 +1727,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     try {
       switch (commandName) {
         case "compact": {
+          // 手动 compact 是阻塞 POST，会与正在进行的运行撞车。
+          if (agentRunningRef.current) return complete({ handled: true, error: t("chat.builtinBusy") });
           if (!sid || isCompacting) return complete({ handled: true, error: "No active session to compact" });
           setIsCompacting(true);
           setCompactError(null);
@@ -1741,6 +1743,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         }
 
         case "reload": {
+          if (agentRunningRef.current) return complete({ handled: true, error: t("chat.builtinBusy") });
           if (!sid) return complete({ handled: true, error: "No active session to reload" });
           await sendAgentCommand(sid, { type: "reload" });
           await Promise.all([
@@ -1787,7 +1790,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } finally {
       if (commandName === "compact") setIsCompacting(false);
     }
-  }, [addNotice, ensureNewSession, isCompacting, loadModels, loadSession, loadSlashCommands, loadTools, promoteNewSession, onSessionStatsPanelOpen]);
+  }, [addNotice, ensureNewSession, isCompacting, loadModels, loadSession, loadSlashCommands, loadTools, promoteNewSession, onSessionStatsPanelOpen, t]);
 
   // Let AgentSession.prompt decide atomically whether to queue against the
   // current run or start a new turn if it settled while the request was in
@@ -1804,15 +1807,27 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       addNotice({ type: "error", message: "No active session for the queued message" });
       return;
     }
+    // `!` 只在普通发送路径（handleSend 的 isBashCommand 分支）上执行；引导消息是
+    // 发给模型的，把 `!ls` 原样当正文排队会让用户以为命令跑了，所以先恢复草稿再提示。
+    if (!images?.length && message.trimStart().startsWith("!")) {
+      restore();
+      addNotice({ type: "info", message: t("chat.steerShellUnavailable") });
+      return;
+    }
     const piImages = images?.map((img) => ({ type: "image" as const, data: img.data, mimeType: img.mimeType }));
     try {
-      await sendAgentCommand(sid, {
+      const result = await sendAgentCommand<{ disposition?: "handled" | "queued" | "started" }>(sid, {
         type: "prompt",
         uiLocale: locale,
         message,
         streamingBehavior: behavior,
         ...(piImages?.length ? { images: piImages } : {}),
       });
+      // "handled" 表示扩展的输入处理器吞掉了这条引导：它不会到达模型，
+      // 而 composer 已经被清空，不给提示就是静默失败。
+      if (result?.disposition === "handled") {
+        addNotice({ type: "info", message: t("chat.steerHandledByExtension") });
+      }
     } catch (e) {
       console.error("Failed to submit streaming prompt:", e);
       // A transport failure after dispatch is ambiguous: the server may have
@@ -1824,7 +1839,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         message: e instanceof Error ? e.message : String(e),
       });
     }
-  }, [addNotice, composerDraftKey, locale, restoreSubmission]);
+  }, [addNotice, composerDraftKey, locale, restoreSubmission, t]);
 
   const handleSteer = useCallback(async (message: string, images?: AttachedImage[]) => {
     await sendStreamingPrompt(message, "steer", images);

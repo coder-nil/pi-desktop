@@ -117,3 +117,9 @@ export interface ShellToolSettingsResponse {
   isWindows: boolean;
   powerShellEnabled: boolean;
 }
+
+export interface QueueModeSettingsResponse {
+  /** `one-at-a-time` 每个完成的 assistant turn 投一条排队消息，`all` 一次投完 */
+  steeringMode: "all" | "one-at-a-time";
+  followUpMode: "all" | "one-at-a-time";
+}

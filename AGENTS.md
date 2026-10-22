@@ -214,6 +214,15 @@ On `ChatWindow` mount, `GET /api/agent/[id]` is called. If `state.isStreaming ==
 ### Compaction SSE events
 Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `auto_compaction_start` / `auto_compaction_end`. `handleAgentEvent` accepts both sets to keep `isCompacting` in sync. Manual compact is a blocking POST — the button stays disabled until the response returns.
 
+### 引导消息（steer / follow-up）的发送路径
+- **桌面端永远走 `prompt` + `streamingBehavior`，不裸调 `session.steer()`。** SDK 的 `prompt()` 原子判断「正在流式就入队、刚好收尾就开新一轮」，而裸调 `steer()`/`followUp()` 在空闲会话上只会把消息塞进 `_steeringMessages` 干等（`hooks/useAgentSession.ts` 的 `sendStreamingPrompt`）。
+- **内置 `/` 命令不能进引导队列。** `ChatInput.sendQueued` 先按 `BUILTIN_SLASH_COMMANDS` 识别命令名并交给 `onBuiltinCommand`；漏掉这一层时 `/compact` 会原样变成一条引导给模型的用户消息。`/compact` 与 `/reload` 是阻塞/重建型命令，`handleBuiltinSlashCommand` 按 `agentRunningRef.current` 拒绝，`/name` `/session` `/copy` 在运行中安全。
+- **`disposition === "handled"` 必须给提示。** 它表示扩展的输入处理器吞掉了这条引导，消息不会到达模型，而此时 composer 已经被清空——不提示就是静默失败。
+- **`!` shell 前缀只在普通发送路径上执行**（`useAgentSession.handleSend` 的 `isBashCommand` 分支）。引导路径上它是正文，所以 `sendStreamingPrompt` 先 `restore()` 草稿再提示 `chat.steerShellUnavailable`。
+- **`lib/rpc-manager.ts` 的 bash 占用检查只拦非流式 prompt。** 命令跑着的时候正是最需要立刻改方向的时刻，拦掉整条 steer 只会逼用户去 abort。
+- **`steeringMode` / `followUpMode` 是 pi 自己的设置**（`~/.pi/agent/settings.json`，默认 `one-at-a-time`），`lib/queue-mode-settings.ts` 读写这两个字段，`GET|PUT /api/queue-modes` 是它的唯一入口，Settings → 常规 → 聊天 只暴露 steering 一行的下拉（同时写两个字段）。AgentSession 在构造时只读一次，所以保存后还要发 `set_steering_mode` / `set_follow_up_mode` 把模式推进活着的 wrapper；不必 reload。
+- **手机端 `/m` 运行中发送必须带 `streamingBehavior: "steer"`。** 不带时 `prompt()` 直接 reject，手机上表现为发不出去。
+
 ### Running state polling + reconciliation
 - The sidebar polls `/api/agent/running` every 2.5 seconds while the tab is visible and pauses polling in background tabs. The session-list response remains the initial fallback.
 - `useAgentSession` treats per-session SSE as primary for chat events and opens it before each prompt. `prompt_done` completes the current UI stage and notification immediately, but the idle SSE stays open for a 30-second grace window and is reused by the next prompt. `agent_start` cancels that close timer; `agent_settled` finishes extension-injected runs that have no wrapper-level `prompt_done` and starts a fresh grace window. Do not close on the first `agent_end`: retries, compaction, and extension-queued messages can continue the same logical prompt.
@@ -238,6 +247,13 @@ Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `au
 - 文本文件收到 `change` 后走 `applyDiskContent()`：一次更新 `data`、基线、草稿，并把内容写回 Monaco 模型。Monaco 用 `defaultValue` 建模，prop 变化不会回写，只能靠 `handleRef` 里的 `getModel().setValue()`；`applyingExternalRef` 用来把这次 `setValue` 触发的 `onChange` 排除在“用户编辑”之外，否则刚同步完就变脏。
 - **磁盘内容绝不覆盖脏草稿**：`dirtyRef` 为真时只置 `diskChangePending`，工具条指示灯转黄并弹出提示条，用户点“重新加载”才以磁盘为准。保存期间到达的事件记在 `resyncAfterSaveRef`，保存结束后补核对一次，否则和自己的 PUT 撞在一起就会漏掉外部写入。
 - `watchEnabled={rightPanelOpen}`：面板关掉就不再占用 watcher。`connected` 只在草稿不脏时校对一遍，否则一次 SSE 重连会被误判成磁盘变更。
+
+### 编辑器撤销/恢复必须自己接管快捷键
+- **Monaco 自带的 Ctrl+Z 绑定不够用。** Tauri 的 WebView（WKWebView / WebView2）会先把 Ctrl/Cmd+Z 当成原生编辑命令吃掉，keydown 到不了编辑器，表现就是「文件编辑里没有撤销」。`components/MonacoEditor.tsx` 因此在 `document` 的 **capture 阶段** 监听 Ctrl/Cmd+Z、Ctrl/Cmd+Shift+Z、Ctrl+Y、Ctrl+U，只有当 `event.target` 在 `editor.getDomNode()` 内时才处理。
+- **必须先 `preventDefault()` 再 `stopPropagation()`。** 前者取消 WebView 的原生撤销，后者炛死 Monaco 自己的绑定——两个都做才能只撤一步；少了 `stopPropagation` 就会一次按两下。
+- **`Ctrl+U` 是产品选的恢复习惯键**（与 Ctrl+Y / Cmd+Shift+Z 等价），工具栏文案也这么写，不要把它当成 `Ctrl+Y` 的别名而悄悄删掉。
+- **提示文案里的修饰键按平台显示。** `lib/platform-key.ts` 的 `isMacPlatform()` / `modifierKeyLabel()` 决定显示 `Cmd+Z` 还是 `Ctrl+Z`；`FileViewer` 先用 state 默认 `Ctrl`（服务端没有 `navigator`）、再用 effect 修正成 `Cmd`，避免 hydration 属性不一致。按键判断本身同时接受 metaKey 与 ctrlKey，所以平台判断错了只会让文字不好看，不会让快捷键失效。
+- 工具栏的撤销/恢复按钮走同一个 undo 栈（`editorHandleRef.current.undo()/redo()`），可用状态来自 `model.canUndo()/canRedo()`，由 `editor.onDidChangeModelContent` 上报（撤销本身也会改内容，同一个回调负责两者）。不要用 `document.execCommand("undo")`：它对 Monaco 的模型无效。
 
 ### Plugins and skills
 - `/api/plugins` uses pi's `SettingsManager` + `DefaultPackageManager` for global/project package install, remove, update, enable, and disable. Disabling writes empty `extensions/skills/prompts/themes` arrays for that package entry.

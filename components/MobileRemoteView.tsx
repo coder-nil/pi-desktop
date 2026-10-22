@@ -532,7 +532,10 @@ export function MobileRemoteView() {
         const response = await fetch(`/api/agent/${encodeURIComponent(sessionId)}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ type: "prompt", message: text }),
+          // 运行中不带 streamingBehavior 会被 SDK 直接拒绝（“Agent is already
+          // processing…”），手机上就变成发不出去。带 steer 后会话有空时
+          // SDK 仍会开新一轮，所以这一条路径不需要分支。
+          body: JSON.stringify({ type: "prompt", message: text, ...(running ? { streamingBehavior: "steer" } : {}) }),
         });
         const data = await response.json() as { error?: string };
         if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
@@ -567,7 +570,7 @@ export function MobileRemoteView() {
     } finally {
       setBusy(false);
     }
-  }, [busy, input, scrollToBottom, sessionId, snapshot?.cwd, t, target?.cwd]);
+  }, [busy, input, running, scrollToBottom, sessionId, snapshot?.cwd, t, target?.cwd]);
 
   const stop = useCallback(async () => {
     if (!sessionId) return;
@@ -883,7 +886,7 @@ export function MobileRemoteView() {
             enterKeyHint="send"
             autoComplete="off"
             spellCheck={false}
-            placeholder={running ? t("mobile.placeholderQueued") : t("mobile.placeholder")}
+            placeholder={running ? t("mobile.placeholderSteer") : t("mobile.placeholder")}
             aria-label={t("mobile.placeholder")}
             style={{
               flex: 1, minWidth: 0, resize: "none", maxHeight: COMPOSER_MAX_HEIGHT,

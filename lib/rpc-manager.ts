@@ -19,6 +19,7 @@ import { createAskUserExtension } from "./ask-user-tool";
 import { createTaskProgressExtension } from "./task-progress-tool";
 import { cacheSessionPath, invalidateSessionListCache } from "./session-reader";
 import { applyShellTool, normalizeActiveShellTool, resolveShellSelection } from "./shell-tool";
+import type { QueueMode } from "./queue-mode-settings";
 import { getProjectTrustStatus, projectTrustReloadOptions } from "./project-trust";
 import { persistExplicitStartupPreferences } from "./startup-preferences";
 import { findSkillInvocation, recordSkillUsage } from "./skills-store";
@@ -231,6 +232,12 @@ const SYSTEM_PROMPT_TRANSLATIONS: Record<string, string> = {
 
 function normalizeUiLocale(value: unknown): UiLocale {
   return value === "zh-CN" ? "zh-CN" : "en";
+}
+
+/** 队列投递模式：`one-at-a-time` 每个完成的 assistant turn 只投一条，`all` 一次投完。 */
+function parseQueueMode(value: unknown): QueueMode {
+  if (value === "all" || value === "one-at-a-time") return value;
+  throw new Error('mode must be "all" or "one-at-a-time"');
 }
 
 function translateGeneratedSystemPrompt(prompt: string, locale: UiLocale): string {
@@ -764,7 +771,10 @@ export class AgentSessionWrapper {
         // this submission starts a run or joins its streaming queue.
         const releaseAdmission = await this.acquirePromptAdmission();
         try {
-          if (this.inner.isBashRunning) {
+          // bash 运行中不得开新的一轮，但引导/续跑（streamingBehavior）不受影响：
+          // 命令跑着的时候正是最需要立刻改变方向的时刻，拒绝整条 steer
+          // 只会逼用户去 abort。
+          if (this.inner.isBashRunning && !command.streamingBehavior) {
             throw new Error("Cannot send a prompt while a shell command is running");
           }
           const promptImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
@@ -1056,6 +1066,18 @@ export class AgentSessionWrapper {
         const followImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
         await this.inner.followUp(command.message as string, followImages?.length ? followImages : undefined, { source: "rpc" });
         return null;
+      }
+
+      case "set_steering_mode": {
+        const mode = parseQueueMode(command.mode);
+        this.inner.setSteeringMode?.(mode);
+        return { steeringMode: mode };
+      }
+
+      case "set_follow_up_mode": {
+        const mode = parseQueueMode(command.mode);
+        this.inner.setFollowUpMode?.(mode);
+        return { followUpMode: mode };
       }
 
       case "get_tools": {

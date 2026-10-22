@@ -123,3 +123,52 @@ test("applying disk content moves the baseline without marking a user edit", () 
   // 从未进入编辑态时只更新只读视图，不凭空造草稿。
   assert.match(viewerSource, /if \(draftRef\.current === null && !model\) return;/);
 });
+
+test("undo and redo work inside the desktop WebView", () => {
+  // 撤销/恢复在 document 的 capture 阶段抢：Tauri 的 WebView 会先把 Ctrl/Cmd+Z
+  // 当原生编辑命令吃掉，Monaco 自己的绑定根本收不到 keydown。
+  assert.match(editorSource, /document\.addEventListener\("keydown", handleUndoRedoKey, true\)/);
+  assert.match(editorSource, /if \(!\(event\.metaKey \|\| event\.ctrlKey\) \|\| event\.altKey\) return;/);
+  assert.match(editorSource, /const isUndo = key === "z" && !event\.shiftKey;/);
+  // Ctrl+U 是常见的「恢复」习惯键，与 Ctrl+Y / Cmd+Shift+Z 等价。
+  assert.match(editorSource, /const isRedo = key === "y" \|\| key === "u" \|\| \(key === "z" && event\.shiftKey\);/);
+  assert.match(editorSource, /editor\.trigger\("keyboard", isUndo \? "undo" : "redo", null\)/);
+  // 只接管编辑器里的按键，且必须先取消默认行为，否则原生撤销和 Monaco 各撤一步。
+  assert.match(editorSource, /!dom\.contains\(event\.target\)\) return;\n\s+event\.preventDefault\(\);\n\s+event\.stopPropagation\(\);/);
+  assert.match(editorSource, /undo: \(\) => editorRef\.current\?\.trigger\("keyboard", "undo", null\)/);
+  assert.match(editorSource, /redo: \(\) => editorRef\.current\?\.trigger\("keyboard", "redo", null\)/);
+});
+
+test("the edit toolbar exposes undo and redo with the stack state", () => {
+  assert.match(viewerSource, /<Undo2 size=\{14\}/);
+  assert.match(viewerSource, /<Redo2 size=\{14\}/);
+  assert.match(viewerSource, /onClick=\{\(\) => editorHandleRef\.current\?\.undo\(\)\}/);
+  assert.match(viewerSource, /onClick=\{\(\) => editorHandleRef\.current\?\.redo\(\)\}/);
+  assert.match(viewerSource, /disabled=\{!undoState\.canUndo\}/);
+  assert.match(viewerSource, /disabled=\{!undoState\.canRedo\}/);
+  assert.match(viewerSource, /onUndoStateChange=\{setUndoState\}/);
+  // 撤销栈变化同时驱动两个按钮的可用状态。
+  assert.match(editorSource, /canUndo: model\?\.canUndo\(\) \?\? false,/);
+  assert.match(editorSource, /canRedo: model\?\.canRedo\(\) \?\? false,/);
+  assert.match(editorSource, /editor\.onDidChangeModelContent\(notifyUndoState\)/);
+});
+
+test("the undo and redo hints follow the platform modifier key", () => {
+  assert.match(viewerSource, /import \{ isMacPlatform, type ModifierKeyLabel \} from "@\/lib\/platform-key";/);
+  assert.match(viewerSource, /const \[modifierKey, setModifierKey\] = useState<ModifierKeyLabel>\("Ctrl"\);/);
+  // 首帧一律 Ctrl（服务端没有 navigator），客户端再改成 Cmd，避免 hydration 属性不一致。
+  assert.match(viewerSource, /if \(isMacPlatform\(\)\) setModifierKey\("Cmd"\);/);
+  assert.match(viewerSource, /t\("i18n\.undo", \{ mod: modifierKey \}\)/);
+  assert.match(viewerSource, /t\("i18n\.redo", \{ mod: modifierKey \}\)/);
+});
+
+test("both locales format the modifier key from the platform", async () => {
+  const [en, zh] = await Promise.all([
+    readFile(new URL("../lib/i18n/messages/en.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/i18n/messages/zh-CN.ts", import.meta.url), "utf8"),
+  ]);
+  assert.match(zh, /"i18n\.undo": "撤销（\{mod\}\+Z）"/);
+  assert.match(zh, /"i18n\.redo": "恢复（\{mod\}\+U）"/);
+  assert.match(en, /"i18n\.undo": "Undo \(\{mod\}\+Z\)"/);
+  assert.match(en, /"i18n\.redo": "Redo \(\{mod\}\+U\)"/);
+});

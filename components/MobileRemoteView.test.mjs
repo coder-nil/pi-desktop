@@ -177,7 +177,9 @@ test("reads the session snapshot instead of shipping demo data", () => {
 });
 
 test("wires send, stop and new task to the existing agent endpoints", () => {
-  assert.match(viewSource, /body: JSON\.stringify\(\{ type: "prompt", message: text \}\)/);
+  assert.match(viewSource, /body: JSON\.stringify\(\{ type: "prompt", message: text, \.\.\.\(running \? \{ streamingBehavior: "steer" \} : \{\}\) \}\)/);
+  // 运行中不带 streamingBehavior 会被 SDK 直接拒绕，手机端就发不出去。
+  assert.match(viewSource, /streamingBehavior: "steer"/);
   assert.match(viewSource, /body: JSON\.stringify\(\{ type: "abort" \}\)/);
   assert.match(viewSource, /fetch\("\/api\/agent\/new"/);
   // 新任务只清空会话，下一次发送才真正建会话。

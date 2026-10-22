@@ -1210,12 +1210,22 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     requestAnimationFrame(() => textareaRef.current?.focus());
   }, []);
 
-  const sendQueued = useCallback((mode: QueueSendMode) => {
+  const sendQueued = useCallback(async (mode: QueueSendMode) => {
     const msg = buildComposerMessage(value, selectedSlashCommand, selectedAtMentions);
     if (!msg && !attachedImages.length) return;
     setQueueMenuOpen(false);
     textareaRef.current?.focus();
     onAudioUnlock?.();
+    // 内置命令必须先走 onBuiltinCommand：漏掉这一层时 /compact 会原样变成一条
+    // 引导给模型的用户消息。/name /session /copy 在运行中安全，/compact 与
+    // /reload 由 handleBuiltinSlashCommand 按 Agent 运行状态拒绝。
+    const builtinName = msg.startsWith("/") ? msg.slice(1).split(/\s+/, 1)[0].toLowerCase() : null;
+    if (builtinName && BUILTIN_SLASH_COMMANDS.some((command) => command.name === builtinName)) {
+      if (!onBuiltinCommand) return;
+      const result = await onBuiltinCommand(msg);
+      if (result.handled && !result.error) clearInput();
+      return;
+    }
     const streamingBehavior = mode === "steer" ? "steer" : "followUp";
     if (msg.startsWith("/") && onPromptWithStreamingBehavior) {
       clearInput();
@@ -1228,7 +1238,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     } else if (mode === "followup" && onFollowUp) {
       onFollowUp(msg, attachedImages.length ? attachedImages : undefined);
     }
-  }, [value, attachedImages, onPromptWithStreamingBehavior, onSteer, onFollowUp, clearInput, onAudioUnlock, selectedAtMentions, selectedSlashCommand]);
+  }, [value, attachedImages, onPromptWithStreamingBehavior, onSteer, onFollowUp, onBuiltinCommand, clearInput, onAudioUnlock, selectedAtMentions, selectedSlashCommand]);
 
   const requestQueuedSend = useCallback(() => {
     if (!canQueueStreamingMessage) return;
@@ -1238,7 +1248,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       setQueueActiveMode("followup");
       setQueueMenuOpen(true);
     }
-    else if (onSteer || onFollowUp) sendQueued(onSteer ? "steer" : "followup");
+    else if (onSteer || onFollowUp) void sendQueued(onSteer ? "steer" : "followup");
   }, [canQueueStreamingMessage, onSteer, onFollowUp, sendQueued]);
 
   const selectQueueMode = useCallback((mode: QueueSendMode) => {
@@ -1253,7 +1263,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     const countdownTimers = [
       window.setTimeout(() => setQueueCountdown(2), 1000),
       window.setTimeout(() => setQueueCountdown(1), 2000),
-      window.setTimeout(() => sendQueued("followup"), 3000),
+      window.setTimeout(() => { void sendQueued("followup"); }, 3000),
     ];
     return () => countdownTimers.forEach(window.clearTimeout);
   }, [queueCountdownPaused, queueMenuVisible, onFollowUp, sendQueued]);
@@ -1473,14 +1483,14 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         (queueShortcutMode === "steer" ? onSteer : onFollowUp)
       ) {
         e.preventDefault();
-        sendQueued(queueShortcutMode);
+        void sendQueued(queueShortcutMode);
         return;
       }
 
       if (sendShortcut) {
         e.preventDefault();
         if (isStreaming && (onSteer || onFollowUp)) {
-          if (e.altKey && onFollowUp) sendQueued("followup");
+          if (e.altKey && onFollowUp) void sendQueued("followup");
           else requestQueuedSend();
         } else {
           handleSend();
@@ -1777,7 +1787,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     if (shortcutMode && (shortcutMode === "steer" ? onSteer : onFollowUp)) {
       event.preventDefault();
       event.stopPropagation();
-      if (!event.repeat) sendQueued(shortcutMode);
+      if (!event.repeat) void sendQueued(shortcutMode);
       return;
     }
     if (event.key === "Escape") {
@@ -1796,7 +1806,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     if (event.key === "Enter") {
       event.preventDefault();
       event.stopPropagation();
-      if (!event.repeat) sendQueued(queueActiveMode);
+      if (!event.repeat) void sendQueued(queueActiveMode);
     }
   };
 
@@ -2355,7 +2365,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   className={queueActiveMode === "steer" ? "chat-composer-queue-selected" : undefined}
                   onFocus={() => setQueueActiveMode("steer")}
                   onMouseEnter={() => setQueueActiveMode("steer")}
-                  onClick={() => sendQueued("steer")}
+                  onClick={() => { void sendQueued("steer"); }}
                 >
                   <span>{t("chat.steer")}</span>
                   <kbd className="chat-composer-queue-shortcut">Alt+F</kbd>
@@ -2370,7 +2380,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   className={queueActiveMode === "followup" ? "chat-composer-queue-selected" : undefined}
                   onFocus={() => setQueueActiveMode("followup")}
                   onMouseEnter={() => setQueueActiveMode("followup")}
-                  onClick={() => sendQueued("followup")}
+                  onClick={() => { void sendQueued("followup"); }}
                 >
                   <span>{t("chat.followUp")}</span>
                   <span className="chat-composer-queue-meta">

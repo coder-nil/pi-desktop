@@ -11,6 +11,7 @@ import {
   Languages,
   Layers3,
   Lightbulb,
+  ListOrdered,
   MoveHorizontal,
   RotateCcw,
   Settings2,
@@ -25,7 +26,7 @@ import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useChatAppearance } from "@/hooks/useChatAppearance";
 import { sendAgentCommand } from "@/lib/agent-client";
-import type { ShellToolSettingsResponse } from "@/lib/api-types";
+import type { QueueModeSettingsResponse, ShellToolSettingsResponse } from "@/lib/api-types";
 import {
   CHAT_CONTENT_FONT_SIZE_DEFAULT,
   CHAT_CONTENT_FONT_SIZE_MAX,
@@ -116,17 +117,19 @@ function SettingsGroup({ title, children }: { title?: string; children: ReactNod
 }
 
 /** 行内下拉（主题 / 语言）：两个地方共用同一尺寸与圆角。 */
-function SettingsSelect({ value, label, options, onChange }: {
+function SettingsSelect({ value, label, options, onChange, disabled }: {
   value: string;
   label: string;
   options: Array<{ value: string; label: string }>;
   onChange: (value: string) => void;
+  disabled?: boolean;
 }) {
   return (
     <select
       className="settings-select"
       value={value}
       aria-label={label}
+      disabled={disabled}
       onChange={(event) => onChange(event.target.value)}
     >
       {options.map((option) => (
@@ -189,6 +192,9 @@ export function SettingsPanel({ cwd, hasProject, projectTrusted, sessionId, onCl
     setFontSize: setChatContentFontSize,
   } = useChatAppearance();
   const [thinkingExpanded, setThinkingExpanded] = useState(false);
+  const [queueMode, setQueueMode] = useState<"all" | "one-at-a-time">("one-at-a-time");
+  const [queueModeSaving, setQueueModeSaving] = useState(false);
+  const [queueModeError, setQueueModeError] = useState<string | null>(null);
   const [shellSettings, setShellSettings] = useState<ShellToolSettingsResponse | null>(null);
   const [shellSaving, setShellSaving] = useState(false);
   const [shellError, setShellError] = useState<string | null>(null);
@@ -220,6 +226,13 @@ export function SettingsPanel({ cwd, hasProject, projectTrusted, sessionId, onCl
 
   useEffect(() => {
     setThinkingExpanded(isThinkingExpandedByDefault());
+    void fetch("/api/queue-modes")
+      .then(async (response) => {
+        const data = await response.json() as QueueModeSettingsResponse & { error?: string };
+        if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
+        setQueueMode(data.steeringMode);
+      })
+      .catch((error) => setQueueModeError(error instanceof Error ? error.message : String(error)));
     void fetch("/api/tools/settings")
       .then(async (response) => {
         const data = await response.json() as ShellToolSettingsResponse & { error?: string };
@@ -251,6 +264,32 @@ export function SettingsPanel({ cwd, hasProject, projectTrusted, sessionId, onCl
       setShellError(error instanceof Error ? error.message : String(error));
     } finally {
       setShellSaving(false);
+    }
+  };
+
+  const changeQueueMode = async (mode: "all" | "one-at-a-time") => {
+    setQueueMode(mode);
+    setQueueModeSaving(true);
+    setQueueModeError(null);
+    try {
+      const response = await fetch("/api/queue-modes", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ steeringMode: mode, followUpMode: mode }),
+      });
+      const data = await response.json() as QueueModeSettingsResponse & { error?: string };
+      if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
+      setQueueMode(data.steeringMode);
+      // AgentSession 在构造时读一次 settings，所以还要把模式推进活着的会话；
+      // 它只改内存，不必 reload。
+      if (sessionId) {
+        await sendAgentCommand(sessionId, { type: "set_steering_mode", mode: data.steeringMode });
+        await sendAgentCommand(sessionId, { type: "set_follow_up_mode", mode: data.followUpMode });
+      }
+    } catch (error) {
+      setQueueModeError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setQueueModeSaving(false);
     }
   };
 
@@ -414,6 +453,27 @@ export function SettingsPanel({ cwd, hasProject, projectTrusted, sessionId, onCl
   const renderBannerRow = () => (
     <SettingsRow icon={Flag} title={t("settings.showBanner")} description={t("settings.showBannerDescription")}>
       <SettingsSwitch checked={bannerEnabled} label={t("settings.showBanner")} onChange={() => onBannerToggle()} />
+    </SettingsRow>
+  );
+
+  // 引导/续跑队列的投递模式：默认一条一条投，连发多条引导会被拆到多个
+  // assistant turn 里陆续注入，看起来就像「引导没生效」。
+  const renderQueueModeRow = () => (
+    <SettingsRow
+      icon={ListOrdered}
+      title={t("settings.steeringMode")}
+      description={t("settings.steeringModeDescription")}
+    >
+      <SettingsSelect
+        value={queueMode}
+        label={t("settings.steeringMode")}
+        disabled={queueModeSaving}
+        onChange={(value) => { void changeQueueMode(value === "all" ? "all" : "one-at-a-time"); }}
+        options={[
+          { value: "one-at-a-time", label: t("settings.steeringModeOneAtATime") },
+          { value: "all", label: t("settings.steeringModeAll") },
+        ]}
+      />
     </SettingsRow>
   );
 
@@ -689,9 +749,11 @@ export function SettingsPanel({ cwd, hasProject, projectTrusted, sessionId, onCl
 
                   <SettingsGroup title={t("settings.groupChat")}>
                     {renderThinkingRow()}
+                    {renderQueueModeRow()}
                     {renderChatWidthRow()}
                     {renderChatFontSizeRow()}
                     {renderCompletionSoundRow()}
+                    {queueModeError && <p role="alert" className="settings-error">{queueModeError}</p>}
                   </SettingsGroup>
 
                   {/* Shell 工具只在 Windows 存在；读取失败时也渲染这一组，

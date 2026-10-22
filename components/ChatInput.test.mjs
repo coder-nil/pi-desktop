@@ -524,6 +524,18 @@ test("chat appearance settings drive the composer width and type size", () => {
   assert.match(source, /useEffect\(\(\) => \{\n    resizeComposerTextarea\(textareaRef\.current\);\n  \}, \[value, chatFontSize\]\);/);
 });
 
+// 引导路径不能把内置命令当成正文发出去。
+test("routes builtin slash commands through the builtin handler while streaming", () => {
+  assert.match(source, /const builtinName = msg\.startsWith\("\/"\) \? msg\.slice\(1\)\.split\(\/\\s\+\/, 1\)\[0\]\.toLowerCase\(\) : null;/);
+  assert.match(source, /if \(builtinName && BUILTIN_SLASH_COMMANDS\.some\(\(command\) => command\.name === builtinName\)\)/);
+  assert.match(source, /const result = await onBuiltinCommand\(msg\);/);
+  // 拒绝的内置命令不能清掉草稿，否则用户丢掉了刚写的内容。
+  assert.match(source, /if \(result\.handled && !result\.error\) clearInput\(\);/);
+  // 队列发送变成 async，调用处必须显式丢弃 promise。
+  assert.match(source, /const sendQueued = useCallback\(async \(mode: QueueSendMode\) => \{/);
+  assert.match(source, /void sendQueued\(/);
+});
+
 test("publishes the chat reading surface as clamped custom properties", () => {
   assert.match(globalsCss, /--chat-content-max-width: 820px;/);
   assert.match(globalsCss, /--chat-content-font-size: 14px;/);

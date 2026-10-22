@@ -11,6 +11,8 @@ export interface MonacoEditorHandle {
   focus: () => void;
   getValue: () => string;
   getModel: () => monaco.editor.ITextModel | null;
+  undo: () => void;
+  redo: () => void;
 }
 
 interface MonacoFileEditorProps {
@@ -25,6 +27,8 @@ interface MonacoFileEditorProps {
   onChange: (next: string) => void;
   onSave: (value: string) => void;
   onBlur?: () => void;
+  /** 撤销栈变化：工具栏的撤销/恢复按钮靠它决定可不可点。 */
+  onUndoStateChange?: (state: { canUndo: boolean; canRedo: boolean }) => void;
   handleRef?: Ref<MonacoEditorHandle>;
 }
 
@@ -143,15 +147,28 @@ export function MonacoFileEditor({
   path,
   onChange,
   onSave,
+  onUndoStateChange,
   handleRef,
 }: MonacoFileEditorProps) {
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
+  const undoStateListenerRef = useRef<(() => void) | null>(null);
+  // 用 ref 转发，避免 handleMount （只该跑一次）因为回调身份变化而重建键盘监听。
+  const onUndoStateChangeRef = useRef(onUndoStateChange);
+  onUndoStateChangeRef.current = onUndoStateChange;
 
   useImperativeHandle(handleRef, () => ({
     focus: () => editorRef.current?.focus(),
     getValue: () => editorRef.current?.getValue() ?? "",
     getModel: () => editorRef.current?.getModel() ?? null,
+    // 走 Monaco 自己的 undo 栈；document.execCommand("undo") 对编辑器内容无效。
+    undo: () => editorRef.current?.trigger("keyboard", "undo", null),
+    redo: () => editorRef.current?.trigger("keyboard", "redo", null),
   }), []);
+
+  useEffect(() => () => {
+    undoStateListenerRef.current?.();
+    undoStateListenerRef.current = null;
+  }, []);
 
   const monacoTheme = dark ? "vs-dark" : "light";
 
@@ -218,6 +235,41 @@ export function MonacoFileEditor({
       monacoApi.KeyMod.CtrlCmd | monacoApi.KeyCode.Space,
       () => editor.trigger('keyboard', 'editor.action.triggerSuggest', {})
     );
+
+    // 撤销 / 恢复：不能只靠 Monaco 自带的绑定。Tauri 的 WebView（WKWebView /
+    // WebView2）会先把 Ctrl/Cmd+Z 当成原生编辑命令吃掉，keydown 到不了编辑器，
+    // 表现就是「撤销没反应」。所以在 document 的 capture 阶段先擒下来，自己
+    // 触发 Monaco 的 undo 栈；stopPropagation 是必需的，否则 Monaco 的默认绑定
+    // 会再撤一步。
+    const handleUndoRedoKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
+      if (!(event.metaKey || event.ctrlKey) || event.altKey) return;
+      const key = event.key.toLowerCase();
+      const isUndo = key === "z" && !event.shiftKey;
+      // Ctrl+U 是常见的「恢复」习惯键，与 Ctrl+Y / Cmd+Shift+Z 等价。
+      const isRedo = key === "y" || key === "u" || (key === "z" && event.shiftKey);
+      if (!isUndo && !isRedo) return;
+      const dom = editor.getDomNode();
+      if (!dom || !(event.target instanceof Node) || !dom.contains(event.target)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      editor.trigger("keyboard", isUndo ? "undo" : "redo", null);
+    };
+    document.addEventListener("keydown", handleUndoRedoKey, true);
+    undoStateListenerRef.current?.();
+    undoStateListenerRef.current = () => document.removeEventListener("keydown", handleUndoRedoKey, true);
+
+    // 工具栏按钮的可用状态：撤销本身也会改内容，所以同一个回调同时负责两者。
+    const notifyUndoState = () => {
+      const model = editor.getModel();
+      onUndoStateChangeRef.current?.({
+        canUndo: model?.canUndo() ?? false,
+        canRedo: model?.canRedo() ?? false,
+      });
+    };
+    editor.onDidChangeModelContent(notifyUndoState);
+    editor.onDidChangeModel(notifyUndoState);
+    notifyUndoState();
   }, [handleExplicitSave]);
 
   return (

@@ -191,6 +191,12 @@ export interface AgentSessionLike {
     source?: "interactive" | "rpc" | "extension";
   }): Promise<"handled" | "queued">;
   readonly pendingMessageCount: number;
+  /**
+   * 引导/续跑队列的投递模式（pi 自己的 `steeringMode` / `followUpMode`）。
+   * 结构类型不会把 SDK 的真实签名带进来，遗漏也不会被 tsc 发现，所以两边都声明。
+   */
+  setSteeringMode?(mode: "all" | "one-at-a-time"): void;
+  setFollowUpMode?(mode: "all" | "one-at-a-time"): void;
   getSteeringMessages(): readonly string[];
   getFollowUpMessages(): readonly string[];
   clearQueue(): { steering: string[]; followUp: string[] };

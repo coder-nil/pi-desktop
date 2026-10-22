@@ -119,6 +119,18 @@ test("wires the Windows PowerShell switch to the tools settings route", () => {
   assert.match(source, /shellSettings\?\.isWindows === true \|\| shellError !== null/);
 });
 
+test("wires the steering delivery mode to the queue-modes route", () => {
+  assert.match(source, /t\("settings\.steeringMode"\)/);
+  assert.match(source, /renderQueueModeRow\(\)/);
+  assert.match(source, /fetch\("\/api\/queue-modes"\)/);
+  assert.match(source, /body: JSON\.stringify\(\{ steeringMode: mode, followUpMode: mode \}\)/);
+  // AgentSession 构造时只读一次 settings，保存后必须推进活着的会话。
+  assert.match(source, /await sendAgentCommand\(sessionId, \{ type: "set_steering_mode", mode: data\.steeringMode \}\)/);
+  assert.match(source, /await sendAgentCommand\(sessionId, \{ type: "set_follow_up_mode", mode: data\.followUpMode \}\)/);
+  // 写入失败要看得见，不能静默回退到旧值。
+  assert.match(source, /role="alert"[^>]*>\{queueModeError\}/);
+});
+
 // 常规页的聊天阅读区在服务端渲染时必须是默认值：偏好存在浏览器里，服务端快照
 // 与 lib/chat-appearance.ts 的常量必须一致，否则 hydration 后数值会跳。
 test("renders the ported General rows with the chat reading surface", () => {

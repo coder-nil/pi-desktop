@@ -21,9 +21,10 @@ import { encodeFilePathForApi, getFileDirectory, getFileName, getRelativeFilePat
 import { resolveLocalFileTarget, type FileOpenLocation } from "@/lib/file-links";
 import { parseFrontmatter } from "@/lib/frontmatter";
 import { markdownPreviewRehypePlugins, markdownPreviewRemarkPlugins, normalizeDisplayMath } from "@/lib/markdown";
+import { isMacPlatform, type ModifierKeyLabel } from "@/lib/platform-key";
 import { CodeBlock, MermaidBlock } from "./MermaidBlock";
 import { FrontmatterCard } from "./FrontmatterCard";
-import { CaseSensitive, ChevronDown, ChevronUp, Save, Search, X } from "lucide-react";
+import { CaseSensitive, ChevronDown, ChevronUp, Redo2, Save, Search, Undo2, X } from "lucide-react";
 import { parseUnifiedPatch } from "@/lib/patch";
 import type { GitFileDiffResponse } from "@/lib/git-types";
 import { MonacoFileEditor, type MonacoEditorHandle } from "./MonacoEditor";
@@ -1084,6 +1085,13 @@ function TextFileViewer({
   // 模式推导，不再是独立开关；草稿在保存后仍保留，切走再切回不会丢。
   /** 编辑缓冲区：null = 尚未进入编辑态；字符串 = 当前草稿。 */
   const [draft, setDraft] = useState<string | null>(null);
+  // 编辑器撤销栈的空/满状态：工具栏的撤销/恢复按钮据此启用。
+  const [undoState, setUndoState] = useState({ canUndo: false, canRedo: false });
+  // 修饰键的显示名：服务端渲不出平台，首帧先给 Ctrl，客户端再改成 Cmd。
+  const [modifierKey, setModifierKey] = useState<ModifierKeyLabel>("Ctrl");
+  useEffect(() => {
+    if (isMacPlatform()) setModifierKey("Cmd");
+  }, []);
   const editing = displayMode === "edit" && editable && data !== null;
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
@@ -1832,6 +1840,32 @@ function TextFileViewer({
               </>
             )}
             {editing && data && (
+              <>
+                <button
+                  type="button"
+                  onPointerDown={(event) => event.preventDefault()}
+                  onClick={() => editorHandleRef.current?.undo()}
+                  title={t("i18n.undo", { mod: modifierKey })}
+                  aria-label={t("i18n.undo", { mod: modifierKey })}
+                  className="file-viewer-icon-button"
+                  disabled={!undoState.canUndo}
+                >
+                  <Undo2 size={14} strokeWidth={2} aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  onPointerDown={(event) => event.preventDefault()}
+                  onClick={() => editorHandleRef.current?.redo()}
+                  title={t("i18n.redo", { mod: modifierKey })}
+                  aria-label={t("i18n.redo", { mod: modifierKey })}
+                  className="file-viewer-icon-button"
+                  disabled={!undoState.canRedo}
+                >
+                  <Redo2 size={14} strokeWidth={2} aria-hidden="true" />
+                </button>
+              </>
+            )}
+            {editing && data && (
               <button
                 type="button"
                 onPointerDown={(event) => event.preventDefault()}
@@ -1968,6 +2002,7 @@ function TextFileViewer({
             path={filePath}
             onChange={handleEditorChange}
             onSave={(content) => void persistContent(content)}
+            onUndoStateChange={setUndoState}
             handleRef={editorHandleRef}
           />
         ) : effectiveDisplayMode === "diff" && hasGitDiff ? (

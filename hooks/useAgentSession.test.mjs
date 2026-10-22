@@ -512,6 +512,30 @@ test("uses the prompt anchor as the only trailing message spacer", () => {
   assert.doesNotMatch(chatWindowSource, /new ResizeObserver\(updateBottomComposerHeight\)/);
 });
 
+test("never lets a steering message become a silent no-op", () => {
+  const sendStreamingSource = source.slice(
+    source.indexOf("const sendStreamingPrompt = useCallback"),
+    source.indexOf("const handleSteer = useCallback"),
+  );
+  // `!` 只在普通发送路径执行，引导路径上它会被当成正文发给模型。
+  assert.match(sendStreamingSource, /message\.trimStart\(\)\.startsWith\("!"\)/);
+  assert.match(sendStreamingSource, /t\("chat\.steerShellUnavailable"\)/);
+  // “handled” 表示扩展吞掉了这条引导：不给提示就是静默失败。
+  assert.match(sendStreamingSource, /disposition\?: "handled" \| "queued" \| "started"/);
+  assert.match(sendStreamingSource, /result\?\.disposition === "handled"/);
+  assert.match(sendStreamingSource, /t\("chat\.steerHandledByExtension"\)/);
+
+  // /compact 与 /reload 是阻塞/重建型命令，运行中必须拒绝，否则会和当前运行撞车。
+  const builtinSource = source.slice(
+    source.indexOf("const handleBuiltinSlashCommand = useCallback"),
+    source.indexOf("const sendStreamingPrompt = useCallback"),
+  );
+  assert.equal(
+    (builtinSource.match(/if \(agentRunningRef\.current\) return complete\(\{ handled: true, error: t\("chat\.builtinBusy"\) \}\);/g) ?? []).length,
+    2,
+  );
+});
+
 test("keeps a detached viewport in place when streaming completes", () => {
   const scrollEffectSource = source.slice(
     source.indexOf("useLayoutEffect(() => {\n    if (messages.length > 0)"),
