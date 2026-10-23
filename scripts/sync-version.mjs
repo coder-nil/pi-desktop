@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, realpathSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { resolve, dirname } from 'node:path';
@@ -62,12 +62,97 @@ function localDate() {
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 }
 
+/** 提交类型 → 发布说明小节；没有匹配的类型（或中文直述提交）归入 Changed。 */
+const RELEASE_NOTE_SECTIONS = [
+  [/^feat(?:\([^)]*\))?!?:/i, 'Added'],
+  [/^fix(?:\([^)]*\))?!?:/i, 'Fixed'],
+];
+/**
+ * 不进发布说明的提交：测试、CI、文档，以及发布流程自己生成的版本号提交。
+ * 它们对使用者没有可见变化，写进 CHANGELOG 只会成为噪声。
+ */
+const SKIP_RELEASE_NOTE_COMMIT =
+  /^(?:test|ci|docs)(?:\([^)]*\))?!?:|^build\(version\)|^chore\((?:release|version|ci|workflow)\)/i;
+
+function gitOutput(args) {
+  try {
+    const result = spawnSync('git', ['-C', root, ...args], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    if (result.error || result.status !== 0) return null;
+    return result.stdout.trim();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 提交范围的起点：上一个发布版本的 tag（CHANGELOG 最新小节），tag 不存在时
+ * 退到最近的 tag。只在 root 就是仓库根时使用，否则会误拿外层仓库的历史。
+ */
+function releaseRangeStart(changelogText) {
+  const topLevel = gitOutput(['rev-parse', '--show-toplevel']);
+  if (!topLevel) return undefined;
+  // 比较真实路径：macOS 的 /var 是 /private/var 的符号链接。
+  const realpath = (path) => {
+    try {
+      return realpathSync(path);
+    } catch {
+      return path;
+    }
+  };
+  if (realpath(topLevel) !== realpath(root)) return undefined;
+
+  const previous = /^## \[([^\]]+)\]/m.exec(changelogText);
+  if (previous && gitOutput(['rev-parse', '--verify', '--quiet', `refs/tags/v${previous[1]}`]) !== null) {
+    return `v${previous[1]}`;
+  }
+  return gitOutput(['describe', '--tags', '--abbrev=0']) ?? null;
+}
+
+/**
+ * 从上一个发布点之后的所有提交生成发布说明草稿，让新版本小节不再只有
+ * 一句版本号：`--next` 插进去的就是「这段时间做了什么」，润色比从零写好。
+ */
+function collectReleaseNotes(changelogText) {
+  const start = releaseRangeStart(changelogText);
+  if (start === undefined) return {};
+
+  const log = gitOutput([
+    'log', '--no-merges', '--reverse', '--pretty=%s',
+    ...(start ? [`${start}..HEAD`] : []),
+  ]);
+  if (!log) return {};
+
+  const notes = {};
+  for (const subject of log.split('\n').map((line) => line.trim()).filter(Boolean)) {
+    if (SKIP_RELEASE_NOTE_COMMIT.test(subject)) continue;
+    const section = RELEASE_NOTE_SECTIONS.find(([pattern]) => pattern.test(subject))?.[1] ?? 'Changed';
+    const text = subject.replace(/^[A-Za-z]+(?:\([^)]*\))?!?:\s*/, '').trim();
+    if (!text) continue;
+    (notes[section] ??= []).push(`${text.replace(/[.。!！?？]$/, '')}。`);
+  }
+  return notes;
+}
+
 // Regex-escape the version so 1.2.3 never matches an existing 1.2.30 heading.
 function addChangelogSection(text) {
   const escaped = version.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   if (new RegExp(`^## \\[${escaped}\\]`, 'm').test(text)) return text;
   const newline = text.includes('\r\n') ? '\r\n' : '\n';
-  const section = `## [${version}] - ${localDate()}\n\n### Changed\n\n- 应用、npm、Tauri 和 Cargo 版本号统一为 \`${version}\`。\n\n`.replace(/\n/g, newline);
+
+  // 每个小节都以一条「版本号统一」收尾，这是本仓库固定的写法。
+  const notes = collectReleaseNotes(text);
+  const blocks = [];
+  for (const title of ['Added', 'Changed', 'Fixed']) {
+    const items = [...(notes[title] ?? [])];
+    if (title === 'Changed') items.push(`应用、npm、Tauri 和 Cargo 版本号统一为 \`${version}\`。`);
+    if (items.length === 0) continue;
+    blocks.push(`### ${title}\n\n${items.map((item) => `- ${item}`).join('\n')}`);
+  }
+
+  const section = `## [${version}] - ${localDate()}\n\n${blocks.join('\n\n')}\n\n`.replace(/\n/g, newline);
   const firstEntry = text.search(/^## \[/m);
   if (firstEntry === -1) return `${text.trimEnd()}${newline}${newline}${section}`;
   return `${text.slice(0, firstEntry)}${section}${text.slice(firstEntry)}`;

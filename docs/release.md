@@ -53,11 +53,19 @@ git commit -m "Release v<version>"
 `package.json` for the release part and continues the `alpha.N` counter, so the
 two stay in step while the SDK is upgraded between releases.
 
+The inserted CHANGELOG section is a **draft generated from the commits after the
+previous release**: it starts at the tag `v<previous section's version>` (falling
+back to the nearest tag), maps `feat` → Added, `fix` → Fixed and everything else
+→ Changed, skips `test`/`ci`/`docs` and the release's own version commits, and
+always ends Changed with the version-unification note. Those lines are commit
+subjects, not release prose, so read them against `git log v<previous>..HEAD`,
+rewrite them in user-facing language, and merge related entries before
+committing. Outside a git checkout the section only carries the version note.
+
 The bump command inserts `## [<version>] - <date>` plus the standard
 version-unification note when that section is missing, and ends with
 `Verified application version <version>`. Existing sections are historical and
-never rewritten, so add the release notes to the new section by hand before
-committing.
+never rewritten, so review the generated draft before committing.
 
 Release notes are also shipped inside the application: the **About** dialog
 (ⓘ next to the sidebar title and in Settings → General) renders
