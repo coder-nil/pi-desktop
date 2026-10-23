@@ -5,6 +5,15 @@
 本文件只记录**已发布版本**：每个小节对应一个 git tag（`v0.85.1-alpha.14` → `## [0.85.1-alpha.14]`）。
 发布前未打 tag 的中间提交不单独成节，会被归入其后最近的那个版本。
 
+## [1.4.0-alpha.18] - 2026-10-23
+
+### Changed
+
+- Pi SDK 从 1.2.0 升级到 1.4.0（`@earendil-works/pi-agent-core` / `pi-ai` / `pi-coding-agent` / `pi-tui`），摘要不再受固定输出上限限制，恢复会话时按记录的工具集还原，并提供更细的模型兼容字段。
+- 应用版本号改为「Pi SDK 版本 + `alpha.序号`」，`npm run version:next` 直接取 `package.json` 中的 Pi SDK 版本作为版本主体并继续递增序号。
+- 多个服务商提供同一裸模型 id 时，`enabledModels` 现在按每个服务商各解析出一个模型并在模型选择器顶部提示歧义，不再让模型列表整体加载失败，与 `pi` CLI 行为保持一致。
+- 应用、npm、Tauri 和 Cargo 版本号统一为 `1.4.0-alpha.18`。
+
 ## [1.2.0-alpha.17] - 2026-10-14
 
 ### Added

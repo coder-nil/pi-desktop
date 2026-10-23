@@ -36,16 +36,22 @@ For macOS, the workflow adds `Fix Pi Desktop.command` to each DMG after Tauri pa
 
 ## 3. Set the Version
 
-`package.json` is the single source of truth. For a routine release, bump the
-version and update the lockfiles, desktop metadata, README, and CHANGELOG section
-in one step (the command verifies its own output):
+`package.json` is the single source of truth. The version is always
+`<pi SDK version>-alpha.<sequence>`: the release follows the pi SDK the desktop
+is built on, and `alpha.N` counts our own releases on top of it. For a routine
+release, bump the version and update the lockfiles, desktop metadata, README, and
+CHANGELOG section in one step (the command verifies its own output):
 
 ```bash
-npm run version:next             # 0.85.1-alpha.14 -> 0.85.1-alpha.15
+npm run version:next             # 1.2.0-alpha.17 on pi 1.4.0 -> 1.4.0-alpha.18
 npm run version:set -- <version> # instead, when the next version is not a simple increment
 npm run version:check            # only needed after version:set
 git commit -m "Release v<version>"
 ```
+
+`version:next` reads the `@earendil-works/pi-coding-agent` version from
+`package.json` for the release part and continues the `alpha.N` counter, so the
+two stay in step while the SDK is upgraded between releases.
 
 The bump command inserts `## [<version>] - <date>` plus the standard
 version-unification note when that section is missing, and ends with

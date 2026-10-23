@@ -22,20 +22,39 @@ if (requestedVersion && !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)
   throw new Error(`Invalid version "${requestedVersion}". Use a semver value such as 1.2.3.`);
 }
 
-// 0.85.1-alpha.13 -> 0.85.1-alpha.14, 1.2.3 -> 1.2.4, 1.2.3-beta -> 1.2.3-beta.1
-function nextVersion(current) {
-  const [release, build] = current.split('+');
-  const suffix = build ? `+${build}` : '';
-  const counter = /^(\d+\.\d+\.\d+)-(.*?)(\d+)$/.exec(release);
-  if (counter) return `${counter[1]}-${counter[2]}${Number(counter[3]) + 1}${suffix}`;
-  const prerelease = /^(\d+\.\d+\.\d+)-([0-9A-Za-z.-]+)$/.exec(release);
-  if (prerelease) return `${prerelease[1]}-${prerelease[2]}.1${suffix}`;
-  const stable = /^(\d+)\.(\d+)\.(\d+)$/.exec(release);
-  if (stable) return `${stable[1]}.${stable[2]}.${Number(stable[3]) + 1}${suffix}`;
-  throw new Error(`Cannot derive the next version from "${current}". Use --set instead.`);
+const PI_SDK_PACKAGE = '@earendil-works/pi-coding-agent';
+
+/**
+ * Release part of the application version. The version is always
+ * `<pi sdk version>-alpha.<sequence>`: the release follows the pi SDK the
+ * desktop is built on, and `alpha.N` counts our own releases on top of it
+ * (1.2.0-alpha.17 on pi 1.4.0 → 1.4.0-alpha.18).
+ */
+function readPiSdkVersion(pkg) {
+  const declared = { ...pkg.dependencies, ...pkg.devDependencies }[PI_SDK_PACKAGE];
+  if (typeof declared !== 'string') {
+    throw new Error(
+      `Cannot read ${PI_SDK_PACKAGE} from package.json. Use --set instead.`,
+    );
+  }
+  // Accept an exact pin or a range/caret/tilde: only the release triple matters.
+  const match = /(\d+)\.(\d+)\.(\d+)/.exec(declared);
+  if (!match) throw new Error(`Cannot parse the pi SDK version "${declared}". Use --set instead.`);
+  return `${match[1]}.${match[2]}.${match[3]}`;
 }
 
-if (next) requestedVersion = nextVersion(JSON.parse(read('package.json')).version);
+/** `1.2.0-alpha.17` + pi `1.4.0` → `1.4.0-alpha.18`; a plain `1.2.3` starts at `alpha.1`. */
+function nextVersion(current, piVersion) {
+  const [release, build] = current.split('+');
+  const suffix = build ? `+${build}` : '';
+  const alpha = /-alpha\.(\d+)$/.exec(release);
+  return `${piVersion}-alpha.${alpha ? Number(alpha[1]) + 1 : 1}${suffix}`;
+}
+
+if (next) {
+  const pkg = JSON.parse(read('package.json'));
+  requestedVersion = nextVersion(pkg.version, readPiSdkVersion(pkg));
+}
 
 function localDate() {
   const now = new Date();
