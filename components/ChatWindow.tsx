@@ -920,11 +920,15 @@ function ExtensionDialog({
   const { t } = useI18n();
   const initialValue = request.method === "editor" ? request.prefill ?? "" : "";
   const [value, setValue] = useState(initialValue);
+  // 选择题永远带一个「自定义答案」入口：模型的选项再全，也可能不是用户想要的那个说法，
+  // 没有这条出口时用户只能取消整轮对话。开关按 id 重置，和输入内容一起清掉。
+  const [customAnswer, setCustomAnswer] = useState(false);
 
   // 按 id 重置，而不是按请求对象：状态对账每 15s 会带来一个新对象，
   // 按对象重置会把用户正在输入的内容抹掉。
   useEffect(() => {
     setValue(initialValue);
+    setCustomAnswer(false);
   }, [request.id, initialValue]);
 
   useEffect(() => {
@@ -942,6 +946,11 @@ function ExtensionDialog({
   const submitValue = () => {
     if (request.method === "confirm") {
       onRespond(request, { confirmed: true });
+    } else if (request.method === "select") {
+      // 自定义答案必须是非空文本，否则提交会给出一个没有任何意义的空选项。
+      const trimmed = value.trim();
+      if (!trimmed) return;
+      onRespond(request, { value: trimmed });
     } else {
       onRespond(request, { value });
     }
@@ -1002,6 +1011,47 @@ function ExtensionDialog({
                   {option}
                 </button>
               ))}
+              {customAnswer ? (
+                <input
+                  autoFocus
+                  value={value}
+                  placeholder={t("chat.customAnswer")}
+                  aria-label={t("chat.customAnswer")}
+                  onChange={(e) => setValue(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") submitValue();
+                    if (e.key === "Escape") onRespond(request, { cancelled: true });
+                  }}
+                  style={{
+                    width: "100%",
+                    padding: "9px 10px",
+                    borderRadius: 7,
+                    border: "1px solid var(--accent)",
+                    background: "var(--bg-panel)",
+                    color: "var(--text)",
+                    outline: "none",
+                    fontSize: 13,
+                  }}
+                />
+              ) : (
+                // 点一下就地变成输入框：再补一个「已展开」的按钮就是多一个外壳。
+                <button
+                  onClick={() => setCustomAnswer(true)}
+                  style={{
+                    width: "100%",
+                    padding: "9px 10px",
+                    borderRadius: 7,
+                    border: "1px dashed var(--border)",
+                    background: "none",
+                    color: "var(--text-muted)",
+                    cursor: "pointer",
+                    textAlign: "left",
+                    fontSize: 13,
+                  }}
+                >
+                  {t("chat.customAnswer")}
+                </button>
+              )}
             </div>
           )}
           {request.method === "input" && (
@@ -1093,6 +1143,23 @@ function ExtensionDialog({
                 background: "var(--accent)",
                 color: "#fff",
                 cursor: "pointer",
+              }}
+            >
+               {t("chat.submit")}
+            </button>
+          ) : customAnswer ? (
+            // 点了「自定义答案」才出现提交键：直接点选项就是答案，不需要再确认一次。
+            <button
+              onClick={submitValue}
+              disabled={!value.trim()}
+              style={{
+                padding: "6px 10px",
+                borderRadius: 6,
+                border: "1px solid var(--accent)",
+                background: "var(--accent)",
+                color: "#fff",
+                cursor: value.trim() ? "pointer" : "default",
+                opacity: value.trim() ? 1 : 0.5,
               }}
             >
                {t("chat.submit")}

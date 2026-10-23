@@ -35,6 +35,25 @@ test("renders a select prompt as tappable options", () => {
   assert.match(html, />Cancel<\/button>/);
 });
 
+test("always offers a custom answer next to the select options", () => {
+  // 模型给的选项再全也可能不是用户想说的那个词；没有这条出口时
+  // 手机上只能取消，整轮对话就停在取消上。
+  const html = render(base);
+
+  // 未点击时它就是一个带 placeholder 文案的选项行。
+  assert.match(html, />Custom answer<\/button>/);
+  assert.doesNotMatch(html, /<input/);
+});
+
+test("the custom answer entry turns into the input in place", async () => {
+  // 点一下就地变成输入框（placeholder 就是「自定义答案」），不另外插一个输入框。
+  assert.match(source, /\{customAnswer \? \(\s*<input/);
+  assert.match(source, /placeholder=\{t\("chat.customAnswer"\)\}/);
+  // 提交的是用户写的那段文本，不是某个选项标签。
+  assert.match(source, /const customValue = value\.trim\(\)/);
+  assert.match(source, /onRespond\(request, \{ value: customValue \}\)/);
+});
+
 test("renders confirm, input and editor with the right controls", () => {
   const confirm = render({ id: "c1", title: "确定删除？", method: "confirm", message: "删了就没了" });
   assert.match(confirm, /删了就没了/);
@@ -70,7 +89,8 @@ test("still offers a way out for custom extension interfaces", () => {
 test("disables every action while an answer is in flight", () => {
   const html = render(base, { busy: true });
 
-  assert.equal(html.match(/<button[^>]*disabled/g)?.length, 3);
+  // 两个选项 + 自定义答案入口 + 取消
+  assert.equal(html.match(/<button[^>]*disabled/g)?.length, 4);
 });
 
 test("answers go back through the agent command endpoint", async () => {

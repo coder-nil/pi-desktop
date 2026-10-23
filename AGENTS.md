@@ -301,6 +301,11 @@ Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `au
 - The page reads `session` / `cwd` from the URL, disconnects SSE when hidden and re-snapshots on `visibilitychange`, and renders the streaming tail from `lib/streaming-message.ts`'s reducer so it looks identical to the desktop. **`message_start` must be forwarded to `dispatch({ type: "snapshot" })`** (it is what the desktop does too): `streamReducer`'s `updateContentBlock` drops every delta while `streamingMessage` is null, so without that seed the phone showed nothing mid-run and then the whole answer at once. `limit` lives in component state while the SSE effect depends on `sessionId` only (it calls `refreshRef.current()`), so paging back through history never re-subscribes the event stream; loading earlier records `{scrollHeight, scrollTop, messageCount}` and restores that anchor once the window actually grows, so the reader stays where they were.
 - Not implemented yet: the desktop window does not adopt a run that the phone started while the desktop sits on the same session (its SSE is closed during the idle grace window). Doing so means touching `useAgentSession`'s adoption path.
 
+### 选择题永远带「自定义答案」
+- **`select` 请求的选项后面无条件追加一个「自定义答案」入口**（`chat.customAnswer`），桌面端在 `ExtensionDialog`、手机端在 `MobilePromptCard`；点一下**就地变成一个输入框**（placeholder 就是「自定义答案」），不另外插入第二个控件，提交的是 `trim()` 后非空的用户文本。模型的选项再全也可能不是用户想说的那个词，没有这条出口时唯一的替代是取消整轮。
+- **这条路径不只服务 `ask_user`。** `ctx.ui.select` 的所有调用方共用同一个 `extension_ui_request`，所以 `lib/ask-user-tool.ts` 的 `single_select` 把匹配不上任何选项标签的返回值当作自由文本答案（`{ value, custom: true }`）而不是中止整轮；空文本按取消处理。`custom` 也让 `text`/`editor` 和自定义选项走同一套标记。
+- 直接点选项仍然是一次点击就作答（不显示提交键），只有展开自定义输入后才出现提交键；自定义输入的状态与输入内容一起按 `request.id` 重置。placeholder 与按钮文案共用 `chat.customAnswer`，不要再拆出第二个 key。
+
 ### LAN access is a desktop-shell reverse proxy, not a wider bind
 - The Next server always listens on loopback. `src-tauri/src/lan_proxy.rs` runs a small proxy on `0.0.0.0` at a **random free port** (port 0, skipping the upstream's own port) that authenticates HTTP Basic with username `pi`, then rewrites `Host`/`Origin`/`Referer` to the loopback upstream and forces `Connection: close`, forwarding byte-for-byte — so SSE and compressed responses work, and the loopback window stays password-free.
 - Two traps in that byte-level forwarding, both now covered by tests:

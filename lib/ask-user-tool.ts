@@ -195,6 +195,8 @@ async function executeAskUser(
     const options = question.options ?? [];
     const title = titleFor(question, index, params.questions.length);
     let value: string | boolean | undefined;
+    // 自由文本答案：text / editor，以及选择题里用户自己写的那一条。
+    let customAnswer = question.kind === "text" || question.kind === "editor";
 
     if (question.kind === "single_select") {
       const selected = await ctx.ui.select(title, options.map((option) => option.label), {
@@ -207,8 +209,16 @@ async function executeAskUser(
           : { status: deadline !== undefined && Date.now() >= deadline ? "expired" : "cancelled", answers };
       }
       const selectedOption = options.find((option) => option.label === selected);
-      if (!selectedOption) return { status: "aborted", answers };
-      value = selectedOption.value;
+      if (selectedOption) {
+        value = selectedOption.value;
+      } else {
+        // UI 永远给选择题多留一个「自定义答案」入口，所以回来的不一定是一个选项标签：
+        // 匹配不上就说明用户自己写了答案，这段文本本身就是这一题的答案。
+        const typed = selected.trim();
+        if (!typed) return { status: "cancelled", answers };
+        value = typed;
+        customAnswer = true;
+      }
     } else if (question.kind === "confirm") {
       value = await ctx.ui.confirm(title, "请确认是否继续。", {
         ...(signal ? { signal } : {}),
@@ -243,7 +253,7 @@ async function executeAskUser(
     answers[question.id] = {
       value,
       ...(answerLabel(question, value) ? { label: answerLabel(question, value) } : {}),
-      ...(question.kind === "text" || question.kind === "editor" ? { custom: true } : {}),
+      ...(customAnswer ? { custom: true } : {}),
     };
   }
 
@@ -266,6 +276,7 @@ export function createAskUserExtension(): InlineExtension {
           "Each question must have a unique id, a clear prompt, and the correct kind. Use single_select with 2-8 concrete options for choices. For confirm, text, and editor, set options to an empty array. Use confirm for yes/no decisions, text for short values, and editor for multi-line input.",
           "ask_user answers are visible to the model and may be saved in the session; never request passwords, tokens, private keys, passphrases, OTP codes, or other secrets. When Git or SSH needs credentials, run the normal command and let Pi Desktop show its secure credential prompt instead.",
           "Ask at most three related questions at a time and make option tradeoffs explicit in each option description.",
+          "Every single_select also offers a free-form answer, so an answer may be text you did not list; treat it as the user's choice even when it matches no option value.",
         ],
         parameters: ASK_USER_PARAMETERS,
         executionMode: "sequential",
