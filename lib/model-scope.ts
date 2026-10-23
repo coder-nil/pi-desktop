@@ -6,16 +6,6 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import type { Api, Model } from "@earendil-works/pi-ai";
 
-const THINKING_LEVEL_SUFFIXES = new Set<ThinkingLevel>([
-  "off",
-  "minimal",
-  "low",
-  "medium",
-  "high",
-  "xhigh",
-  "max",
-]);
-
 /**
  * Model scoping shared by the UI selector and AgentSession startup.
  *
@@ -25,6 +15,11 @@ const THINKING_LEVEL_SUFFIXES = new Set<ThinkingLevel>([
  * (`anthropic/*:high`). Exact string comparison silently drops every model
  * behind a pattern like `my-gateway/*` (#307), so delegate to pi's own resolver
  * instead of reimplementing the matching rules here.
+ *
+ * pi 1.4 made a bare id that several providers offer resolve to *each* of them
+ * with an `ambiguous` diagnostic, so the warnings list is the only place that
+ * ambiguity is reported (surfaced by the composer's scope banner). Do not
+ * reject it here: pi's CLI accepts the same setting.
  */
 
 export interface ModelScopeResult {
@@ -34,7 +29,7 @@ export interface ModelScopeResult {
   scopedModels: readonly ScopedModel[];
   /** `provider/modelId` → thinking level pinned with a `:level` pattern suffix. */
   thinkingLevelPins: Record<string, string>;
-  /** Resolver diagnostics, e.g. a pattern that matched no model. */
+  /** Resolver diagnostics, e.g. a pattern that matched no model or an ambiguous bare id. */
   warnings: string[];
 }
 
@@ -55,47 +50,6 @@ function matchesModel(
   ref: { provider: string; modelId: string },
 ): boolean {
   return model.provider === ref.provider && model.id === ref.modelId;
-}
-
-function hasGlob(pattern: string): boolean {
-  return pattern.includes("*") || pattern.includes("?") || pattern.includes("[");
-}
-
-function exactReferenceMatches(pattern: string, models: readonly Model<Api>[]): Model<Api>[] {
-  const normalized = pattern.toLowerCase();
-  const canonical = models.filter(
-    (model) => `${model.provider}/${model.id}`.toLowerCase() === normalized,
-  );
-  if (canonical.length > 0) return canonical;
-  return models.filter((model) => model.id.toLowerCase() === normalized);
-}
-
-function assertNoAmbiguousExactPatterns(
-  patterns: readonly string[],
-  models: readonly Model<Api>[],
-): void {
-  for (const pattern of patterns) {
-    if (hasGlob(pattern)) continue;
-
-    let matches = exactReferenceMatches(pattern, models);
-    if (matches.length === 0) {
-      const colonIndex = pattern.lastIndexOf(":");
-      const suffix = colonIndex >= 0 ? pattern.slice(colonIndex + 1) : "";
-      if (THINKING_LEVEL_SUFFIXES.has(suffix as ThinkingLevel)) {
-        matches = exactReferenceMatches(pattern.slice(0, colonIndex), models);
-      }
-    }
-
-    if (matches.length > 1) {
-      const references = matches
-        .map((model) => `${model.provider}/${model.id}`)
-        .sort()
-        .join(", ");
-      throw new Error(
-        `Ambiguous enabledModels entry "${pattern}" matches multiple models: ${references}. Use provider/modelId.`,
-      );
-    }
-  }
 }
 
 /**
@@ -120,7 +74,6 @@ export async function resolveVisibleModels(
   }
 
   const available = await modelRuntime.getAvailable();
-  assertNoAmbiguousExactPatterns(cleaned, available);
   const snapshotRuntime = {
     getAvailable: async () => available,
   } as ModelRuntime;
