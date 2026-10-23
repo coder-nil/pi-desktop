@@ -59,7 +59,7 @@ export function createSystemTimeExtension(): InlineExtension {
         name: "system_time",
         label: "System Time",
         description: "Get the current date and time from the Pi Desktop host system. Use this before answering questions involving today, tomorrow, yesterday, relative dates, weekdays, deadlines, or the current time.",
-        promptSnippet: "system_time: read the current host date, time, weekday, and time zone",
+        promptSnippet: "read the current host date, time, weekday, and time zone",
         promptGuidelines: [
           "Call system_time before resolving references such as today, tomorrow, yesterday, this week, or a relative deadline. Do not infer the current date from model knowledge.",
         ],

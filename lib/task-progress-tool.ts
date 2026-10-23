@@ -212,7 +212,7 @@ export function createTaskProgressExtension(): InlineExtension {
         name: "task_progress",
         label: "Task Progress",
         description: "Create and update the structured task list shown in the Pi Desktop interface. Use it for substantial multi-step work so the user can see each task's live state.",
-        promptSnippet: "task_progress: create and update the Desktop task list with pending, in-progress, completed, failed, blocked, or skipped states",
+        promptSnippet: "create and update the Desktop task list with pending, in-progress, completed, failed, blocked, or skipped states",
         promptGuidelines: [
           "Use task_progress for substantial work with multiple distinct steps; do not create a task list for a simple single-step request.",
           "Before starting multi-step work, call task_progress with action=replace and a concise ordered list. Keep stable ids and include the complete list when replacing it.",

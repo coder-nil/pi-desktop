@@ -269,7 +269,7 @@ export function createAskUserExtension(): InlineExtension {
         name: "ask_user",
         label: "Ask User",
         description: "Ask the user for non-sensitive information needed to continue. Use one call with 1-3 related questions; all questions in the questions array are shown sequentially. Do not use for passwords, tokens, private keys, passphrases, OTP codes, or other secrets.",
-        promptSnippet: "ask_user: ask the user for non-sensitive clarification, preferences, or confirmation",
+        promptSnippet: "ask the user for non-sensitive clarification, preferences, or confirmation",
         promptGuidelines: [
           "Use ask_user only when missing information would materially affect the result and cannot be discovered safely from the project.",
           "When you need multiple related answers, make one ask_user call and put every question in its questions array; the UI will present them one by one. Do not stop after the first question or ask the user to format tool arguments.",

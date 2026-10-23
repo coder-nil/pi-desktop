@@ -1631,13 +1631,16 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   executeBashRef.current = executeBash;
 
   const handleAbort = useCallback(async () => {
-    const sid = sessionIdRef.current;
+    // 新建会话的第一条消息：会话 id 还没回来时 `sessionIdRef` 是空的，
+    // 直接 return 会让「刚发出就后悔」的那一下停止完全失效（按钮看着能点，但什么都不发）。
+    const sid = sessionIdRef.current ?? await ensuringNewSessionRef.current;
     if (!sid) return;
     if (bashRunningRef.current) {
       try {
         await sendAgentCommand(sid, { type: "abort_bash" });
       } catch (e) {
         console.error("Failed to abort bash:", e);
+        addNotice({ type: "error", message: e instanceof Error ? e.message : String(e) });
       }
       return;
     }
@@ -1645,8 +1648,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       await sendAgentCommand(sid, { type: "abort" });
     } catch (e) {
       console.error("Failed to abort:", e);
+      addNotice({ type: "error", message: e instanceof Error ? e.message : String(e) });
     }
-  }, []);
+  }, [addNotice]);
 
   const handleFork = useCallback(async (entryId: string) => {
     if (bashRunningRef.current) return;

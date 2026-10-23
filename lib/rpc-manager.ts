@@ -113,6 +113,9 @@ type FetchRetryConfigurableAgent = {
 };
 
 const DESKTOP_PROVIDER_REQUEST_MAX_RETRIES = 5;
+// 停止一个「还在准备」的 prompt：轮询式重发 abort 的间隔与上限（约 20 秒）。
+const ABORT_PREPARATION_POLL_MS = 100;
+const ABORT_PREPARATION_ATTEMPTS = 200;
 const configuredProviderRetryAgents = new WeakSet<object>();
 
 function isAbortError(error: unknown): boolean {
@@ -205,19 +208,31 @@ const SYSTEM_PROMPT_TRANSLATIONS: Record<string, string> = {
   "Be concise in your responses": "回答应简洁明了",
   "Show file paths clearly when working with files": "处理文件时清晰展示文件路径",
   "Use bash for file operations like ls, rg, find": "使用 bash 执行 ls、rg、find 等文件操作",
+  "Use bash or PowerShell for file operations like listing, searching, and finding files": "使用 bash 或 PowerShell 执行列目录、搜索和查找文件等操作",
+  "Use PowerShell for file operations like listing, searching, and finding files": "使用 PowerShell 执行列目录、搜索和查找文件等操作",
   "Pi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):": "Pi 文档（仅当用户询问 pi、其 SDK、扩展、主题、技能或 TUI 时阅读）：",
   "- Main documentation:": "- 主文档：",
   "- Additional docs:": "- 补充文档：",
   "- Examples:": "- 示例：",
+  "(extensions, custom tools, SDK)": "（扩展、自定义工具、SDK）",
   "- When asked about:": "- 当用户询问以下主题时：",
   "When reading pi docs or examples, resolve docs/... under Additional docs and examples/... under Examples, not the current working directory": "阅读 pi 文档或示例时，应从补充文档中的 docs/... 和示例中的 examples/... 解析路径，而不是当前工作目录",
-  "extensions (docs/extensions.md, examples/extensions/), themes (docs/themes.md), skills (docs/skills.md), prompt templates (docs/prompt-templates.md), TUI components (docs/tui.md), keybindings (docs/keybindings.md), SDK integrations (docs/sdk.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), pi packages (docs/packages.md), environment variables (docs/environment-variables.md)": "扩展（docs/extensions.md、examples/extensions/）、主题（docs/themes.md）、技能（docs/skills.md）、提示词模板（docs/prompt-templates.md）、TUI 组件（docs/tui.md）、快捷键（docs/keybindings.md）、SDK 集成（docs/sdk.md）、自定义提供商（docs/custom-provider.md）、添加模型（docs/models.md）、Pi 包（docs/packages.md）、环境变量（docs/environment-variables.md）",
+  "extensions (docs/extensions.md, examples/extensions/), themes (docs/themes.md), skills (docs/skills.md), prompt templates (docs/prompt-templates.md), TUI components (docs/tui.md), keybindings (docs/keybindings.md), SDK integrations (docs/sdk.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), pi packages (docs/packages.md), environment variables (docs/environment-variables.md), MCP servers (docs/mcp.md), codemode scripts and non-LLM models such as classifiers and image models (docs/codemode.md)": "扩展（docs/extensions.md、examples/extensions/）、主题（docs/themes.md）、技能（docs/skills.md）、提示词模板（docs/prompt-templates.md）、TUI 组件（docs/tui.md）、快捷键（docs/keybindings.md）、SDK 集成（docs/sdk.md）、自定义提供商（docs/custom-provider.md）、添加模型（docs/models.md）、Pi 包（docs/packages.md）、环境变量（docs/environment-variables.md）、MCP 服务器（docs/mcp.md）、codemode 脚本与非 LLM 模型（如分类器、图像模型）（docs/codemode.md）",
   "When working on pi topics, read the docs and examples, and follow .md cross-references before implementing": "处理 pi 相关主题时，先完整阅读文档和示例，并在实现前遵循 .md 文件中的交叉引用",
   "Always read pi .md files completely and follow links to related docs (e.g., tui.md for TUI API details)": "始终完整阅读 pi 的 .md 文件，并遵循指向相关文档的链接（例如 TUI API 详情对应 tui.md）",
   "Project-specific instructions and guidelines:": "项目专属说明和行为准则：",
   "Current working directory:": "当前工作目录：",
+  "The following skills provide specialized instructions for specific tasks.": "以下技能为特定任务提供专门说明。",
+  "Use the read tool to load a skill's file when the task matches its description.": "当任务与某技能的描述相符时，使用 read 工具加载该技能的文件。",
+  "Use bash to load a skill's file when the task matches its description.": "当任务与某技能的描述相符时，使用 bash 加载该技能的文件。",
+  "Load a skill's file when the task matches its description.": "当任务与某技能的描述相符时，加载该技能的文件。",
+  "When a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.": "当技能文件引用相对路径时，请相对技能目录（SKILL.md 所在目录，或该路径的 dirname）解析，并在工具命令中使用该绝对路径。",
   "Read file contents": "读取文件内容",
   "Execute bash commands (ls, grep, find, etc.)": "执行 bash 命令（ls、grep、find 等）",
+  "Search file contents for patterns (respects .gitignore)": "在文件内容中搜索模式（遵循 .gitignore）",
+  "Find files by glob pattern (respects .gitignore)": "按 glob 模式查找文件（遵循 .gitignore）",
+  "List directory contents": "列出目录内容",
+  "Execute PowerShell commands": "执行 PowerShell 命令",
   "Make precise file edits with exact text replacement, including multiple disjoint edits in one call": "通过精确替换文本编辑文件，并可在一次调用中完成多个不连续的修改",
   "Create or overwrite files": "创建或覆盖文件",
   "Use read to examine files instead of cat or sed.": "使用 read 查看文件，不要使用 cat 或 sed。",
@@ -228,6 +243,22 @@ const SYSTEM_PROMPT_TRANSLATIONS: Record<string, string> = {
   "Use write only for new files or complete rewrites.": "仅在创建新文件或完整重写文件时使用 write。",
   "You can inspect PI_* environment variables for current model and session details.": "你可以查看 PI_* 环境变量来获取当前模型和会话详情。",
   "Call system_time before resolving references such as today, tomorrow, yesterday, this week, or a relative deadline. Do not infer the current date from model knowledge.": "在解释今天、明天、昨天、本周或相对截止时间等日期前，先调用 system_time。不要根据模型自身知识推断当前日期。",
+  // 桌面自带工具：提示词里的 snippet / guideline 是固定英文文案，同样靠这条替换中文化。
+  "read the current host date, time, weekday, and time zone": "读取当前主机的日期、时间、星期与时区",
+  "ask the user for non-sensitive clarification, preferences, or confirmation": "向用户询问非敏感的澄清、偏好或确认",
+  "Use ask_user only when missing information would materially affect the result and cannot be discovered safely from the project.": "仅当缺少信息会实质影响结果、且无法从项目中安全查明时才使用 ask_user。",
+  "When you need multiple related answers, make one ask_user call and put every question in its questions array; the UI will present them one by one. Do not stop after the first question or ask the user to format tool arguments.": "需要多个相关答案时，只做一次 ask_user 调用，把所有问题放进 questions 数组；界面会逐个呈现。不要问完第一个问题就停下，也不要要求用户自行组织工具参数。",
+  "Each question must have a unique id, a clear prompt, and the correct kind. Use single_select with 2-8 concrete options for choices. For confirm, text, and editor, set options to an empty array. Use confirm for yes/no decisions, text for short values, and editor for multi-line input.": "每个问题都要有唯一的 id、清晰的 prompt 和正确的 kind。选择题用 single_select 并给出 2-8 个具体选项；confirm、text、editor 的 options 传空数组。是/否决定用 confirm，短值用 text，多行输入用 editor。",
+  "ask_user answers are visible to the model and may be saved in the session; never request passwords, tokens, private keys, passphrases, OTP codes, or other secrets. When Git or SSH needs credentials, run the normal command and let Pi Desktop show its secure credential prompt instead.": "ask_user 的答案对模型可见，且可能保存在会话中；绝不要索取密码、令牌、私钥、口令、验证码或其他机密。Git 或 SSH 需要凭据时，照常执行命令，由 Pi Desktop 弹出安全凭据输入框。",
+  "Ask at most three related questions at a time and make option tradeoffs explicit in each option description.": "一次最多问三个相关问题，并在每个选项的 description 里写清取舍。",
+  "Every single_select also offers a free-form answer, so an answer may be text you did not list; treat it as the user's choice even when it matches no option value.": "每个 single_select 都会额外提供自定义答案，所以返回值可能不在你列出的选项里；即使对不上任何选项值，也要把它当作用户的选择。",
+  "create and update the Desktop task list with pending, in-progress, completed, failed, blocked, or skipped states": "创建并更新 Desktop 任务列表，状态可为 pending、in_progress、completed、failed、blocked 或 skipped",
+  "Use task_progress for substantial work with multiple distinct steps; do not create a task list for a simple single-step request.": "用于包含多个不同步骤的较大工作量；简单的一步请求不要建任务列表。",
+  "Before starting multi-step work, call task_progress with action=replace and a concise ordered list. Keep stable ids and include the complete list when replacing it.": "开始多步骤工作前，用 action=replace 传入一个简洁有序的列表。id 保持稳定，替换时给出完整列表。",
+  "Immediately before working on a task, update it to in_progress. Keep at most one task in_progress at a time.": "开始处理某个任务前，先把它更新为 in_progress。同一时刻最多只能有一个任务处于 in_progress。",
+  "Mark a task completed only after its required work and verification are finished. Mark failures as failed with the concrete reason, external dependencies as blocked, and intentionally omitted work as skipped.": "只有在所需工作和验证都完成后才标记 completed。失败标记为 failed 并写明具体原因，受外部依赖阻塞标记为 blocked，有意省略的工作标记为 skipped。",
+  "Update task_progress whenever execution state changes, not only in the final answer. Before finishing, ensure no task is incorrectly left in_progress. The Desktop automatically hides the task list after every task is completed or skipped.": "执行状态变化时就更新 task_progress，不要只在最终答复里才更新。结束前确认没有任务被错误地留在 in_progress。所有任务完成或跳过之后，Desktop 会自动隐藏任务列表。",
+  "When Git, SSH, or another command requests a username, password, passphrase, token, or verification code, run the normal command and wait for Pi Desktop's secure credential prompt. Never ask the user to paste secrets into chat or pass secrets through ask_user.": "当 Git、SSH 或其他命令要求输入用户名、密码、口令、令牌或验证码时，照常执行该命令，等待 Pi Desktop 的安全凭据输入框。绝不要求用户把机密粘贴到对话里，也不通过 ask_user 传递机密。",
 };
 
 function normalizeUiLocale(value: unknown): UiLocale {
@@ -590,6 +621,26 @@ export class AgentSessionWrapper {
     }
   }
 
+  /**
+   * 停止当前这一轮，并且覆盖「这一轮还没真正开始」的空档。
+   *
+   * `AgentSession.abort()` 只有在 `_isAgentRunActive` / activeRun 存在时才真的取消。
+   * 而一轮 prompt 在开始之前还要先跑 `reloadResourcesBeforePrompt()`（技能 / 插件 /
+   * 扩展重载）、扩展 preflight 和模型鉴权；新建会话的第一条消息还要等整个
+   * `startRpcSession()`。这段时间里点停止，`abort()` 立刻返回成功却什么都没取消，
+   * 紧接着这一轮照常开始并回答模型 —— 表现就是「点了停止没反应，得等它答完再点」。
+   * 所以只要还有未结算的 prompt，就隔一小段时间再取消一次，让它一开始就被中止。
+   */
+  private async abortRunOrPreparation(): Promise<void> {
+    for (let attempt = 0; attempt < ABORT_PREPARATION_ATTEMPTS; attempt++) {
+      const wasStreaming = this.inner.isStreaming;
+      await this.inner.abort();
+      // 正在跑的一轮已经被中止（流、工具、压缩都在 abort() 内部一起收掉）。
+      if (wasStreaming || this.pendingPromptCount === 0) return;
+      await new Promise((resolve) => setTimeout(resolve, ABORT_PREPARATION_POLL_MS));
+    }
+  }
+
   private emit(event: AgentEvent): void {
     for (const listener of this.listeners) {
       try {
@@ -706,6 +757,9 @@ export class AgentSessionWrapper {
   }
 
   private resetIdleTimer(): void {
+    // 已销毁的 wrapper 不再排活：一个延后结算的 prompt 会在 destroy() 之后
+    // 才走到 finishPrompt()，那一次 resetIdleTimer() 会给死会话重新挂上 10 分钟的定时器。
+    if (!this._alive) return;
     if (this.idleTimer) clearTimeout(this.idleTimer);
     this.idleTimer = setTimeout(() => {
       if (this.isRunning()) {
@@ -896,7 +950,7 @@ export class AgentSessionWrapper {
       }
 
       case "abort":
-        await this.withFinalRunningNotification(() => this.inner.abort());
+        await this.withFinalRunningNotification(() => this.abortRunOrPreparation());
         return null;
 
       case "get_state": {
