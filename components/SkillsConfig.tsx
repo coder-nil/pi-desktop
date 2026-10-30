@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useI18n } from "@/hooks/useI18n";
+import { readApiJson } from "@/lib/api-json";
 import type {
   SkillInfo as Skill,
   SkillInstallScope,
@@ -457,9 +458,9 @@ function AddSkillPanel({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ package: pkg, scope, cwd }),
         });
-        const d = (await res.json()) as { success?: boolean; error?: string };
-        if (!res.ok || d.error) {
-          setInstallError(d.error ?? `HTTP ${res.status}`);
+        const d = await readApiJson<{ success?: boolean; error?: string }>(res);
+        if (d.error) {
+          setInstallError(d.error);
           return;
         }
         setNewlyInstalledPkgs((prev) =>

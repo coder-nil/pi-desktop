@@ -132,3 +132,31 @@ test("centers the sidebar title row against the chat top bar", () => {
     /<div\s+style=\{\{\s*display: "flex",\s*alignItems: "center",\s*gap: 6,\s*minHeight: CHAT_TOP_BAR_HEIGHT,\s*marginBottom: 10,\s*\}\}\s*>\s*<PiWebTitle onAboutClick=\{onAboutClick\} \/>/,
   );
 });
+
+test("the explorer header row keeps a fixed height so it looks even when collapsed", () => {
+  // 收起时标题行就是整个区块的高度：padding 撑出来的高度会随行高浮动，且比
+  // 相邻搜索栏窄一线。改成固定高度 + 按钮撑满。
+  assert.match(source, /const HEADER_ROW_HEIGHT = 32;/);
+  assert.match(source, /const \{ t \} = useI18n\(\);/);
+  assert.match(
+    source,
+    /<div style=\{\{ display: "flex", alignItems: "center", flexShrink: 0, height: HEADER_ROW_HEIGHT \}\}>/,
+  );
+  assert.match(source, /height: "100%",\s*\n\s*padding: "0 10px",/);
+  assert.doesNotMatch(source, /padding: "6px 10px",\s*\n\s*background: "none",/);
+  // 展开/收起状态要报给辅助技术。
+  assert.match(source, /aria-expanded=\{explorerOpen\}/);
+});
+
+test("the Git panel entry sits on the branch row, not only in the bottom bar", () => {
+  // Git 面板入口和仓库名 / 拉取 / 推送同属一组，放在分支这一行；只在底部存在
+  // 那个按钮时才渲染（网页版没有 Git 面板，不要凭空多一个入口）。
+  assert.match(source, /const showBranchGitButton = Boolean\(showWorktreeSwitcher && onOpenGitPanel\);/);
+  assert.match(source, /\{showBranchGitButton && \(/);
+  assert.match(source, /onClick=\{\(event\) => \{ event\.stopPropagation\(\); onOpenGitPanel\?\.\(\); \}\}/);
+  assert.match(source, /aria-pressed=\{gitPanelOpen === true\}/);
+  // 三个按钮不能重叠：Git 在最右，push / pull 随之右移一格。
+  assert.match(source, /right: showBranchGitButton \? 28 : 0,/);
+  assert.match(source, /right: showBranchGitButton \? 56 : 28,/);
+  assert.match(source, /padding: showBranchGitButton \? "0 100px 0 10px" : "0 72px 0 10px",/);
+});

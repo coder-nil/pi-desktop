@@ -1190,6 +1190,8 @@ export function AppShell() {
         onAboutClick={() => setAboutOpen(true)}
         onHideSidebar={handleSidebarToggle}
         openDirectoryRequest={openDirectoryRequest}
+        onOpenGitPanel={() => setGitPanelOpen((open) => !open)}
+        gitPanelOpen={gitPanelOpen}
       />
       <div style={{ padding: "8px", flexShrink: 0, display: "flex", justifyContent: "space-between", gap: 4 }}>
         {([

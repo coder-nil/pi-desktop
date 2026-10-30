@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { ArrowDown, ArrowUp } from "lucide-react";
 import { useI18n } from "@/hooks/useI18n";
+import { readApiJson } from "@/lib/api-json";
 import { revealNext } from "@/lib/typewriter";
 import { BranchPicker } from "./BranchPicker";
 
@@ -87,10 +88,8 @@ export function GitPanel({ cwd, sessionId, onClose, onChanged, onOpenFile }: { c
 
   const refresh = useCallback(async () => {
     const res = await fetch(`/api/git?${new URLSearchParams({ cwd }).toString()}`);
-    const data = await res.json() as GitSummary & { error?: string };
-    if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
-    setSummary(data);
-  }, [cwd]);
+    setSummary(await readApiJson<GitSummary>(res, { hint: t("git.serverErrorHint") }));
+  }, [cwd, t]);
 
   useEffect(() => { void refresh().catch((reason: unknown) => setError(reason instanceof Error ? reason.message : String(reason))); }, [refresh]);
 
@@ -115,8 +114,7 @@ export function GitPanel({ cwd, sessionId, onClose, onChanged, onOpenFile }: { c
         ? { kind: credentialKind, secret, ...(credentialKind === "https" ? { username } : {}) }
         : undefined;
       const res = await fetch("/api/git", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cwd, action, ...extra, ...(credential ? { credential, rememberCredential } : {}) }) });
-      const data = await res.json() as GitSummary & { error?: string };
-      if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
+      const data = await readApiJson<GitSummary>(res, { hint: t("git.serverErrorHint") });
       setSummary(data);
       if (action === "commit") setMessage("");
       if (action === "merge") setMergeBranch("");
@@ -136,7 +134,7 @@ export function GitPanel({ cwd, sessionId, onClose, onChanged, onOpenFile }: { c
     } finally {
       setBusy(null);
     }
-  }, [cwd, onChanged, refresh, rememberCredential, secret, summary?.credentialKind, username]);
+  }, [cwd, onChanged, refresh, rememberCredential, secret, summary?.credentialKind, t, username]);
 
   const summarizeCommitMessage = useCallback(async () => {
     setBusy("summarize");
@@ -172,8 +170,7 @@ export function GitPanel({ cwd, sessionId, onClose, onChanged, onOpenFile }: { c
         body: JSON.stringify({ cwd, locale, ...(sessionId ? { sessionId } : {}) }),
       });
       if (!res.ok || !res.body) {
-        const data = await res.json().catch(() => null) as { error?: string } | null;
-        throw new Error(data?.error ?? `HTTP ${res.status}`);
+        throw await readApiJson<never>(res, { hint: t("git.serverErrorHint") });
       }
       // The route streams newline-delimited JSON: "update" events carry the
       // message so far, "done" the authoritative result.
@@ -212,7 +209,7 @@ export function GitPanel({ cwd, sessionId, onClose, onChanged, onOpenFile }: { c
       if (failure) setError(failure);
       setBusy(null);
     }
-  }, [cwd, locale, sessionId]);
+  }, [cwd, locale, sessionId, t]);
 
   const openDiff = useCallback((file: GitFileStatus) => {
     onOpenFile(file.filePath, fileName(file.filePath), { modeHint: "diff" });

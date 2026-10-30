@@ -133,6 +133,7 @@ export const zhCNLocale: LocalePlugin = {
     "settings.mcpSave": "保存 JSON",
     "settings.mcpSaved": "MCP 配置已保存，当前会话已重新加载。",
     "git.refreshStatus": "刷新 Git 状态",
+    "git.serverErrorHint": "服务端日志见应用日志 desktop.log",
     "git.close": "关闭 Git",
     "git.loadingRepository": "正在加载仓库…",
     "git.notRepository": "此目录不是 Git 仓库。",

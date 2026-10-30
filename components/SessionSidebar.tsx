@@ -32,6 +32,13 @@ declare global {
   }
 }
 
+/**
+ * 文件浏览器标题行的高度。收起时它就是这个区块的全部高度，所以取固定值：
+ * 26px 的工具按钮在其中垂直居中（上下各留 3px），行本身也不会像原先靠文字
+ * 行高撑出的 29px 那样随字体浮动。
+ */
+const HEADER_ROW_HEIGHT = 32;
+
 function ToolbarIconButton({
   onClick,
   title,
@@ -130,6 +137,9 @@ interface Props {
   onAboutClick?: () => void;
   onHideSidebar?: () => void;
   openDirectoryRequest?: number;
+  /** 当前项目是 git 仓库且底部 tab 栏存在时，把 Git 面板入口放到分支这一行。 */
+  onOpenGitPanel?: () => void;
+  gitPanelOpen?: boolean;
 }
 
 interface WorktreeEntry {
@@ -450,7 +460,7 @@ function PiWebTitle({ onAboutClick }: { onAboutClick?: () => void }) {
   );
 }
 
-export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onFileRenamed, canRenamePath, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onProjectGitStateChange, onGenerateTitle, titleGenerationStatus, appUpdate, onAppUpdateClick, onAboutClick, onHideSidebar, openDirectoryRequest }: Props) {
+export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onFileRenamed, canRenamePath, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onProjectGitStateChange, onGenerateTitle, titleGenerationStatus, appUpdate, onAppUpdateClick, onAboutClick, onHideSidebar, openDirectoryRequest, onOpenGitPanel, gitPanelOpen }: Props) {
   const { t } = useI18n();
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1286,6 +1296,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     && selectedCwd
     && selectedProject?.key === worktreeState.projectKey
   );
+  // Git 面板入口跟着 Git 按钮走：底部有那个按钮时才在这行也放一个，
+  // 否则只是重复一个网页版没有的功能。
+  const showBranchGitButton = Boolean(showWorktreeSwitcher && onOpenGitPanel);
   const worktreeGuide = selectedCwd
     && worktreeState?.isGit
     && selectedProject?.key === worktreeState.projectKey
@@ -1693,7 +1706,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                   display: "flex",
                   alignItems: "center",
                   gap: 6,
-                  padding: "0 72px 0 10px",
+                  padding: showBranchGitButton ? "0 100px 0 10px" : "0 72px 0 10px",
                   background: "var(--bg-hover)",
                   border: "none",
                   borderRadius: 7,
@@ -1724,8 +1737,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 </svg>
               </button>
               {([
-                { action: "pull" as const, label: t("sidebar.pull"), right: 28, icon: <><path d="M12 3v12" /><path d="m7 10 5 5 5-5" /><path d="M5 21h14" /></> },
-                { action: "push" as const, label: t("sidebar.push"), right: 0, icon: <><path d="M12 15V3" /><path d="m7 8 5-5 5 5" /><path d="M5 21h14" /></> },
+                { action: "pull" as const, label: t("sidebar.pull"), right: showBranchGitButton ? 56 : 28, icon: <><path d="M12 3v12" /><path d="m7 10 5 5 5-5" /><path d="M5 21h14" /></> },
+                { action: "push" as const, label: t("sidebar.push"), right: showBranchGitButton ? 28 : 0, icon: <><path d="M12 15V3" /><path d="m7 8 5-5 5 5" /><path d="M5 21h14" /></> },
               ]).map(({ action, label, right, icon }) => (
                 <button
                   key={action}
@@ -1757,6 +1770,42 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{icon}</svg>
                 </button>
               ))}
+              {/* Git 面板入口。放在分支这一行：它就是这个项目 git 状态的入口，
+                  和仓库名/拉取/推送属于同一组，比沉在侧边栏底部好找。 */}
+              {showBranchGitButton && (
+              <button
+                type="button"
+                onClick={(event) => { event.stopPropagation(); onOpenGitPanel?.(); }}
+                title={t("common.git")}
+                aria-label={t("common.git")}
+                aria-pressed={gitPanelOpen === true}
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  right: 0,
+                  width: 28,
+                  height: 29,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  padding: 0,
+                  background: gitPanelOpen ? "var(--bg-selected)" : "transparent",
+                  border: "none",
+                  borderRadius: 5,
+                  color: gitPanelOpen ? "var(--text)" : "var(--text-muted)",
+                  cursor: "pointer",
+                }}
+                onMouseEnter={(event) => { event.currentTarget.style.background = "var(--bg-selected)"; }}
+                onMouseLeave={(event) => { event.currentTarget.style.background = gitPanelOpen ? "var(--bg-selected)" : "transparent"; }}
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <circle cx="6" cy="6" r="3" />
+                  <circle cx="18" cy="18" r="3" />
+                  <path d="M6 9v6a3 3 0 0 0 3 3h6" />
+                  <path d="M18 15V9a3 3 0 0 0-3-3H9" />
+                </svg>
+              </button>
+              )}
               </div>
 
               <AnimatedDropdown
@@ -2144,19 +2193,23 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             overflow: "hidden",
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
+          {/* 标题行高度固定且与工具按钮同高：收起时它就是这个区块的全部高度，
+              靠文字行高撑出来的 29px 会比搜索栏（30px）窄一线，看起来欠齐。 */}
+          <div style={{ display: "flex", alignItems: "center", flexShrink: 0, height: HEADER_ROW_HEIGHT }}>
             <button
               onClick={() => setExplorerOpen((open) => {
                 const next = !open;
                 saveExplorerOpen(next);
                 return next;
               })}
+              aria-expanded={explorerOpen}
               style={{
                 display: "flex",
                 alignItems: "center",
                 gap: 6,
                 flex: 1,
-                padding: "6px 10px",
+                height: "100%",
+                padding: "0 10px",
                 background: "none",
                 border: "none",
                 color: "var(--text-muted)",

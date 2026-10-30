@@ -133,6 +133,7 @@ export const enLocale: LocalePlugin = {
     "settings.mcpSave": "Save JSON",
     "settings.mcpSaved": "MCP configuration saved. The session was reloaded.",
     "git.refreshStatus": "Refresh Git status",
+    "git.serverErrorHint": "see desktop.log in the app log directory",
     "git.close": "Close Git",
     "git.loadingRepository": "Loading repository…",
     "git.notRepository": "This directory is not a Git repository.",
