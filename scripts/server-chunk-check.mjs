@@ -110,6 +110,37 @@ export async function backfillMissingServerChunks(serverDirectory, sourceDirecto
   return { restored, unresolved };
 }
 
+/**
+ * 读取一次构建的 `BUILD_ID`；没有该文件（目录整体缺失）时返回 `null`。
+ * @param {string} nextDirectory `.next`（构建输出）或 `.next/standalone/.next`（打包的那份）
+ */
+export async function readBuildId(nextDirectory) {
+  try {
+    return (await readFile(join(nextDirectory, "BUILD_ID"), "utf8")).trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * standalone 与构建输出是否同一次构建。
+ *
+ * 不同意味着 `.next` 已经被另一个构建目标覆盖过（实测：`desktop:prepare:frontend` 的静态导出
+ * 会把 `.next/server` 换成导出版——BUILD_ID 变了、`app/api` 整棵消失、chunks 少 16 个），
+ * 此时从 `.next/server/chunks` 补 chunk 拿到的是另一份构建的文件，报错只说「源头也没有」
+ * 会把人引向错误的结论。返回一段可直接打印的说明，一致时返回 `null`。
+ */
+export function describeBuildIdMismatch(standaloneBuildId, sourceBuildId) {
+  if (!standaloneBuildId || !sourceBuildId || standaloneBuildId === sourceBuildId) return null;
+  return [
+    `打包的 standalone（BUILD_ID ${standaloneBuildId}）与 .next（BUILD_ID ${sourceBuildId}）不是同一次构建：`,
+    "`.next` 已被另一个构建目标覆盖（最可能是 `desktop:prepare:frontend` 的静态导出），",
+    "所以 `.next/server/chunks` 里已经找不到 standalone 引用的那些 chunk。",
+    "重新构建前先清干净：",
+    "  rm -rf .next .next-desktop-frontend desktop-dist && npm run desktop:prepare",
+  ].join("\n");
+}
+
 /** 缺失 chunk 的统一报错文案，构建脚本与冒烟测试共用。 */
 export function describeMissingServerChunks(missing, serverDirectory) {
   const lines = missing.slice(0, 10).map(({ id, files }) => `  - chunks/${id}.js（被 ${files.slice(0, 3).join(", ")}${files.length > 3 ? " 等" : ""} 引用）`);

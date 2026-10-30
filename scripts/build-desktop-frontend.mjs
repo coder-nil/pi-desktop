@@ -1,4 +1,4 @@
-import { access, mkdir, readdir, rename, rm } from "node:fs/promises";
+import { access, readdir, rename, rm } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -17,16 +17,25 @@ const parkedMobilePageDirectory = join(root, `.desktop-m-${process.pid}`);
 // 每个构建目标有各自的 distDir（见 next.config.ts）：`.next-dev` / `.next-desktop-dev` /
 // `.next-desktop-frontend`。tsconfig 把所有目标的 dev 类型都 include 了，所以这些目录一旦
 // 留下来，就会拿旧路由表来检查当前（已经移走 API 和 /m 的）源码，报一堆 TS2307。
+// `.next/dev` 不必单独清：整个 `.next` 在导出期间都被挪走了（见下）。
 const devTypesDirectories = [
-  join(root, ".next", "dev"),
   join(root, ".next-desktop-dev", "dev"),
 ];
 const nextOutputDirectory = join(root, ".next");
-const standaloneDirectory = join(nextOutputDirectory, "standalone");
-const staticDirectory = join(nextOutputDirectory, "static");
 const desktopFrontendOutputDirectory = join(root, ".next-desktop-frontend");
-const parkedStandaloneDirectory = join(root, `.desktop-standalone-${process.pid}`);
-const parkedStaticDirectory = join(root, `.desktop-static-${process.pid}`);
+/**
+ * 导出期间把整个 `.next` 挪开，而不是只挪 `standalone` 和 `static`。
+ *
+ * 实测：`output: "export"` 这一次构建会把导出产物也写进默认的 `.next`——
+ * `.next/server/app/api` 整棵消失、`.next/server/chunks` 少掉 19 个被路由异步引用的 chunk，
+ * 也就是把 `npm run build` 那份 standalone 构建的 server 输出换成了导出版（macOS 实测复现）。
+ * 之后 `prepare-desktop.mjs` 从 `.next/server/chunks` 补 standalone 漏复制的 chunk 就取不到东西，
+ * Windows 上因此报「源头也没有」而中止打包（CI 上实测）。
+ *
+ * 所以这里把 `.next` 整体停车，构建结束后原样换回来；导出期间万一还有东西往 `.next` 里写，
+ * 恢复时一并丢掉。`distDir` 各自独立，导出构建不需要这份内容。
+ */
+const parkedNextOutputDirectory = join(root, `.desktop-next-${process.pid}`);
 
 async function parkIfPresent(source, destination) {
   try {
@@ -85,15 +94,13 @@ await access(mobilePageDirectory);
 await rm(parkedApiDirectory, { recursive: true, force: true });
 await rm(parkedProxyFile, { force: true });
 await rm(parkedMobilePageDirectory, { recursive: true, force: true });
-await rm(parkedStandaloneDirectory, { recursive: true, force: true });
-await rm(parkedStaticDirectory, { recursive: true, force: true });
+await rm(parkedNextOutputDirectory, { recursive: true, force: true });
 // The desktop build temporarily hides API routes. Remove stale dev route types
 // so TypeScript does not resolve validator imports for those hidden routes.
 for (const directory of devTypesDirectories) {
   await rm(directory, { recursive: true, force: true });
 }
-const parkedStandalone = await parkIfPresent(standaloneDirectory, parkedStandaloneDirectory);
-const parkedStatic = await parkIfPresent(staticDirectory, parkedStaticDirectory);
+const parkedNext = await parkIfPresent(nextOutputDirectory, parkedNextOutputDirectory);
 await rename(apiDirectory, parkedApiDirectory);
 await rename(proxyFile, parkedProxyFile);
 await rename(mobilePageDirectory, parkedMobilePageDirectory);
@@ -108,13 +115,7 @@ try {
   await rename(parkedApiDirectory, apiDirectory);
   await rm(mobilePageDirectory, { recursive: true, force: true });
   await rename(parkedMobilePageDirectory, mobilePageDirectory);
-  await mkdir(nextOutputDirectory, { recursive: true });
-  if (parkedStandalone) {
-    await rm(standaloneDirectory, { recursive: true, force: true });
-    await rename(parkedStandaloneDirectory, standaloneDirectory);
-  }
-  if (parkedStatic) {
-    await rm(staticDirectory, { recursive: true, force: true });
-    await rename(parkedStaticDirectory, staticDirectory);
-  }
+  // 导出构建往 `.next` 里留下的内容不属于 standalone 构建，整目录丢掉再换回原来那份。
+  await rm(nextOutputDirectory, { recursive: true, force: true });
+  if (parkedNext) await rename(parkedNextOutputDirectory, nextOutputDirectory);
 }

@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { BUNDLED_NPM_PACKAGE_PATH, writeBundledNpmLaunchers } from "./bundled-npm.mjs";
-import { backfillMissingServerChunks, describeMissingServerChunks } from "./server-chunk-check.mjs";
+import { backfillMissingServerChunks, describeBuildIdMismatch, describeMissingServerChunks, readBuildId } from "./server-chunk-check.mjs";
 
 const execFileAsync = promisify(execFile);
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -138,12 +138,23 @@ async function prepareStandaloneServer() {
  * 里的同名 chunk 是逐字节相同的（新增代码引入的异步 chunk 最容易在 Windows 上被漏掉），
  * 缺的按 id 从源头补回来，并把补了哪些打进构建日志。只有源头也没有该 id 时才失败——
  * 那说明构建本身不完整，补不了。
+ *
+ * 补之前先比对两份 BUILD_ID：`desktop:prepare:frontend` 的静态导出会覆盖 `.next/server`，
+ * 那种情况下源头虽然还在、但已经不是 standalone 的那份构建，报错必须把这件事说清楚，
+ * 否则只会看到“源头也没有这个 chunk”而找不到真正的原因。
  */
 async function verifyStandaloneChunks() {
-  const packagedServer = join(serverOutput, ".next", "server");
+  const packagedNext = join(serverOutput, ".next");
+  const sourceNext = join(root, ".next");
+  const packagedServer = join(packagedNext, "server");
+  const buildIdMismatch = describeBuildIdMismatch(
+    await readBuildId(packagedNext),
+    await readBuildId(sourceNext),
+  );
+  if (buildIdMismatch) console.warn(buildIdMismatch);
   const { restored, unresolved } = await backfillMissingServerChunks(
     packagedServer,
-    join(root, ".next", "server"),
+    join(sourceNext, "server"),
   );
   if (restored.length > 0) {
     console.warn(
@@ -152,7 +163,11 @@ async function verifyStandaloneChunks() {
     );
   }
   if (unresolved.length > 0) {
-    throw new Error(describeMissingServerChunks(unresolved, packagedServer));
+    throw new Error(
+      [describeMissingServerChunks(unresolved, packagedServer), buildIdMismatch]
+        .filter(Boolean)
+        .join("\n\n"),
+    );
   }
 }
 
