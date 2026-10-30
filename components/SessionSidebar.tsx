@@ -1329,8 +1329,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         style={{
           // 标题行的上边距改由标题行自身高度承担：它的垂直中心要落在对话顶栏
           // （完整历史 / 对话分支 / 系统）的中线上。
+          // 底边线由下方区块（文件浏览器 / 搜索框）自己的 borderTop 负责。
           padding: "0 10px 10px",
-          borderBottom: "1px solid var(--border)",
           flexShrink: 0,
         }}
       >
@@ -2130,126 +2130,6 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{inactiveWorktreeSelector.label}</span>
           </button>
         )}
-        <div style={{ display: "flex", gap: 4, marginTop: 8 }}>
-          <div style={{ position: "relative", flex: 1, minWidth: 0 }}>
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-              style={{ position: "absolute", left: 9, top: 8, color: "var(--text-dim)", pointerEvents: "none" }}
-            >
-              <circle cx="11" cy="11" r="7" />
-              <path d="m20 20-3.5-3.5" />
-            </svg>
-            <input
-              type="text"
-              role="searchbox"
-              value={sessionSearch}
-              onChange={(event) => setSessionSearch(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Escape") {
-                  setSessionSearch("");
-                  event.currentTarget.blur();
-                }
-              }}
-              placeholder={t("sidebar.searchSessions")}
-              aria-label={t("sidebar.searchSessions")}
-              style={{
-                width: "100%",
-                height: 30,
-                boxSizing: "border-box",
-                padding: "0 30px",
-                border: "1px solid var(--border)",
-                borderRadius: 6,
-                outline: "none",
-                background: "var(--bg)",
-                color: "var(--text)",
-                fontSize: 12,
-              }}
-              onFocus={(event) => { event.currentTarget.style.borderColor = "var(--accent)"; }}
-              onBlur={(event) => { event.currentTarget.style.borderColor = "var(--border)"; }}
-            />
-            {sessionSearch && (
-              <button
-                type="button"
-                onClick={() => setSessionSearch("")}
-                title={t("sidebar.clearSearch")}
-                aria-label={t("sidebar.clearSearch")}
-                style={{
-                  position: "absolute", right: 4, top: 3,
-                  width: 24, height: 24, padding: 0,
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  border: "none", borderRadius: 5,
-                  background: "transparent", color: "var(--text-dim)", cursor: "pointer",
-                }}
-              >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                  <path d="M6 6l12 12M18 6 6 18" />
-                </svg>
-              </button>
-            )}
-          </div>
-          <button type="button" onClick={handleNewSession} disabled={!selectedCwd} title={selectedCwd ? t("sidebar.newSessionTitle", { path: selectedCwd }) : t("sidebar.selectProject")} aria-label={t("sidebar.new")} style={{ width: 30, height: 30, padding: 0, border: "none", borderRadius: 6, background: "transparent", color: selectedCwd ? "var(--text-muted)" : "var(--text-dim)", cursor: selectedCwd ? "pointer" : "not-allowed", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }} onMouseEnter={(e) => { if (selectedCwd) e.currentTarget.style.background = "var(--bg-hover)"; }} onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><path d="M12 5v14" /><path d="M5 12h14" /></svg>
-          </button>
-          <button type="button" onClick={() => loadSessions(false, true)} title={t("sidebar.refresh")} aria-label={t("sidebar.refresh")} style={{ width: 30, height: 30, padding: 0, border: "none", borderRadius: 6, background: "transparent", color: sessionRefreshDone ? "#4ade80" : "var(--text-muted)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }} onMouseEnter={(e) => { if (!sessionRefreshDone) e.currentTarget.style.background = "var(--bg-hover)"; }} onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}>
-            {sessionRefreshDone ? <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg> : <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /></svg>}
-          </button>
-        </div>
-      </div>
-
-      {/* Session list */}
-      <div style={{ flex: explorerOpen && (selectedCwdProp || selectedCwd) ? "1 1 0" : "1 1 auto", overflowY: "auto", padding: "2px 0 4px", minHeight: 80 }}>
-        {loading && (
-          <div style={{ padding: "16px 14px", color: "var(--text-muted)", fontSize: 12 }}>
-            {t("sidebar.loading")}
-          </div>
-        )}
-        {error && (
-          <div style={{ padding: "12px 14px", color: "#f87171", fontSize: 12 }}>
-            {error}
-          </div>
-        )}
-        {!loading && !error && normalizedSessionSearch && sessionSearchPending && filteredSessions.length === 0 && (
-          <div style={{ padding: "16px 14px", color: "var(--text-muted)", fontSize: 12 }}>
-            {t("sidebar.searchingSessions")}
-          </div>
-        )}
-        {!loading && !error && normalizedSessionSearch && sessionSearchError && filteredSessions.length === 0 && (
-          <div style={{ padding: "16px 14px", color: "#f87171", fontSize: 12 }}>
-            {t("sidebar.searchFailed")}
-          </div>
-        )}
-        {!loading && !error && filteredSessions.length === 0 && (!normalizedSessionSearch || (!sessionSearchPending && !sessionSearchError)) && (
-          <div style={{ padding: "16px 14px", color: "var(--text-muted)", fontSize: 12 }}>
-            {normalizedSessionSearch ? t("sidebar.noMatchingSessions") : t("sidebar.noSessions")}
-          </div>
-        )}
-        {sessionTree.map((node) => (
-          <SessionTreeItem
-            key={node.session.id}
-            node={node}
-            selectedSessionId={selectedSessionId}
-            runningSessionIds={runningSessionIds}
-            unreadSessionIds={unreadSessionIds}
-            onSelectSession={handleSelectSessionFromList}
-            onRenamed={loadSessions}
-            onSessionDeleted={(id) => {
-              onSessionDeleted?.(id);
-              loadSessions();
-            }}
-            onGenerateTitle={onGenerateTitle}
-            titleGenerationStatus={titleGenerationStatus}
-            searchMatches={sessionSearchMatchMap}
-            depth={0}
-          />
-        ))}
       </div>
 
       {/* File Explorer section */}
@@ -2387,6 +2267,131 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           )}
         </div>
       )}
+
+      {/* Session search */}
+      <div style={{ flexShrink: 0, padding: "8px 10px 10px", borderTop: "1px solid var(--border)", borderBottom: "1px solid var(--border)" }}>
+        <div style={{ display: "flex", gap: 4 }}>
+          <div style={{ position: "relative", flex: 1, minWidth: 0 }}>
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+              style={{ position: "absolute", left: 9, top: 8, color: "var(--text-dim)", pointerEvents: "none" }}
+            >
+              <circle cx="11" cy="11" r="7" />
+              <path d="m20 20-3.5-3.5" />
+            </svg>
+            <input
+              type="text"
+              role="searchbox"
+              value={sessionSearch}
+              onChange={(event) => setSessionSearch(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  setSessionSearch("");
+                  event.currentTarget.blur();
+                }
+              }}
+              placeholder={t("sidebar.searchSessions")}
+              aria-label={t("sidebar.searchSessions")}
+              style={{
+                width: "100%",
+                height: 30,
+                boxSizing: "border-box",
+                padding: "0 30px",
+                border: "1px solid var(--border)",
+                borderRadius: 6,
+                outline: "none",
+                background: "var(--bg)",
+                color: "var(--text)",
+                fontSize: 12,
+              }}
+              onFocus={(event) => { event.currentTarget.style.borderColor = "var(--accent)"; }}
+              onBlur={(event) => { event.currentTarget.style.borderColor = "var(--border)"; }}
+            />
+            {sessionSearch && (
+              <button
+                type="button"
+                onClick={() => setSessionSearch("")}
+                title={t("sidebar.clearSearch")}
+                aria-label={t("sidebar.clearSearch")}
+                style={{
+                  position: "absolute", right: 4, top: 3,
+                  width: 24, height: 24, padding: 0,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  border: "none", borderRadius: 5,
+                  background: "transparent", color: "var(--text-dim)", cursor: "pointer",
+                }}
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <path d="M6 6l12 12M18 6 6 18" />
+                </svg>
+              </button>
+            )}
+          </div>
+          <button type="button" onClick={handleNewSession} disabled={!selectedCwd} title={selectedCwd ? t("sidebar.newSessionTitle", { path: selectedCwd }) : t("sidebar.selectProject")} aria-label={t("sidebar.new")} style={{ width: 30, height: 30, padding: 0, border: "none", borderRadius: 6, background: "transparent", color: selectedCwd ? "var(--text-muted)" : "var(--text-dim)", cursor: selectedCwd ? "pointer" : "not-allowed", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }} onMouseEnter={(e) => { if (selectedCwd) e.currentTarget.style.background = "var(--bg-hover)"; }} onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><path d="M12 5v14" /><path d="M5 12h14" /></svg>
+          </button>
+          <button type="button" onClick={() => loadSessions(false, true)} title={t("sidebar.refresh")} aria-label={t("sidebar.refresh")} style={{ width: 30, height: 30, padding: 0, border: "none", borderRadius: 6, background: "transparent", color: sessionRefreshDone ? "#4ade80" : "var(--text-muted)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }} onMouseEnter={(e) => { if (!sessionRefreshDone) e.currentTarget.style.background = "var(--bg-hover)"; }} onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}>
+            {sessionRefreshDone ? <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg> : <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /></svg>}
+          </button>
+        </div>
+      </div>
+
+      {/* Session list */}
+      <div style={{ flex: explorerOpen && (selectedCwdProp || selectedCwd) ? "1 1 0" : "1 1 auto", overflowY: "auto", padding: "2px 0 4px", minHeight: 80 }}>
+        {loading && (
+          <div style={{ padding: "16px 14px", color: "var(--text-muted)", fontSize: 12 }}>
+            {t("sidebar.loading")}
+          </div>
+        )}
+        {error && (
+          <div style={{ padding: "12px 14px", color: "#f87171", fontSize: 12 }}>
+            {error}
+          </div>
+        )}
+        {!loading && !error && normalizedSessionSearch && sessionSearchPending && filteredSessions.length === 0 && (
+          <div style={{ padding: "16px 14px", color: "var(--text-muted)", fontSize: 12 }}>
+            {t("sidebar.searchingSessions")}
+          </div>
+        )}
+        {!loading && !error && normalizedSessionSearch && sessionSearchError && filteredSessions.length === 0 && (
+          <div style={{ padding: "16px 14px", color: "#f87171", fontSize: 12 }}>
+            {t("sidebar.searchFailed")}
+          </div>
+        )}
+        {!loading && !error && filteredSessions.length === 0 && (!normalizedSessionSearch || (!sessionSearchPending && !sessionSearchError)) && (
+          <div style={{ padding: "16px 14px", color: "var(--text-muted)", fontSize: 12 }}>
+            {normalizedSessionSearch ? t("sidebar.noMatchingSessions") : t("sidebar.noSessions")}
+          </div>
+        )}
+        {sessionTree.map((node) => (
+          <SessionTreeItem
+            key={node.session.id}
+            node={node}
+            selectedSessionId={selectedSessionId}
+            runningSessionIds={runningSessionIds}
+            unreadSessionIds={unreadSessionIds}
+            onSelectSession={handleSelectSessionFromList}
+            onRenamed={loadSessions}
+            onSessionDeleted={(id) => {
+              onSessionDeleted?.(id);
+              loadSessions();
+            }}
+            onGenerateTitle={onGenerateTitle}
+            titleGenerationStatus={titleGenerationStatus}
+            searchMatches={sessionSearchMatchMap}
+            depth={0}
+          />
+        ))}
+      </div>
+
       {createBranchDialog && (
         <CreateBranchDialog
           value={newBranchName}

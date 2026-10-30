@@ -259,6 +259,11 @@ Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `au
 - Sessions whose cwd points at a removed worktree are inferred back into the main project instead of becoming a phantom project row.
 - git prints POSIX-style absolute paths even on Windows, so every path read out of git goes through `toNativePath()` (`lib/paths.ts`) before it is compared or returned. Compare paths with `samePath()`, never `===` — raw equality made `isTopLevel` permanently false on Windows and hid the worktree switcher entirely. Branch names are not paths and must keep their forward slashes. Browser code cannot apply Node path rules, so `/api/worktrees` resolves `currentWorktreePath` server-side; the sidebar must use that identity for highlighting and removal fallback.
 
+### Sidebar order and border ownership
+- Top-to-bottom in the outer flex column: 项目选择器 / worktree 切换器 (header) → 文件浏览器 → 搜索对话 + 新建/刷新 → 会话列表. The explorer sits between the branch switcher and the session search on purpose, with its own `.jsonl`-free collapsible section, so all three sections are siblings of the header — never nest one inside the header div, that breaks its `flex: 1 1 0` scroll area.
+- The header carries **no** `borderBottom`: each following section owns its `borderTop` (explorer) or its `borderTop` + `borderBottom` (search row). Restoring the header border while the explorer keeps its own would draw a 2px seam.
+- File explorer and session list both stay `flex: 1 1 0` while the explorer is open, so they split the remaining height; the search row is `flexShrink: 0` between them.
+
 ### File access allow-list
 - `/api/files` is intentionally not a general filesystem browser. Allowed roots come from session cwds, their resolved project roots, `~/pi-cwd-*`, and roots explicitly added with `allowFileRoot()`.
 - `/api/cwd/validate`, `/api/default-cwd`, and `/api/worktrees` call `allowFileRoot()` when they make a new location browsable.
