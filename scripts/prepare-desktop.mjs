@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { BUNDLED_NPM_PACKAGE_PATH, writeBundledNpmLaunchers } from "./bundled-npm.mjs";
-import { describeMissingServerChunks, findMissingServerChunks } from "./server-chunk-check.mjs";
+import { backfillMissingServerChunks, describeMissingServerChunks } from "./server-chunk-check.mjs";
 
 const execFileAsync = promisify(execFile);
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -127,22 +127,32 @@ async function prepareStandaloneServer() {
 }
 
 /**
- * 校验打包后的 server bundle 是否缺 webpack chunk。
+ * 校验打包后的 server bundle 是否缺 webpack chunk，缺的从构建输出补回来。
  *
  * `output: "standalone"` 会把被动态引用的 chunk 交给自己那套 `files` 列表来复制，
  * 漏掉一个就足够让引用它的路由在用户机器上以纯文本 `500 Internal Server Error`
  * 失败——前端只看到 `Unexpected token 'I', "Internal S"... is not valid JSON`，
  * 从现象完全看不出是打包缺文件（Windows 产物上已实测）。
  *
- * 这里只做校验、不自动补文件：`.next/server/chunks` 与 standalone 里的同名 chunk
- * 并非总是逐字节相同（同一个构建里也有被重写过的），按 id 拷过去可能换上错的内容，
- * 比起一个响亮的构建失败要危险得多。
+ * 所以这里不再只是"发现缺失就失败"：同一次构建里 `.next/server/chunks` 与 standalone
+ * 里的同名 chunk 是逐字节相同的（新增代码引入的异步 chunk 最容易在 Windows 上被漏掉），
+ * 缺的按 id 从源头补回来，并把补了哪些打进构建日志。只有源头也没有该 id 时才失败——
+ * 那说明构建本身不完整，补不了。
  */
 async function verifyStandaloneChunks() {
   const packagedServer = join(serverOutput, ".next", "server");
-  const missing = await findMissingServerChunks(packagedServer);
-  if (missing.length > 0) {
-    throw new Error(describeMissingServerChunks(missing, packagedServer));
+  const { restored, unresolved } = await backfillMissingServerChunks(
+    packagedServer,
+    join(root, ".next", "server"),
+  );
+  if (restored.length > 0) {
+    console.warn(
+      `standalone 漏复制了 ${restored.length} 个 webpack chunk，已从 .next/server/chunks 补回：`
+      + restored.map(({ id }) => `chunks/${id}.js`).join(", "),
+    );
+  }
+  if (unresolved.length > 0) {
+    throw new Error(describeMissingServerChunks(unresolved, packagedServer));
   }
 }
 

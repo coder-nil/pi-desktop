@@ -1,5 +1,5 @@
-import { readdir, readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { copyFile, mkdir, readdir, readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 
 /**
  * Webpack 的 server runtime 用 `<runtime>.e(<id>)` 请求一个异步 chunk，
@@ -79,6 +79,37 @@ export async function findMissingServerChunks(serverDirectory) {
   return [...missing].map(([id, files]) => ({ id, files: files.sort() }));
 }
 
+/**
+ * 用构建输出（`.next/server`）补齐 standalone 里缺失的 chunk。
+ *
+ * `output: "standalone"` 只按 nft 追踪出的 `files` 列表复制 `chunks/`，Windows 上实测
+ * 会漏掉被异步引用的 chunk（`app/api/files/[...path]/route.js` 引用的那个就是）。
+ * 同一次构建里 `.next/server/chunks` 与 standalone 里的同名 chunk 是逐字节相同的，
+ * 所以从源头补缺失的文件不会换上另一份内容；已存在的文件一律不动。
+ *
+ * 返回 `{ restored, unresolved }`：`restored` 是补回来的，`unresolved` 是源头也没有的
+ * （那种情况说明构建本身有问题，交给调用方报错）。
+ * @param {string} serverDirectory 打包后的 `.next/server`
+ * @param {string} sourceDirectory 构建输出的 `.next/server`
+ */
+export async function backfillMissingServerChunks(serverDirectory, sourceDirectory) {
+  const missing = await findMissingServerChunks(serverDirectory);
+  const restored = [];
+  const unresolved = [];
+  for (const entry of missing) {
+    const source = join(sourceDirectory, "chunks", `${entry.id}.js`);
+    const destination = join(serverDirectory, "chunks", `${entry.id}.js`);
+    try {
+      await mkdir(dirname(destination), { recursive: true });
+      await copyFile(source, destination);
+      restored.push(entry);
+    } catch {
+      unresolved.push(entry);
+    }
+  }
+  return { restored, unresolved };
+}
+
 /** 缺失 chunk 的统一报错文案，构建脚本与冒烟测试共用。 */
 export function describeMissingServerChunks(missing, serverDirectory) {
   const lines = missing.slice(0, 10).map(({ id, files }) => `  - chunks/${id}.js（被 ${files.slice(0, 3).join(", ")}${files.length > 3 ? " 等" : ""} 引用）`);
@@ -87,7 +118,8 @@ export function describeMissingServerChunks(missing, serverDirectory) {
     `${serverDirectory} 缺少 ${missing.length} 个 webpack chunk，这个 bundle 装到用户机器上会以「Internal Server Error」的形式失败：`,
     ...lines,
     more,
-    "通常是 .next / desktop-dist 里残留了上一次构建的产物。清掉后重新构建：",
+    "要么 .next 里残留了上一次构建的产物，要么 standalone 的复制漏了文件（源头 .next/server/chunks 里也没有这些 id）。",
+    "清掉后重新构建：",
     "  rm -rf .next .next-desktop-frontend desktop-dist && npm run desktop:prepare",
   ].filter(Boolean).join("\n");
 }

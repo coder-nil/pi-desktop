@@ -312,6 +312,13 @@ Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `au
 - 不要改成「在 Rust 壳里解析登录 shell 的 PATH」：那要跑用户的 rc 文件（可能很慢或挂住），而且修不到 `npm run dev` / `npm start` 这两条由终端以外的入口启动的路径。
 - 代价：npm 包 17MB 量级（`docs/`+`man/` 占 2.5MB，没删，留着让 `npm help` 也能用），相对已经打进包的 110MB node 二进制是 +8%。
 
+### standalone 会漏复制 webpack chunk（构建期自愈）
+- `output: "standalone"` 只按 nft 追踪出来的 `files` 列表往 `.next/standalone` 复制 `chunks/`。Windows 上实测会漏：CI 在 `win-x64` 上第一次跑 `desktop:prepare:runtime` 就报 `chunks/3379.js（被 app\api\files\[...path]\route.js 引用）` 缺失，而 macOS 同一份代码干净构建一个不缺。缺一个就足够让引用它的路由在用户机器上回纯文本 `500 Internal Server Error`（前端只看到 `Unexpected token 'I', "Internal S"... is not valid JSON`）。
+- `scripts/server-chunk-check.mjs` 的 `findMissingServerChunks()` 从 `webpack-runtime.js` 的 `g={…}` 已加载表排除掉「本来就没有文件」的 id，剩下被 `.e(<id>)` 请求却没文件的才算缺失。
+- **`prepare-desktop.mjs` 不再只校验，而是先 `backfillMissingServerChunks()` 补齐**：只补缺失的 id、从 `.next/server/chunks/<id>.js` 拷到打包目录，已存在的文件一律不动（干净构建下两边逐字节相同，实测 183 个文件零差异；早先观察到的同名不同内容是 `.next` 里混了 dev 产物）。补齐会打 `console.warn`，所以 CI 日志能看出这一版又漏了几个。源头也没有该 id 时才抛错——那种情况补不了，说明构建本身不完整。
+- `scripts/smoke-desktop-server.mjs` 仍然只校验（打包此时已补齐），并额外要求 `/api/sessions`、`/api/skills`、`/api/git` 回 JSON 而不只是 2xx，缺 chunk 的那一类失败在那里会以纯文本 500 暴露。
+- 别把 `.next/server/chunks` 整个覆盖过去：只补缺，才能保证不换上另一份内容、也才能让「源头也缺」继续是硬失败。
+
 ### Windows 发布版不弹控制台窗口
 - **`src-tauri/src/main.rs` 的 `windows_subsystem = "windows"` 不能删。** 少了它 release 版是控制台子系统 exe，从资源管理器/开始菜单启动时 Windows 先给应用本身分配一个黑窗，随后 spawn 的 node.exe（Next server）继承同一个窗口——用户看到的现象是「启动 Next server 弹了一个控制台」。属性只在 `all(not(debug_assertions), target_os = "windows")` 下生效，所以 `cargo tauri dev` / `cargo test` 仍然有控制台，panic 输出不会消失。
 - **改成 GUI 子系统之后，子进程必须自带 `CREATE_NO_WINDOW`。** 桌面进程不再持有控制台，控制台程序（`node.exe`、`cloudflared`、`taskkill`）默认会各开一个窗口。`lib.rs` 的 `configure_process_group()`（`spawn_server` 与 `spawn_tunnel` 共用）用 `CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP`，`hidden_command()` 服务三个 `taskkill` 调用点与 `rundll32`。两个标志可以并存：窗口只是不显示，隐藏控制台与进程组照旧建立，`terminate_process()` 的整组回收不受影响。**新增任何 Windows 子进程都要带上它**，直接用裸 `Command::new` 就会重新露出黑窗。
