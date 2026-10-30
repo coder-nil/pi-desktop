@@ -2531,7 +2531,7 @@ dependencies = [
 
 [[package]]
 name = "pi-desktop"
-version = "1.4.0-alpha.18"
+version = "1.4.0-alpha.19"
 dependencies = [
  "libc",
  "portable-pty",

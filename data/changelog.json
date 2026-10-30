@@ -1,5 +1,43 @@
 [
   {
+    "version": "1.4.0-alpha.19",
+    "date": "2026-10-30",
+    "sections": [
+      {
+        "title": "Added",
+        "kind": "added",
+        "items": [
+          "文件浏览器在 `src/main/java`、`src/test/java` 下把「唯一子目录且自身无文件」的包链折叠成一行显示（如 `com.example.demo`），与 IDEA 的包名展示一致；折叠行不支持重命名。",
+          "新增 Java 文件图标（latte / mocha 两套配色）。",
+          "项目分支行新增 Git 面板开关按钮，push / pull 按钮随之内移。"
+        ]
+      },
+      {
+        "title": "Changed",
+        "kind": "changed",
+        "items": [
+          "文件默认打开模式统一裁决：markdown 一律先给渲染预览，html 仅在不可编辑时预览，带行号打开的链接回到源码视图。",
+          "侧边栏改为 项目/worktree 切换器 → 文件浏览器 → 搜索对话 → 新建/刷新 → 会话列表，头部不再画底边，改由各段自己的上边框分隔，消除 2px 接缝。",
+          "编辑器撤销/恢复改为模型级 `undo()`/`redo()`，粘贴前断开 undo 分组（一次 `Cmd/Ctrl+Z` 撤掉整段粘贴）；macOS 移除默认 Edit 菜单的 Undo/Redo，`⌘Z` 才能送达到页面。",
+          "打包版启动时优先探测 nvm / fnm / nodenv / asdf / Homebrew 等位置的真实 npm 并前置到 PATH，系统里完全没有 npm 时才回退到随包内置的一份；插件安装/更新与会话启动都会用到它。",
+          "应用、npm、Tauri 和 Cargo 版本号统一为 `1.4.0-alpha.19`。"
+        ]
+      },
+      {
+        "title": "Fixed",
+        "kind": "fixed",
+        "items": [
+          "修复准备阶段（资源重载、扩展 preflight、新会话启动）点停止无效的问题：停止会在约 20 秒内持续重发 abort，使这一轮一开始运行就被中止；新会话首条消息期间点停止会先等会话 id 就绪，abort 失败也不再静默而是弹出提示。",
+          "修复桌面工具渲染成 `system_time: system_time: …` 的重复前缀，并补齐 pi 1.4.0 新增 docs / codemode 句段、技能列表引导语与内置工具文案的中文翻译，中文界面不再残留英文半句。",
+          "修复运行中的新会话在首条消息落盘前不出现在会话列表的问题，首条消息与消息数回退读取 agent state。",
+          "修复标签栏横向滚动时标签文字被顶出容器、无法垂直居中的问题。",
+          "修复 Windows 打包版启动 node / cloudflared / taskkill 时额外弹出控制台窗口的问题。",
+          "修复 Git 面板与技能页在服务端返回非 JSON 错误时只报解析异常的问题，现在按状态码与正文摘要给出可读错误，并提示查看服务端日志。"
+        ]
+      }
+    ]
+  },
+  {
     "version": "1.4.0-alpha.18",
     "date": "2026-10-23",
     "sections": [
