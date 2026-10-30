@@ -18,6 +18,7 @@ type CatppuccinIconName =
   | "git"
   | "graphql"
   | "html"
+  | "java"
   | "javascript"
   | "javascript-react"
   | "json"
@@ -73,6 +74,7 @@ const EXTENSION_ICONS: Record<string, CatppuccinIconName> = {
   mjs: "javascript",
   cjs: "javascript",
   jsx: "javascript-react",
+  java: "java",
   py: "python",
   json: "json",
   jsonl: "json",

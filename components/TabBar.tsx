@@ -27,31 +27,6 @@ interface Props {
   onCloseTab: (id: string) => void;
 }
 
-function TabLabel({ tab, isActive }: { tab: Tab; isActive: boolean }) {
-  const { t } = useI18n();
-  return (
-    <>
-      {getFileIcon(tab.label, 13)}
-      <span>{tab.label}</span>
-      {tab.dirty && (
-        <span
-          data-testid="tab-dirty-dot"
-          title={t("i18n.unsavedChanges")}
-          aria-label={t("i18n.unsavedChanges")}
-          style={{
-            width: 6,
-            height: 6,
-            borderRadius: "50%",
-            background: "#f59e0b",
-            flexShrink: 0,
-            marginRight: 2,
-          }}
-        />
-      )}
-    </>
-  );
-}
-
 export function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab }: Props) {
   const { t } = useI18n();
   const [hoveredClose, setHoveredClose] = useState<string | null>(null);
@@ -60,7 +35,10 @@ export function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab }: Props) {
     <div
       style={{
         display: "flex",
-        alignItems: "flex-end",
+        // 标签横向溢出时 `overflow-x: auto` 会在容器底部占掉一行滚动条的高度。
+        // 用 stretch（而不是固定标签高度）让标签适应「去掉滚动条后」的可用高度，
+        // 文字才能始终落在自己那一行的垂直中线上。
+        alignItems: "stretch",
         background: "var(--bg-panel)",
         overflowX: "auto",
         flexShrink: 0,
@@ -86,7 +64,8 @@ export function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab }: Props) {
               display: "flex",
               alignItems: "center",
               gap: 6,
-              height: 36,
+              // 不写固定高度：让父容器的 alignItems: "stretch" 决定高度。
+              // 固定 36px 时，出现横向滚动条会把标签顶出容器顶部 4px。
               paddingLeft: 12,
               paddingRight: 6,
               borderRight: "1px solid var(--border)",

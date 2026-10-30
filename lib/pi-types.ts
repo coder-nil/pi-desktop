@@ -144,6 +144,12 @@ export interface AgentSessionLike {
       readonly systemPrompt?: string;
       thinkingLevel?: string;
       streamingMessage?: PiAgentMessage;
+      /**
+       * Agent-state transcript. A just-accepted prompt lives here before its
+       * `message_end` appends it to the SessionManager, so the session list
+       * reads it as the first-message fallback.
+       */
+      messages?: PiAgentMessage[];
     };
   };
   readonly extensionRunner: ExtensionRunnerLike;

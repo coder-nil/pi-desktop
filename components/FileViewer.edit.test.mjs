@@ -46,11 +46,12 @@ test("the editor model carries a real path and skips project-less semantic check
 test("edit is a first-class display mode and editable files open straight into it", () => {
   assert.match(stateSource, /export type FileViewerDisplayMode = "edit" \| "source" \| "preview" \| "diff";/);
   assert.match(viewerSource, /const requestedInitialDisplayMode: DisplayMode = \(/);
-  assert.match(
-    viewerSource,
-    /initialState === undefined\n\s+&& initialDisplayMode === undefined\n\s+&& editable\n\s+&& !openedWithLineRef\.current/,
-  );
-  assert.match(viewerSource, /\? "edit"\n\s+: explicitInitialDisplayMode;/);
+  assert.match(viewerSource, /initialState === undefined\n\s+&& initialDisplayMode === undefined\n\s+\)/);
+  // 默认模式由 defaultOpenDisplayMode 裁决（markdown 例外，见下方那条），可编辑文件
+  // 仍然是 Edit。
+  assert.match(viewerSource, /defaultOpenDisplayMode\(\{\n\s+editable,\n\s+language: undefined,\n\s+openedWithLine: openedWithLineRef\.current,/);
+  assert.match(viewerSource, /: explicitInitialDisplayMode;/);
+  assert.match(stateSource, /return editable \? "edit" : "source";/);
   // 行号被消费后 initialLine 会变 undefined，默认模式必须只按挂载时的值算，
   // 否则源码查看会在定位完成后自己翻成 Edit。
   assert.match(viewerSource, /const openedWithLineRef = useRef\(initialLine !== undefined\)/);
@@ -132,11 +133,18 @@ test("undo and redo work inside the desktop WebView", () => {
   assert.match(editorSource, /const isUndo = key === "z" && !event\.shiftKey;/);
   // Ctrl+U 是常见的「恢复」习惯键，与 Ctrl+Y / Cmd+Shift+Z 等价。
   assert.match(editorSource, /const isRedo = key === "y" \|\| key === "u" \|\| \(key === "z" && event\.shiftKey\);/);
-  assert.match(editorSource, /editor\.trigger\("keyboard", isUndo \? "undo" : "redo", null\)/);
+  // 撤销/恢复走模型自己的 undo 栈：`editor.trigger("keyboard", "undo")` 是
+  // 「有焦点才作用于模型，否则 document.execCommand('undo')」的多实现命令，
+  // 粘贴让编辑器丢焦点时会静默失灵。
+  assert.match(editorSource, /undoRedoSilently\(isUndo\)/);
+  assert.match(editorSource, /if \(isUndo\) model\.undo\(\);\s*\n\s*else model\.redo\(\);/);
   // 只接管编辑器里的按键，且必须先取消默认行为，否则原生撤销和 Monaco 各撤一步。
   assert.match(editorSource, /!dom\.contains\(event\.target\)\) return;\n\s+event\.preventDefault\(\);\n\s+event\.stopPropagation\(\);/);
-  assert.match(editorSource, /undo: \(\) => editorRef\.current\?\.trigger\("keyboard", "undo", null\)/);
-  assert.match(editorSource, /redo: \(\) => editorRef\.current\?\.trigger\("keyboard", "redo", null\)/);
+  assert.match(editorSource, /undo: \(\) => undoRedoSilently\(true\)/);
+  assert.match(editorSource, /redo: \(\) => undoRedoSilently\(false\)/);
+  // 粘贴单独成一个 undo 单元，否则一次 Cmd+Z 撤不掉整段粘贴。
+  assert.match(editorSource, /document\.addEventListener\("paste", handlePasteBoundary, true\)/);
+  assert.match(editorSource, /editor\.pushUndoStop\(\)/);
 });
 
 test("the edit toolbar exposes undo and redo with the stack state", () => {

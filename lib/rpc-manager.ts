@@ -1946,14 +1946,22 @@ export function getRpcSession(sessionId: string): AgentSessionWrapper | undefine
   return getRegistry().get(sessionId);
 }
 
-function runtimeMessageText(entry: SessionMessageEntry): string {
-  if (entry.message.role === "bashExecution") return "";
-  const content = entry.message.content;
+function messageText(content: unknown): string {
   if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
   return content
-    .map((block) => block.type === "text" ? block.text : "")
+    .map((block) => (
+      block && typeof block === "object" && (block as { type?: string }).type === "text"
+        ? String((block as { text?: unknown }).text ?? "")
+        : ""
+    ))
     .filter(Boolean)
     .join(" ");
+}
+
+function runtimeMessageText(entry: SessionMessageEntry): string {
+  if (entry.message.role === "bashExecution") return "";
+  return messageText(entry.message.content);
 }
 
 function runtimeMessageActivityMs(entry: SessionMessageEntry): number | undefined {
@@ -1985,7 +1993,23 @@ export function getRpcSessionInfos(): SessionInfo[] {
 
     // An ensure_session call creates an idle, empty runtime while the composer
     // loads commands. Do not leak it into history before a prompt is accepted.
-    if (!persisted && (!session.isRunning() || !firstUserMessage)) continue;
+    //
+    // A freshly accepted prompt is already running before its user message
+    // reaches the SessionManager: `message_end` is what appends it, and pi
+    // delays the first JSONL flush even longer. Gating on `firstUserMessage`
+    // made the sidebar wait for the whole answer before the new session
+    // appeared, so `isRunning()` alone decides visibility.
+    if (!persisted && !session.isRunning()) continue;
+
+    // The prompt the user just sent may only exist in agent state so far.
+    const liveFirstUserMessage = firstUserMessage
+      ? undefined
+      : session.inner.agent?.state?.messages?.find((message) => message.role === "user");
+    const firstMessageText = firstUserMessage
+      ? runtimeMessageText(firstUserMessage)
+      : liveFirstUserMessage
+        ? messageText(liveFirstUserMessage.content)
+        : "";
 
     const created = header?.timestamp
       ?? entries[0]?.timestamp
@@ -2004,8 +2028,8 @@ export function getRpcSessionInfos(): SessionInfo[] {
       name: manager.getSessionName(),
       created,
       modified: new Date(lastActivityMs).toISOString(),
-      messageCount: messages.length,
-      firstMessage: firstUserMessage ? runtimeMessageText(firstUserMessage) || "(no messages)" : "(no messages)",
+      messageCount: messages.length || (liveFirstUserMessage ? 1 : 0),
+      firstMessage: firstMessageText || "(no messages)",
       transient: !persisted,
     });
   }

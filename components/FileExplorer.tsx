@@ -22,6 +22,11 @@ interface FileEntry {
   isDir: boolean;
   size: number;
   modified: string;
+  /**
+   * 真实路径。Java 源码根下的包链会被服务端折叠成 `com.example.demo` 一行，
+   * 此时 `name` 不再是目录名，路径只能由服务端给出。
+   */
+  entryPath?: string;
 }
 
 interface FileNode {
@@ -31,6 +36,8 @@ interface FileNode {
   size: number;
   children?: FileNode[];
   loaded?: boolean;
+  /** 这一行代表一条被折叠的 Java 包链，`fullPath` 是最内层目录。 */
+  packageChain?: boolean;
 }
 
 interface Props {
@@ -108,11 +115,12 @@ async function fetchEntries(dirPath: string, cwd: string, hideDotDirs = false): 
   const data = await res.json() as { entries?: FileEntry[] };
   return (data.entries ?? []).map((e) => ({
     name: e.name,
-    fullPath: joinFilePath(dirPath, e.name),
+    fullPath: e.entryPath ?? joinFilePath(dirPath, e.name),
     isDir: e.isDir,
     size: e.size,
     children: e.isDir ? [] : undefined,
     loaded: !e.isDir,
+    ...(e.entryPath !== undefined ? { packageChain: true } : {}),
   }));
 }
 
@@ -332,6 +340,8 @@ function TreeNode({
   }, [t]);
 
   const startRename = useCallback(() => {
+    // 折叠后的包行代表整条包链，重命名只能对最内层目录生效，改哪个都不对。
+    if (node.packageChain) return;
     if (canRenamePath && !canRenamePath(node.fullPath)) {
       setRenameError(t("files.renameUnsaved"));
       return;

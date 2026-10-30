@@ -29,6 +29,12 @@ import {
 import { parseFormDataWithinLimit, RequestBodyTooLargeError } from "@/lib/bounded-form-data";
 import { samePath } from "@/lib/paths";
 import { parseFileRenameName } from "@/lib/file-rename";
+import {
+  isInsideJavaSourceRoot,
+  isJavaPackageSegment,
+  mergeJavaPackageChain,
+  type JavaPackageChild,
+} from "@/lib/java-packages";
 
 const IGNORED_NAMES = new Set([
   "node_modules", ".git", ".next", "dist", "build", "__pycache__",
@@ -37,6 +43,26 @@ const IGNORED_NAMES = new Set([
 ]);
 
 const IGNORED_SUFFIXES = [".pyc"];
+
+/**
+ * 判定 Java 包链时的子项读取器。
+ *
+ * 与列表本身使用同一套忽略规则，所以 `target/`、`__pycache__/` 不会被当成「唯一的
+ * 下一级包」；点开头的隐藏项也一律不计入，否则一个 `.DS_Store` 就能把 `com.example`
+ * 拆回两级。除此之外不额外过滤：有任何一个文件都会终止链，因为那一级是要显示的终点包。
+ */
+function readJavaPackageChildren(dir: string): JavaPackageChild[] {
+  let dirents: fs.Dirent[];
+  try {
+    dirents = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  return dirents
+    .filter((d) => !d.name.startsWith("."))
+    .filter((d) => !IGNORED_NAMES.has(d.name) && !IGNORED_SUFFIXES.some((s) => d.name.endsWith(s)))
+    .map((d) => ({ name: d.name, isDir: resolveDirentIsDirectory(d, path.join(dir, d.name)) === true }));
+}
 
 const FILE_REQUEST_TYPES = ["list", "read", "download", "meta", "preview", "watch"] as const;
 type FileRequestType = typeof FILE_REQUEST_TYPES[number];
@@ -743,7 +769,7 @@ export async function GET(
     // Avoid per-entry stat calls for normal files and directories. Symlinks and
     // filesystems without directory type information use the stat fallback.
     const dirents = fs.readdirSync(filePath, { withFileTypes: true });
-    const entries = dirents
+    const listedEntries = dirents
       .filter((d) => !IGNORED_NAMES.has(d.name) && !IGNORED_SUFFIXES.some((s) => d.name.endsWith(s)))
       .filter((d) => !hideDotDirs || !d.name.startsWith("."))
       .flatMap((d) => {
@@ -751,12 +777,26 @@ export async function GET(
         return isDir === null
           ? []
           : [{ name: d.name, isDir, size: 0, modified: "" }];
-      })
-      .sort((a, b) => {
-        // Dirs first, then files, both alphabetically
-        if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
-        return a.name.localeCompare(b.name);
       });
+
+    // Java 项目里 `com/example/demo` 会占掉三行。在 src/main/java、src/test/java
+    // 这两棵树下把「只含一个子目录、自身没有文件」的每一级合并成 `com.example.demo`
+    // 一行（与 IDEA 的包名展示一致）。范围内但整条链只有一级的目录保持原样。
+    const entries = (isInsideJavaSourceRoot(filePath)
+      ? listedEntries.flatMap((entry) => {
+        if (!entry.isDir || !isJavaPackageSegment(entry.name)) return [entry];
+        const chain = mergeJavaPackageChain(filePath, entry.name, readJavaPackageChildren, {
+          joinPath: path.join,
+        });
+        if (chain.segments.length < 2) return [entry];
+        return [{ ...entry, name: chain.name, entryPath: chain.packagePath }];
+      })
+      : listedEntries
+    ).sort((a, b) => {
+      // Dirs first, then files, both alphabetically
+      if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
 
     return NextResponse.json({ entries, path: filePath });
   } catch (error) {

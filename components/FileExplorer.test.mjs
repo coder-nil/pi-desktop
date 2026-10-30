@@ -20,3 +20,14 @@ test("rename protection covers files and folders with open descendants", () => {
   assert.match(source, /canRenamePath && !canRenamePath\(node\.fullPath\)/);
   assert.match(source, /t\("files\.renameUnsaved"\)/);
 });
+
+test("a collapsed Java package row keeps the server-provided innermost path", () => {
+  // 服务端把 `com/example/demo` 折叠成一行 `com.example.demo`，目录名不再是路径最后
+  // 一段，所以 fullPath 只能取自 entryPath。
+  assert.match(source, /fullPath: e\.entryPath \?\? joinFilePath\(dirPath, e\.name\)/);
+  assert.match(source, /entryPath\?: string/);
+});
+
+test("a collapsed Java package row cannot be renamed", () => {
+  assert.match(source, /if \(node\.packageChain\) return;/);
+});

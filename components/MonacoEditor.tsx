@@ -156,14 +156,30 @@ export function MonacoFileEditor({
   const onUndoStateChangeRef = useRef(onUndoStateChange);
   onUndoStateChangeRef.current = onUndoStateChange;
 
+  // 撤销 / 恢复走模型自己的 undo 栈，而不走 editor.trigger("keyboard", "undo")。
+  //
+  // 这条命令在 Monaco 里是“模型优先、否则 DOM”的多实现命令（coreCommands.js 的
+  // EditorOrNativeTextInputCommand）：优先给 `hasTextFocus()` 的编辑器，拿不到焦点
+  // 就退成 `document.execCommand('undo')`。后者对编辑器内容完全无效，而
+  // `hasTextFocus()` 靠 focus/blur 事件维护 —— WKWebView 里原生粘贴（Edit 菜单的
+  // Cmd+V）会先从 textarea 收走焦点，粘贴完的焦点事件时序不保证把
+  // `hasTextFocus` 恢复成 true。于是表现就是“粘贴之后 Cmd+Z 失灵，普通键入却
+  // 没问题”。模型级 undo/redo 与命令内部真正做的事一模一样，但不会因为焦点
+  // 状态掉进 DOM 分支。
+  const undoRedoSilently = useCallback((isUndo: boolean) => {
+    const model = editorRef.current?.getModel();
+    if (!model) return;
+    if (isUndo) model.undo();
+    else model.redo();
+  }, []);
+
   useImperativeHandle(handleRef, () => ({
     focus: () => editorRef.current?.focus(),
     getValue: () => editorRef.current?.getValue() ?? "",
     getModel: () => editorRef.current?.getModel() ?? null,
-    // 走 Monaco 自己的 undo 栈；document.execCommand("undo") 对编辑器内容无效。
-    undo: () => editorRef.current?.trigger("keyboard", "undo", null),
-    redo: () => editorRef.current?.trigger("keyboard", "redo", null),
-  }), []);
+    undo: () => undoRedoSilently(true),
+    redo: () => undoRedoSilently(false),
+  }), [undoRedoSilently]);
 
   useEffect(() => () => {
     undoStateListenerRef.current?.();
@@ -253,11 +269,25 @@ export function MonacoFileEditor({
       if (!dom || !(event.target instanceof Node) || !dom.contains(event.target)) return;
       event.preventDefault();
       event.stopPropagation();
-      editor.trigger("keyboard", isUndo ? "undo" : "redo", null);
+      undoRedoSilently(isUndo);
     };
     document.addEventListener("keydown", handleUndoRedoKey, true);
+
+    // 粘贴单独成一步：WebKit 的原生粘贴可能和前面的键入落到同一个 undo 元素，
+    // 一次 Cmd+Z 就只撤掉一半（或看起来「粘贴的内容撤不掉」）。在 Monaco 处理
+    // 粘贴之前先断开 undo 分组，粘贴就会是独立的可撤销单元。
+    const handlePasteBoundary = (event: Event) => {
+      const dom = editor.getDomNode();
+      if (!dom || !(event.target instanceof Node) || !dom.contains(event.target)) return;
+      editor.pushUndoStop();
+    };
+    document.addEventListener("paste", handlePasteBoundary, true);
+
     undoStateListenerRef.current?.();
-    undoStateListenerRef.current = () => document.removeEventListener("keydown", handleUndoRedoKey, true);
+    undoStateListenerRef.current = () => {
+      document.removeEventListener("keydown", handleUndoRedoKey, true);
+      document.removeEventListener("paste", handlePasteBoundary, true);
+    };
 
     // 工具栏按钮的可用状态：撤销本身也会改内容，所以同一个回调同时负责两者。
     const notifyUndoState = () => {
@@ -270,7 +300,7 @@ export function MonacoFileEditor({
     editor.onDidChangeModelContent(notifyUndoState);
     editor.onDidChangeModel(notifyUndoState);
     notifyUndoState();
-  }, [handleExplicitSave]);
+  }, [handleExplicitSave, undoRedoSilently]);
 
   return (
     <Suspense fallback={<div style={{ padding: 24, color: "var(--text-muted)", fontSize: 12 }}>Loading editor...</div>}>

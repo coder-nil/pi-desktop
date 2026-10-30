@@ -38,6 +38,7 @@ import {
   type SyntaxNode,
 } from "@/lib/file-viewer-search";
 import {
+  defaultOpenDisplayMode,
   resolveInitialFileDisplayMode,
   type FileViewerDisplayMode as DisplayMode,
   type FileViewerState,
@@ -1065,14 +1066,17 @@ function TextFileViewer({
   // 若继续跟随它，默认模式会在链接定位完成后从 source 翻成 edit —— 点链接看代码
   // 会突然变成编辑器，而且这次切换里 Monaco 只停在自己的 loading 占位上。
   const openedWithLineRef = useRef(initialLine !== undefined);
-  // 可编辑文件默认打开即 Edit；显式模式提示、恢复的标签状态或行号跳转优先。
+  // 没保存过的标签状态就按文件类型给默认模式：markdown 打开即预览，其余可编辑文件
+  // 默认 Edit。显式模式提示、恢复的标签状态与行号跳转优先。
   const requestedInitialDisplayMode: DisplayMode = (
     initialState === undefined
     && initialDisplayMode === undefined
-    && editable
-    && !openedWithLineRef.current
   )
-    ? "edit"
+    ? defaultOpenDisplayMode({
+      editable,
+      language: undefined,
+      openedWithLine: openedWithLineRef.current,
+    })
     : explicitInitialDisplayMode;
   const initialWrapLines = initialState?.wrapLines ?? false;
   const initialScrollTop = initialState?.scrollTop ?? 0;
@@ -1110,9 +1114,12 @@ function TextFileViewer({
   const gitDiffRequestRef = useRef(0);
   const contentRef = useRef<HTMLDivElement | null>(null);
   const autoDiffAppliedRef = useRef(false);
-  // Markdown/HTML 只有在该查看器不可编辑时才默认走预览；可编辑时默认 Edit。
-  const defaultPreviewEligibleRef = useRef(
-    !editable && initialState === undefined && initialDisplayMode === undefined,
+  // 默认模式的判定全靠 defaultOpenDisplayMode（见 lib/file-viewer-state.ts）：
+  // markdown 无论能不能编辑都先给预览，html 只在不可编辑时预览，其余可编辑文件
+  // 默认 Edit。语言要等文件内容回来才知道，所以正式裁决拖到这个 effect 里，
+  // 资格 ref 也在这里才消费 —— 否则首帧（language 还是 undefined）就白跑了一轮。
+  const defaultModeEligibleRef = useRef(
+    initialState === undefined && initialDisplayMode === undefined && !openedWithLineRef.current,
   );
   const scrollRestorePendingRef = useRef(true);
   const viewerStateRef = useRef<FileViewerState>({
@@ -1461,18 +1468,17 @@ function TextFileViewer({
   }, [fetchGitDiff, filePath, gitRefreshKey]);
 
   useEffect(() => {
-    // HTML gets the same rendered-first treatment as markdown: a generated page
-    // is usually more useful viewed than read as source. Both have a preview
-    // mode already; the source tab stays one click away. A restored choice or
-    // explicit mode hint always wins over this default.
-    if (
-      defaultPreviewEligibleRef.current
-      && (data?.language === "markdown" || data?.language === "html")
-    ) {
-      defaultPreviewEligibleRef.current = false;
-      updateDisplayMode("preview");
-    }
-  }, [data?.language, updateDisplayMode]);
+    // A restored choice or explicit mode hint always wins over this default, so the
+    // capability ref is only armed when neither was given.
+    if (!defaultModeEligibleRef.current || !data?.language) return;
+    defaultModeEligibleRef.current = false;
+    const resolved = defaultOpenDisplayMode({
+      editable,
+      language: data.language,
+      openedWithLine: false,
+    });
+    if (resolved !== viewerStateRef.current.displayMode) updateDisplayMode(resolved);
+  }, [data?.language, editable, updateDisplayMode]);
 
   const hasGitDiff = gitDiff?.supported === true && typeof gitDiff.patch === "string";
   const isDeletedDiff = hasGitDiff && gitDiff.status === "deleted";

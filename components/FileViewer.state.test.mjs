@@ -53,10 +53,22 @@ test("TextFileViewer snapshots and restores lightweight tab state", () => {
   assert.match(block, /content\.scrollLeft = viewerStateRef\.current\.scrollLeft/);
 });
 
-test("TextFileViewer keeps first-mount preview eligibility across Strict Effects cleanup", () => {
+test("first-mount default mode eligibility survives Strict Effects cleanup", () => {
   const block = functionBlock("TextFileViewer", null);
-  assert.match(block, /defaultPreviewEligibleRef = useRef\(/);
-  assert.match(block, /defaultPreviewEligibleRef\.current[\s\S]*updateDisplayMode\("preview"\)/);
+  assert.match(block, /defaultModeEligibleRef = useRef\(/);
+  // 资格只在文件语言到达后才消费：data 未到时提前取走，Strict Effects 的重跑
+  // 就会把首次挂载的默认模式丢掉。
+  assert.match(block, /if \(!defaultModeEligibleRef\.current \|\| !data\?\.language\) return;/);
+  assert.match(block, /defaultModeEligibleRef\.current = false;\s*const resolved = defaultOpenDisplayMode\(/);
+  assert.match(block, /updateDisplayMode\(resolved\)/);
+});
+
+test("markdown opens as a rendered preview even when the viewer is editable", () => {
+  const block = functionBlock("TextFileViewer", null);
+  // 默认模式由 lib/file-viewer-state.ts 的 defaultOpenDisplayMode 裁决，
+  // 组件不自己写 if (language === "markdown")。
+  assert.doesNotMatch(block, /data\.language === "markdown"/);
+  assert.match(block, /language: data\.language,/);
 });
 
 test("copying source or diff code excludes line-number gutters", () => {

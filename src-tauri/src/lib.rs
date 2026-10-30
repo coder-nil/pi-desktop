@@ -858,6 +858,47 @@ fn force_kill(child: &mut Child) {
     let _ = child.kill();
 }
 
+/**
+ * macOS 的 Edit 菜单里，Undo / Redo 是带 ⌘Z / ⌘⇧Z key equivalent 的菜单项。
+ * NSMenu 会在 WebView 拿到按键之前就把这两个快捷键吃掉，页面连 keydown 都收不到；
+ * WKWebView 收到的是原生 `undo:`，而 Monaco 的正文在 JS 里，原生撤销栈里没有它，
+ * 于是「Cmd+Z 完全没反应，Ctrl+Z 却可以」—— Ctrl+Z 不是菜单快捷键，能一路送到
+ * 页面的 capture 监听里，由 `components/MonacoEditor.tsx` 自己撤销。
+ *
+ * 掉这两项，⌘Z 才会作为普通按键到达页面：Monaco 内部由我们的 capture 处理器
+ * 接管，其余原生输入框由 WebKit 自己的 key binding 处理。Cut / Copy / Paste /
+ * Select All 仍然保留为菜单项（⌘V 正是靠它们转发成页面里的 paste 事件），
+ * File / View / Window / Help 也都是 Tauri 默认菜单里的原样。
+ */
+#[cfg(target_os = "macos")]
+fn remove_default_undo_redo_menu_items<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+) -> tauri::Result<()> {
+    use tauri::menu::{Menu, MenuItemKind};
+
+    let menu = Menu::default(app)?;
+    for item in menu.items()? {
+        let MenuItemKind::Submenu(submenu) = item else {
+            continue;
+        };
+        if submenu.text()? != "Edit" {
+            continue;
+        }
+        // Tauri 的 Menu::default 固定以 undo / redo 开头的 Edit 子菜单（tauri 2.x），
+        // 删前两项即可；其余项顺序不动。
+        if let Some(removed) = submenu.remove_at(0)? {
+            drop(removed);
+        }
+        if let Some(removed) = submenu.remove_at(0)? {
+            drop(removed);
+        }
+        break;
+    }
+
+    app.set_menu(menu)?;
+    Ok(())
+}
+
 pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
@@ -877,6 +918,8 @@ pub fn run() {
             next_id: AtomicU64::new(1),
         })
         .setup(|app| {
+            #[cfg(target_os = "macos")]
+            remove_default_undo_redo_menu_items(app.handle())?;
             create_main_window(app.handle()).map_err(std::io::Error::other)?;
             let handle = app.handle().clone();
             thread::spawn(move || start_application(handle));

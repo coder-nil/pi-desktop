@@ -82,6 +82,7 @@ lib/
   draft-store.ts       local draft persistence helpers
   file-access.ts       allowed file roots for /api/files and worktrees
   file-paths.ts        client/server path encoding helpers
+  file-viewer-state.ts file tab state (display mode / wrap / scroll) + open-mode defaults
   language-instruction.ts  UI-language instruction shared by the coding and chat prompt paths
   markdown.ts          shared markdown helpers
   mobile-state.ts      server-side plain-text projection for the phone view
@@ -263,6 +264,17 @@ Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `au
 - `/api/cwd/validate`, `/api/default-cwd`, and `/api/worktrees` call `allowFileRoot()` when they make a new location browsable.
 - Allowed roots are stored slash-normalized, but that is a Set-key convention, not a correctness requirement: `isPathWithinRoots()` (`lib/path-security.ts`, the single implementation behind `isFilePathAllowed()`) re-resolves and case-folds both sides, so either path form authorizes correctly. Keep that one implementation — it is the security boundary.
 
+### Java 包名折叠（文件浏览器）
+- **`src/main/java` 与 `src/test/java` 下的包链折叠成一行**（`com.iflorens.module.bill.ar`），与 IDEA 的包名展示一致；用户选定的范围只有这两棵树，其它目录（自定义 sourceSet `src/it/java`、普通多级目录）保持逐级展开。判定在 `lib/java-packages.ts`，只看路径段里是否出现 `src/<main|test>/java` 三元组。
+- **链的终点规则**：某级目录“有且仅有一个子目录、且自身没有文件”时才能把下一级并进展示名。有类文件的那一级是要展开的终点包，必须留在行上；`target/`、`__pycache__/` 之类走列表同一套忽略规则，点开头的隐藏项一律不计入 —— 否则一个 `.DS_Store` 就能把 `com.example` 拆回两级。
+- **折叠在 `/api/files?type=list` 服务端做，不是前端拼名字**：服务端直接读磁盘跟进整条链（一次请求，无需逐级往返），返回的条目里多一个 `entryPath`（最内层目录），客户端 `fullPath` 取 `entryPath ?? joinFilePath(dir, name)`。因此那条行的实际路径**不等于**「父目录 + 显示名」，任何“用 name 反推路径”的写法都会指向一个不存在的 `com.example.demo` 目录。
+- 折叠行代表整条包链，重命名只能落在一个目录上，所以 `startRename` 对它直接返回（`node.packageChain`）。`@提及`、在访达/资源管理器中显示、Git 变更点都按最内层路径工作。
+- 测试：`lib/java-packages.test.mjs`（纯函数）与 `app/api/files/java-packages-route.test.mjs`（真实临时 Maven 布局跑真 `GET`）。
+
+### 打开的文件默认显示模式
+- 默认模式的唯一裁决处是 `lib/file-viewer-state.ts` 的 `defaultOpenDisplayMode()`：**markdown 无论查看器能不能编辑都先给渲染后的 Preview**（打开 md 基本是来读的，要改再点 Edit），html 只在不可编辑时 Preview，其余可编辑文件仍然默认 Edit（`editable` 由 `AppShell` 打开的文件标签传 `true`）。带行号打开（`path:12` 链接）的一律回 source，预览里没法定位行。
+- 语言要等文件内容回来才知道，所以挂载时先用 `language: undefined` 算一个临时值，真正的裁决在 `data?.language` 到达后的 effect 里，并靠 `defaultModeEligibleRef` 只消费一次——资格必须在 data 到达后才取走，否则 Strict Effects 的重跑会把首次挂载的默认模式丢掉。已保存的标签状态（`initialState`）与显式 `initialDisplayMode` 永远优先。
+
 ### 打开的文件实时跟随磁盘变化
 - **只有当前标签需要实时同步**：`AppShell` 只挂载 `activeFileTab` 的查看器，所以每个查看器自己开 `?type=watch` 的 SSE 就等价于只监视正在看的那个文件。图片/音频/文档查看器一直如此；`TextFileViewer` 的监听在集成 Monaco 时被误删过（只剩一个“进编辑态就断开”的桩，`components/FileViewer.state.test.mjs` 因此失败），别再把它改回按 `editing` 断开。
 - 文本文件收到 `change` 后走 `applyDiskContent()`：一次更新 `data`、基线、草稿，并把内容写回 Monaco 模型。Monaco 用 `defaultValue` 建模，prop 变化不会回写，只能靠 `handleRef` 里的 `getModel().setValue()`；`applyingExternalRef` 用来把这次 `setValue` 触发的 `onChange` 排除在“用户编辑”之外，否则刚同步完就变脏。
@@ -275,6 +287,9 @@ Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `au
 - **`Ctrl+U` 是产品选的恢复习惯键**（与 Ctrl+Y / Cmd+Shift+Z 等价），工具栏文案也这么写，不要把它当成 `Ctrl+Y` 的别名而悄悄删掉。
 - **提示文案里的修饰键按平台显示。** `lib/platform-key.ts` 的 `isMacPlatform()` / `modifierKeyLabel()` 决定显示 `Cmd+Z` 还是 `Ctrl+Z`；`FileViewer` 先用 state 默认 `Ctrl`（服务端没有 `navigator`）、再用 effect 修正成 `Cmd`，避免 hydration 属性不一致。按键判断本身同时接受 metaKey 与 ctrlKey，所以平台判断错了只会让文字不好看，不会让快捷键失效。
 - 工具栏的撤销/恢复按钮走同一个 undo 栈（`editorHandleRef.current.undo()/redo()`），可用状态来自 `model.canUndo()/canRedo()`，由 `editor.onDidChangeModelContent` 上报（撤销本身也会改内容，同一个回调负责两者）。不要用 `document.execCommand("undo")`：它对 Monaco 的模型无效。
+- **撤销/恢复必须直接调 `model.undo()/redo()`，不要用 `editor.trigger("keyboard", "undo")`。** 那条命令在 `coreCommands.js` 的 `EditorOrNativeTextInputCommand` 里有三个实现：优先给 `hasTextFocus()` 为真的编辑器，否则退成 `document.execCommand('undo')`（对模型无效）。`hasTextFocus()` 靠 focus/blur 事件维护，而 **WKWebView 里的原生粘贴会先把焦点从 textarea 收走**，粘贴完不保证恢复——表现就是“粘贴之后 Cmd+Z 彻底失灵，普通键入却正常”。模型级 undo 与命令内部真正做的事完全一样（命令的 `runEditorCommand` 就是调 `model.undo()`），但不会因焦点状态掉进 DOM 分支。
+- **粘贴前要 `pushUndoStop()`。** `document` 的 capture 阶段监听 `paste`（同样只在 `event.target` 位于编辑器内时生效），先断开 undo 分组，粘到的内容才会是独立的一步：一次 Cmd+Z 撤掉整段粘贴，而不是和前面的键入合并或只撤一半。
+- **macOS 上 ⌘Z 是被应用菜单吃掉的，JS 侧救不回来。** Tauri 在 macOS 默认安装 `Menu::default`，其中 Edit > Undo / Redo 带 ⌘Z / ⌘⇧Z 的 key equivalent，NSMenu 会在 WebView 之前匹配并处理，页面连 keydown 都收不到——所以表现是「Cmd+Z 完全没反应，Ctrl+Z 却正常」（Ctrl+Z 不是菜单快捷键）。`src-tauri/src/lib.rs` 的 `remove_default_undo_redo_menu_items()` 在 setup 里重建默认菜单并删掉 Edit 子菜单的前两项（Tauri 2.x 的默认顺序），Cut / Copy / Paste / Select All 与 File/View/Window/Help 全部保留。**这一项改动在 Rust 侧，必须重新打包桌面应用才生效**（`npm run desktop:build`），刷新页面或重启 dev server 不够。
 
 ### Plugins and skills
 - `/api/plugins` uses pi's `SettingsManager` + `DefaultPackageManager` for global/project package install, remove, update, enable, and disable. Disabling writes empty `extensions/skills/prompts/themes` arrays for that package entry.
