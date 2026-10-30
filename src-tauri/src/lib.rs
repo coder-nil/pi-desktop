@@ -27,6 +27,18 @@ const STARTUP_TIMEOUT: Duration = Duration::from_secs(45);
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
 const RELEASE_URL_PREFIX: &str = "https://github.com/coder-nil/pi-desktop/releases/";
 
+/// Win32 `CREATE_NEW_PROCESS_GROUP`：子进程自成进程组，退出时整组一起回收。
+#[cfg(windows)]
+const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+
+/// Win32 `CREATE_NO_WINDOW`：控制台程序不弹控制台窗口。
+///
+/// 桌面进程是 GUI 子系统（`windows_subsystem = "windows"`），自己不带控制台，
+/// 所以 node.exe / cloudflared / taskkill 这些控制台程序默认会各自开一个黑窗。
+/// 它与 `CREATE_NEW_PROCESS_GROUP` 可以同时用：窗口只是不显示，控制台和进程组照旧建立。
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
 #[cfg(windows)]
 const DESKTOP_API_ORIGIN: &str = "http://tauri.localhost";
 #[cfg(not(windows))]
@@ -73,7 +85,7 @@ impl Drop for TerminalSession {
         }
         #[cfg(windows)]
         if let Some(pid) = self.child.process_id() {
-            let _ = Command::new("taskkill")
+            let _ = hidden_command("taskkill")
                 .args(["/PID", &pid.to_string(), "/T", "/F"])
                 .status();
         }
@@ -345,7 +357,7 @@ fn open_release_url(url: String) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     let status = Command::new("open").arg(&url).status();
     #[cfg(target_os = "windows")]
-    let status = Command::new("rundll32")
+    let status = hidden_command("rundll32")
         .args(["url.dll,FileProtocolHandler", &url])
         .status();
     #[cfg(all(unix, not(target_os = "macos")))]
@@ -562,10 +574,17 @@ fn spawn_server(
     port: u16,
     log_path: &Path,
 ) -> Result<DesktopServer, String> {
-    let (node, working_directory, arguments) = if cfg!(debug_assertions) {
-        development_runtime(port)?
+    let (node, working_directory, runtime_directory, arguments) = if cfg!(debug_assertions) {
+        let (node, working_directory, arguments) = development_runtime(port)?;
+        // 开发态没有打包的 npm（`desktop-dist` 只有占位的 node），不设这个变量，
+        // 否则会把一个空目录当成兜底。
+        (node, working_directory, None, arguments)
     } else {
-        production_runtime(app)?
+        let (node, working_directory, arguments) = production_runtime(app)?;
+        let runtime_directory = node
+            .parent()
+            .map(|directory| directory.to_string_lossy().into_owned());
+        (node, working_directory, runtime_directory, arguments)
     };
 
     let stdout = open_log(log_path)?;
@@ -585,6 +604,12 @@ fn spawn_server(
         .stdin(Stdio::null())
         .stdout(Stdio::from(stdout))
         .stderr(Stdio::from(stderr));
+    // 打包版在 bundled node 旁边自带一份 npm。Node 侧的 `lib/host-tool-path.ts`
+    // 只在机器上没有任何可用 npm 时才把这个目录前置到 PATH，所以装了 Node.js 的
+    // 机器行为不变，没装的也能安装/更新插件。
+    if let Some(runtime_directory) = runtime_directory.as_deref() {
+        command.env("PI_DESKTOP_RUNTIME_DIR", runtime_directory);
+    }
     configure_process_group(&mut command);
     command
         .spawn()
@@ -812,7 +837,16 @@ pub(crate) fn configure_process_group(command: &mut Command) {
 #[cfg(windows)]
 pub(crate) fn configure_process_group(command: &mut Command) {
     use std::os::windows::process::CommandExt;
-    command.creation_flags(0x0000_0200);
+    command.creation_flags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP);
+}
+
+/// Windows 上拉起控制台小工具（taskkill 等）时用的 Command：不弹窗。
+#[cfg(windows)]
+fn hidden_command(program: &str) -> Command {
+    use std::os::windows::process::CommandExt;
+    let mut command = Command::new(program);
+    command.creation_flags(CREATE_NO_WINDOW);
+    command
 }
 
 #[cfg(unix)]
@@ -824,7 +858,7 @@ fn request_graceful_shutdown(child: &Child) {
 
 #[cfg(windows)]
 fn request_graceful_shutdown(child: &Child) {
-    let _ = Command::new("taskkill")
+    let _ = hidden_command("taskkill")
         .args(["/PID", &child.id().to_string(), "/T"])
         .status();
 }
@@ -852,7 +886,7 @@ fn force_kill(child: &mut Child) {
 
 #[cfg(windows)]
 fn force_kill(child: &mut Child) {
-    let _ = Command::new("taskkill")
+    let _ = hidden_command("taskkill")
         .args(["/PID", &child.id().to_string(), "/T", "/F"])
         .status();
     let _ = child.kill();

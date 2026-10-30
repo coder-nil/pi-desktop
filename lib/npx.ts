@@ -16,7 +16,7 @@ interface NpxLocation {
 /**
  * Try to locate `npx-cli.js` in various Node.js installations.
  * Priority order:
- *   1. npm bundled with the current Node.js (for standard installs)
+ *   1. npm bundled with the current Node.js (for standard installs, and Pi Desktop's own runtime)
  *   2. Common system-wide paths (Homebrew, macOS pkg, Linux common)
  *   3. NVM installations (newest to oldest)
  */
@@ -30,6 +30,9 @@ function findNpxCli(): NpxLocation | null {
     { path: join(nodeDir, "..", "lib", "node_modules", "npm", "bin", "npx-cli.js"), layout: "Unix/nvm/brew" },
     // macOS pkg (legacy but still possible)
     { path: join(nodeDir, "../lib/node_modules/npm/bin/npx-cli.js"), layout: "macOS pkg" },
+    // Pi Desktop 打包的 runtime：node 在根目录，npm 包在 lib/node_modules/npm（没装
+    // Node.js 的机器也能装技能，不再依赖系统 npx）。
+    { path: join(nodeDir, "lib", "node_modules", "npm", "bin", "npx-cli.js"), layout: "Pi Desktop runtime" },
   ];
   
   for (const { path, layout } of directCandidates) {
@@ -167,14 +170,16 @@ export async function runNpx(args: string[], opts: RunNpxOptions = {}): Promise<
       : "Reinstall Node.js with npm included.";
     
     throw new Error(
-      `Cannot locate npx-cli.js. The bundled Node.js in Pi Desktop does not include npm.\n` +
+      `Cannot locate npx-cli.js. Pi Desktop ships its own npm under <runtime>/lib/node_modules/npm; ` +
+      `if that is missing the install is incomplete.\n` +
       `Searched in:\n` +
       `  - Bundled with: ${execPath}\n` +
       `  - Common system paths (/opt/homebrew, /usr/local, /usr)\n` +
       `  - NVM installations in ${process.env.HOME || "~"}\n\n` +
       `Solutions:\n` +
-      `  1. Ensure Node.js is installed globally (via nvm or other installer)\n` +
-      `  2. Or run 'npm install -g npm' in a terminal to restore npm\n\n` +
+      `  1. Reinstall Pi Desktop\n` +
+      `  2. Or ensure Node.js is installed globally (via nvm or another installer)\n` +
+      `  3. Or run 'npm install -g npm' in a terminal to restore npm\n\n` +
       `${nvmHint}`
     );
   }

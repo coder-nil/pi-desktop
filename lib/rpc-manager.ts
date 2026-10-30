@@ -19,6 +19,7 @@ import { createAskUserExtension } from "./ask-user-tool";
 import { createTaskProgressExtension } from "./task-progress-tool";
 import { cacheSessionPath, invalidateSessionListCache } from "./session-reader";
 import { applyShellTool, normalizeActiveShellTool, resolveShellSelection } from "./shell-tool";
+import { ensureHostToolPath } from "./host-tool-path";
 import type { QueueMode } from "./queue-mode-settings";
 import { getProjectTrustStatus, projectTrustReloadOptions } from "./project-trust";
 import { persistExplicitStartupPreferences } from "./startup-preferences";
@@ -2167,6 +2168,10 @@ export async function startRpcSession(
   const starting = (async () => {
     // Some extensions access the SDK's global theme even outside the terminal UI.
     initTheme();
+    // 打包版从 Dock 启动时继承的是 launchd 最小 PATH：`bash` 工具里没有 node/npm，
+    // 插件安装也会 `spawn npm ENOENT`。会话启动时先把找到的 node 目录补进 PATH，
+    // 之后 pi 派生的所有子进程（bash 工具、包管理器、git）都跟着受益。
+    ensureHostToolPath();
     const agentDir = getAgentDir();
 
     // Determine which tools to pass based on requested toolNames.

@@ -261,7 +261,7 @@ Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `au
 
 ### Sidebar order and border ownership
 - Top-to-bottom in the outer flex column: 项目选择器 / worktree 切换器 (header) → 文件浏览器 → 搜索对话 + 新建/刷新 → 会话列表. The explorer sits between the branch switcher and the session search on purpose, with its own `.jsonl`-free collapsible section, so all three sections are siblings of the header — never nest one inside the header div, that breaks its `flex: 1 1 0` scroll area.
-- The header carries **no** `borderBottom`: each following section owns its `borderTop` (explorer) or its `borderTop` + `borderBottom` (search row). Restoring the header border while the explorer keeps its own would draw a 2px seam.
+- The header carries **no** `borderBottom`: each following section owns its `borderTop` (explorer, search row). The search row deliberately draws no bottom border, so the session list starts flush under it.
 - File explorer and session list both stay `flex: 1 1 0` while the explorer is open, so they split the remaining height; the search row is `flexShrink: 0` between them.
 
 ### File access allow-list
@@ -301,6 +301,21 @@ Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `au
 - `/api/skills` uses `DefaultResourceLoader` so settings paths, package skills, and project `.agents/skills` are listed the same way the runtime sees them.
 - Skill toggling edits only the `disable-model-invocation` frontmatter key on the target `SKILL.md`; keep that surgical so user formatting survives.
 - `/api/skills/install` shells through `npx skills add ... --agent pi`; project installs run with the selected cwd.
+
+### 打包版的 PATH 与自带 npm
+- pi 的包管理器用**裸命令名** `npm` spawn（`getNpmCommand()` 默认 `{ command: "npm" }`），libuv 只按 `process.env.PATH` 解析。`npm run desktop:dev` 由终端启动、PATH 里有 nvm / Homebrew 目录，所以只在**打包版**暴露：从 Dock / Finder 启动继承的是 launchd 最小 PATH（`/usr/bin:/bin:/usr/sbin:/sbin`），装/更新插件就报 `spawn npm ENOENT`。
+- `lib/host-tool-path.ts` 是唯一入口，两层兜底：① `ensureHostToolPath()` 先看 PATH 上有没有 npm，有就**什么都不改**（开发态行为不变）；没有才去扫 nvm / fnm / nodenv / asdf / nvm-windows 的版本目录（同一版本管理器只前置**最新且真的带 npm** 的那个）与 Homebrew、`/usr/local/bin`、`%APPDATA%\npm` 等固定位置，命中的目录用 `lib/npx.ts` 的 `withNodeOnPath()` 前置进 `process.env.PATH`（它负责合并仅大小写不同的 `Path`/`PATH`）；② 系统里一个 npm 都找不到时，才用**随 app 打包的那一份**（`PI_DESKTOP_RUNTIME_DIR`，见下）—— `candidateEntries()` 里它带 `fallback: true`，只在系统候选全空时才参与，装了 Node.js 的机器不会被 app 内置的 node 22 抢走。结果按进程缓存。
+- **随 app 打包的 npm**：Node.js 官方发行包里本来就带 npm，但 `scripts/prepare-desktop.mjs` 以前只从 tarball 拷了 `bin/node`。现在 npm 包被拷到 `<runtime>/lib/node_modules/npm`（两个平台同一位)，入口是 `scripts/bundled-npm.mjs` 生成的 `npm`/`npx`（POSIX sh）与 `npm.cmd`/`npx.cmd`（Windows）启动器。启动器**只用 shell 内建能力**（`$0` + `case` + `command -v`）推出 basedir，不调 `dirname`/`pwd`：从 Dock 启动时 PATH 里可能只有一个不相关目录，靠外部命令的启动器会当场失效（`scripts/bundled-npm.mjs` 的模板里写 `${self%/*}` 时必须转义成 `\${self%/*}`，否则会被 JS 模板字符串当成插值）。不要直接拷官方 `bin/npm`：它是相对官方布局的符号链接（Windows 是依赖 `node.exe` 与 `node_modules` 同级的脚本），node 被拆到 runtime 根之后就指不到 npm-cli.js 了。
+- Tauri 壳在**非 debug** 构建里把 runtime 目录传给 server（`PI_DESKTOP_RUNTIME_DIR`，见 `spawn_server`）；开发态不传（`desktop-dist` 里只有一个占位 node），所以本地开发永远走系统 npm。`scripts/smoke-desktop-server.mjs` 会把 PATH 抹成只剩一个无关目录去跑一次 `<runtime>/npm --version`：启动器能不能自包含，靠这个先于用户发现。
+- `lib/npx.ts` 的 `findNpxCli()` 多了一条 `<runtime>/lib/node_modules/npm` 候选，所以技能安装（`npx skills add`）在没装 Node.js 的机器上也成立；`spawn_server` 把 runtime 目录前置后，MCP 配置里写 `npx ...` 的 server 同样能起来。
+- 调用点：`app/api/plugins/route.ts`（GET/POST 都调，POST 在动作之前）与 `lib/rpc-manager.ts` 的 `startRpcSession()`（让 pi 的 `bash` 工具也能用上 node/npm）。`remove`/`install`/`update` 在两种 npm 都不可用时直接返回 `missingNpmHint()` 的中文提示，而不是把 `spawn npm ENOENT` 原样抛给界面；也可以在 `~/.pi/agent/settings.json` 用 `npmCommand` 指定绝对路径。
+- 不要改成「在 Rust 壳里解析登录 shell 的 PATH」：那要跑用户的 rc 文件（可能很慢或挂住），而且修不到 `npm run dev` / `npm start` 这两条由终端以外的入口启动的路径。
+- 代价：npm 包 17MB 量级（`docs/`+`man/` 占 2.5MB，没删，留着让 `npm help` 也能用），相对已经打进包的 110MB node 二进制是 +8%。
+
+### Windows 发布版不弹控制台窗口
+- **`src-tauri/src/main.rs` 的 `windows_subsystem = "windows"` 不能删。** 少了它 release 版是控制台子系统 exe，从资源管理器/开始菜单启动时 Windows 先给应用本身分配一个黑窗，随后 spawn 的 node.exe（Next server）继承同一个窗口——用户看到的现象是「启动 Next server 弹了一个控制台」。属性只在 `all(not(debug_assertions), target_os = "windows")` 下生效，所以 `cargo tauri dev` / `cargo test` 仍然有控制台，panic 输出不会消失。
+- **改成 GUI 子系统之后，子进程必须自带 `CREATE_NO_WINDOW`。** 桌面进程不再持有控制台，控制台程序（`node.exe`、`cloudflared`、`taskkill`）默认会各开一个窗口。`lib.rs` 的 `configure_process_group()`（`spawn_server` 与 `spawn_tunnel` 共用）用 `CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP`，`hidden_command()` 服务三个 `taskkill` 调用点与 `rundll32`。两个标志可以并存：窗口只是不显示，隐藏控制台与进程组照旧建立，`terminate_process()` 的整组回收不受影响。**新增任何 Windows 子进程都要带上它**，直接用裸 `Command::new` 就会重新露出黑窗。
+- 这是 Rust 侧改动，必须重新打包才生效（`npm run desktop:build` 或 `desktop:build:windows`），刷新页面或重启 dev server 不够。
 
 ### Auth and model config
 - `ModelsConfig` combines models from `~/.pi/agent/models.json` with provider auth status from pi's `AuthStorage`/`ModelRegistry`.

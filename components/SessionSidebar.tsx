@@ -2322,7 +2322,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       )}
 
       {/* Session search */}
-      <div style={{ flexShrink: 0, padding: "8px 10px 10px", borderTop: "1px solid var(--border)", borderBottom: "1px solid var(--border)" }}>
+      <div style={{ flexShrink: 0, padding: "8px 10px 10px", borderTop: "1px solid var(--border)" }}>
         <div style={{ display: "flex", gap: 4 }}>
           <div style={{ position: "relative", flex: 1, minWidth: 0 }}>
             <svg

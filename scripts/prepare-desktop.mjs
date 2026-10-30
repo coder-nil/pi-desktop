@@ -7,6 +7,8 @@ import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { BUNDLED_NPM_PACKAGE_PATH, writeBundledNpmLaunchers } from "./bundled-npm.mjs";
+import { describeMissingServerChunks, findMissingServerChunks } from "./server-chunk-check.mjs";
 
 const execFileAsync = promisify(execFile);
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -64,7 +66,32 @@ async function extractNode(target, temporaryDirectory) {
   }
 
   const extractedRoot = join(temporaryDirectory, basename(archiveName, `.${archiveExtension}`));
-  return join(extractedRoot, target.startsWith("win-") ? "node.exe" : "bin/node");
+  return {
+    executable: join(extractedRoot, target.startsWith("win-") ? "node.exe" : "bin/node"),
+    npmPackage: join(extractedRoot, target.startsWith("win-") ? "node_modules/npm" : "lib/node_modules/npm"),
+  };
+}
+
+/**
+ * 随 app 打包一份 npm。
+ *
+ * pi 的包管理器用裸命令名 `npm` spawn，libuv 只按 `process.env.PATH` 解析。
+ * `lib/host-tool-path.ts` 会先去找用户机器上的 npm，找不到时才把这里的目录
+ * （`PI_DESKTOP_RUNTIME_DIR`）前置到 PATH，所以装了 Node.js 的机器行为不变，
+ * 没装的也能安装/更新插件。
+ *
+ * npm 包本身（含它自己的 LICENSE）原样拷过来，可执行入口由
+ * `scripts/bundled-npm.mjs` 生成的启动器提供。
+ */
+async function prepareBundledNpm(npmSource) {
+  const npmDestination = join(outputRoot, ...BUNDLED_NPM_PACKAGE_PATH);
+  try {
+    await access(join(npmSource, "bin", "npm-cli.js"));
+  } catch {
+    throw new Error(`The Node.js distribution does not contain npm at ${npmSource}`);
+  }
+  await cp(npmSource, npmDestination, { recursive: true });
+  await writeBundledNpmLaunchers(outputRoot);
 }
 
 async function prepareNode(target) {
@@ -75,9 +102,10 @@ async function prepareNode(target) {
   const nodeOutput = join(outputRoot, target.startsWith("win-") ? "node.exe" : "node");
   const temporaryDirectory = await mkdtemp(join(tmpdir(), "pi-desktop-node-"));
   try {
-    const executable = await extractNode(target, temporaryDirectory);
+    const { executable, npmPackage } = await extractNode(target, temporaryDirectory);
     await cp(executable, nodeOutput);
     if (process.platform !== "win32") await chmod(nodeOutput, 0o755);
+    await prepareBundledNpm(npmPackage);
   } finally {
     await rm(temporaryDirectory, { recursive: true, force: true });
   }
@@ -96,6 +124,26 @@ async function prepareStandaloneServer() {
   await mkdir(join(serverOutput, ".next"), { recursive: true });
   await cp(join(root, ".next/static"), join(serverOutput, ".next/static"), { recursive: true });
   await cp(join(root, "public"), join(serverOutput, "public"), { recursive: true });
+}
+
+/**
+ * 校验打包后的 server bundle 是否缺 webpack chunk。
+ *
+ * `output: "standalone"` 会把被动态引用的 chunk 交给自己那套 `files` 列表来复制，
+ * 漏掉一个就足够让引用它的路由在用户机器上以纯文本 `500 Internal Server Error`
+ * 失败——前端只看到 `Unexpected token 'I', "Internal S"... is not valid JSON`，
+ * 从现象完全看不出是打包缺文件（Windows 产物上已实测）。
+ *
+ * 这里只做校验、不自动补文件：`.next/server/chunks` 与 standalone 里的同名 chunk
+ * 并非总是逐字节相同（同一个构建里也有被重写过的），按 id 拷过去可能换上错的内容，
+ * 比起一个响亮的构建失败要危险得多。
+ */
+async function verifyStandaloneChunks() {
+  const packagedServer = join(serverOutput, ".next", "server");
+  const missing = await findMissingServerChunks(packagedServer);
+  if (missing.length > 0) {
+    throw new Error(describeMissingServerChunks(missing, packagedServer));
+  }
 }
 
 async function removeUnusedSharpRuntime() {
@@ -140,6 +188,7 @@ await mkdir(stagingRoot, { recursive: true });
 await rm(outputRoot, { recursive: true, force: true });
 await rename(stagingRoot, outputRoot);
 await prepareStandaloneServer();
+await verifyStandaloneChunks();
 await removeUnusedSharpRuntime();
 await prepareStaticFrontend();
 const nativeModules = await findNativeModules(serverOutput);

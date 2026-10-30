@@ -10,6 +10,7 @@ import {
   type ResolvedResource,
 } from "@earendil-works/pi-coding-agent";
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
+import { ensureHostToolPath, missingNpmHint } from "@/lib/host-tool-path";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 import { getProjectTrustStatus } from "@/lib/project-trust";
 import { ensureSettingsSchemaFile } from "@/lib/settings-schema";
@@ -203,6 +204,8 @@ function collectResources(paths: ResolvedPaths): {
 }
 
 async function readPlugins(cwd: string): Promise<PluginsResponse> {
+  // 解析阶段也会跑 git / npm（列版本、检查更新），所以读列表前同样要修正 PATH。
+  ensureHostToolPath();
   const agentDir = getAgentDir();
   const projectTrust = getProjectTrustStatus(cwd, agentDir);
   const settingsManager = SettingsManager.create(cwd, agentDir, {
@@ -318,6 +321,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 });
     }
 
+    // 安装 / 更新插件走的是 pi 的包管理器，它用裸命令名 `npm` spawn；
+    // 从 Dock 启动的打包版 PATH 里没有 nvm / Homebrew 目录，会直接 `spawn npm ENOENT`。
+    const hostPath = ensureHostToolPath();
     const agentDir = getAgentDir();
     const projectTrust = getProjectTrustStatus(body.cwd, agentDir);
     const settingsManager = SettingsManager.create(body.cwd, agentDir, {
@@ -340,6 +346,12 @@ export async function POST(req: Request) {
     const settingsPath = local
       ? join(body.cwd, ".pi", "settings.json")
       : join(agentDir, "settings.json");
+
+    // 系统里根本没有 npm 时，pi 的包管理器只会抛一句 `spawn npm ENOENT`，用户看不出该装什么。
+    if (body.action === "install" || body.action === "update" || body.action === "remove") {
+      const npmHint = missingNpmHint(hostPath);
+      if (npmHint) return NextResponse.json({ error: npmHint }, { status: 500 });
+    }
 
     if (body.action === "install") {
       if (!source) return NextResponse.json({ error: "source required" }, { status: 400 });
@@ -364,6 +376,8 @@ export async function POST(req: Request) {
     ensureSettingsSchemaFile(settingsPath);
     return NextResponse.json(await readPlugins(body.cwd));
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
+    const message = error instanceof Error ? error.message : String(error);
+    const hint = missingNpmHint(ensureHostToolPath());
+    return NextResponse.json({ error: hint ? `${message}\n${hint}` : message }, { status: 500 });
   }
 }
