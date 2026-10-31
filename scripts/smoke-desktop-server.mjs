@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { createWriteStream } from "node:fs";
-import { open, rm } from "node:fs/promises";
+import { open, readFile, rm } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -53,6 +53,29 @@ async function waitUntilReady(url, child, timeoutMs = 45_000) {
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 150));
   }
   throw new Error("Desktop server did not become ready within 45 seconds.");
+}
+
+function closeLog(log) {
+  return new Promise((resolveClose) => {
+    if (log.writableEnded) resolveClose();
+    else log.end(resolveClose);
+  });
+}
+
+/**
+ * 取服务日志的尾部。
+ *
+ * 路由加载失败时 Next 只回一句纯文本 `Internal Server Error`（原因——通常是
+ * `Cannot find module './chunks/<id>.js'`——只写在服务端 stdout 里）。
+ * 冒烟脚本以前直接把这个日志删掉，于是一次纯文本 500 就只剩“HTTP 500”一句。
+ */
+async function tailOfLog(path, lines = 40) {
+  try {
+    const content = await readFile(path, "utf8");
+    return content.trimEnd().split("\n").slice(-lines).join("\n").trim();
+  } catch {
+    return "";
+  }
 }
 
 async function stopChild(child) {
@@ -159,8 +182,16 @@ try {
   }
 
   console.log(`Desktop standalone server became ready on port ${port} (${changelog.releases.length} bundled releases, ${probeRoutes.length} API routes answered JSON).`);
+} catch (error) {
+  // 纯文本 500 的真正原因只在服务端日志里，失败时先把它带出来再抛。
+  await closeLog(log);
+  const details = await tailOfLog(logPath);
+  if (details && error instanceof Error) {
+    error.message += `\n--- desktop server log (tail) ---\n${details}`;
+  }
+  throw error;
 } finally {
   await stopChild(child);
-  await new Promise((resolveClose) => log.end(resolveClose));
+  await closeLog(log);
   await rm(logPath, { force: true });
 }

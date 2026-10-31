@@ -12,6 +12,17 @@ import { dirname, join } from "node:path";
  * 这里把这种“打包不完整”在构建期挡下来，别等用户点开面板才发现。
  */
 const CHUNK_REQUEST = /[A-Za-z_$][\w$]*\.e\((\d+)\)/g;
+/**
+ * 同步挂载共享 chunk：`var c=b.X(0,[4741,1813,5582,4988],()=>b(b.s=85777))`。
+ *
+ * runtime 的 `k.X = (a,b,c)=>{ … b.map(k.e,k); … }` 会对数组里每个 id 调 `k.e(id)`，
+ * 最终同样落到 `require("./chunks/<id>.js")`。webpack 用这种形式把路由入口与共享 chunk
+ * 一起同步加载，所以（从 Next 16 起）**几乎每个路由 bundle 都长这样，而不是 `.e(4741)` 字面量**。
+ * 只匹配 `.e(<id>)` 时整批共享 chunk 都不在检查范围内：CI 在 `win-x64` 上就是
+ * `chunks/4988.js`（只有 `api/git` 用到）没被复制、也没被发现，服务能起来，
+ * 但 `/api/git` 一加载就回纯文本 500。
+ */
+const SYNC_CHUNK_REQUEST = /[A-Za-z_$][\w$]*\.X\(\d+,\[([\d,\s]+)\]/g;
 
 /** 递归列出 `.next/server` 下的所有 `.js` bundle。 */
 export async function listServerBundles(directory) {
@@ -42,9 +53,16 @@ export function preloadedChunkIds(runtimeSource) {
   return ids;
 }
 
-/** 从一份 bundle 源码里收集它请求的 chunk id。 */
+/** 从一份 bundle 源码里收集它请求的 chunk id（含 `X(0,[…])` 形式的共享 chunk）。 */
 export function chunkRequests(source) {
-  return new Set([...source.matchAll(CHUNK_REQUEST)].map((match) => match[1]));
+  const ids = new Set([...source.matchAll(CHUNK_REQUEST)].map((match) => match[1]));
+  for (const match of source.matchAll(SYNC_CHUNK_REQUEST)) {
+    for (const entry of match[1].split(",")) {
+      const id = entry.trim();
+      if (id) ids.add(id);
+    }
+  }
+  return ids;
 }
 
 /**
