@@ -136,10 +136,47 @@ function collectReleaseNotes(changelogText) {
   return notes;
 }
 
+/** 当前版本尚未打 tag 时，把后来新增的提交说明追加到已有小节。 */
+function updateCurrentChangelogSection(text, headingStart, headingEnd) {
+  const currentSection = text.slice(headingStart, headingEnd);
+  const notes = collectReleaseNotes(text);
+  let nextSection = currentSection;
+
+  for (const title of ['Added', 'Changed', 'Fixed']) {
+    const items = [...(notes[title] ?? [])];
+    if (title === 'Changed') items.push(`应用、npm、Tauri 和 Cargo 版本号统一为 \`${version}\`。`);
+    const missing = items.filter((item) => !nextSection.includes(`- ${item}`));
+    if (missing.length === 0) continue;
+
+    const heading = `### ${title}`;
+    const headingIndex = nextSection.indexOf(heading);
+    if (headingIndex === -1) {
+      const block = `${heading}\n\n${missing.map((item) => `- ${item}`).join('\n')}\n\n`;
+      nextSection = `${nextSection.trimEnd()}\n\n${block}`;
+      continue;
+    }
+
+    const afterHeading = headingIndex + heading.length;
+    const nextHeading = nextSection.indexOf('\n### ', afterHeading);
+    const blockEnd = nextHeading === -1 ? nextSection.length : nextHeading;
+    const block = nextSection.slice(0, blockEnd).trimEnd();
+    nextSection = `${block}\n${missing.map((item) => `- ${item}`).join('\n')}\n${nextSection.slice(blockEnd)}`;
+  }
+
+  return text.slice(0, headingStart) + nextSection + text.slice(headingEnd);
+}
+
 // Regex-escape the version so 1.2.3 never matches an existing 1.2.30 heading.
 function addChangelogSection(text) {
   const escaped = version.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  if (new RegExp(`^## \\[${escaped}\\]`, 'm').test(text)) return text;
+  const heading = new RegExp(`^## \\[${escaped}\\]`, 'm');
+  const existing = heading.exec(text);
+  if (existing) {
+    const tag = gitOutput(['rev-parse', '--verify', '--quiet', `refs/tags/v${version}`]);
+    if (tag !== null) return text;
+    const nextEntry = text.indexOf('\n## [', existing.index + existing[0].length);
+    return updateCurrentChangelogSection(text, existing.index, nextEntry === -1 ? text.length : nextEntry + 1);
+  }
   const newline = text.includes('\r\n') ? '\r\n' : '\n';
 
   // 每个小节都以一条「版本号统一」收尾，这是本仓库固定的写法。
@@ -172,9 +209,7 @@ if (requestedVersion) {
   }
 }
 
-// package.json is the single source of truth. Existing CHANGELOG entries are
-// historical and are never rewritten; only a missing section for the current
-// version is inserted, with the version-unification note that every entry has.
+// 已打 tag 的 CHANGELOG 小节保持历史只读；当前未打 tag 的版本小节允许补入后来新增的提交。
 const version = JSON.parse(read('package.json')).version;
 
 function update(path, transform, label = path) {

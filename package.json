@@ -1,6 +1,6 @@
 {
   "name": "@coder-nil/pi-desktop",
-  "version": "1.4.0-alpha.19",
+  "version": "1.5.0-alpha.20",
   "description": "Desktop for the pi coding agent",
   "homepage": "https://github.com/coder-nil/pi-desktop#readme",
   "repository": {
@@ -65,10 +65,10 @@
     "unrs-resolver@1.11.1": true
   },
   "dependencies": {
-    "@earendil-works/pi-agent-core": "1.4.0",
-    "@earendil-works/pi-ai": "1.4.0",
-    "@earendil-works/pi-coding-agent": "1.4.0",
-    "@earendil-works/pi-tui": "1.4.0",
+    "@earendil-works/pi-agent-core": "^1.5.0",
+    "@earendil-works/pi-ai": "^1.5.0",
+    "@earendil-works/pi-coding-agent": "^1.5.0",
+    "@earendil-works/pi-tui": "^1.5.0",
     "@monaco-editor/react": "^4.7.0",
     "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/plugin-notification": "^2.3.3",

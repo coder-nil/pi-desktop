@@ -1,5 +1,27 @@
 [
   {
+    "version": "1.5.0-alpha.20",
+    "date": "2026-11-03",
+    "sections": [
+      {
+        "title": "Added",
+        "kind": "added",
+        "items": [
+          "项目星标置顶、文件树加载转圈与会话索引缓存。",
+          "对话文件链接默认以 diff 打开。"
+        ]
+      },
+      {
+        "title": "Changed",
+        "kind": "changed",
+        "items": [
+          "会话列表改用增量索引并限制分页回溯。",
+          "应用、npm、Tauri 和 Cargo 版本号统一为 `1.5.0-alpha.20`。"
+        ]
+      }
+    ]
+  },
+  {
     "version": "1.4.0-alpha.19",
     "date": "2026-10-30",
     "sections": [
