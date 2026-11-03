@@ -39,15 +39,29 @@ export function isGroupAnchorMessage(message: AgentMessage | undefined): boolean
 /**
  * Walks a window start backwards to the nearest turn boundary so a page never
  * begins in the middle of a turn. Returns 0 when no boundary exists above it.
+ *
+ * The walk is bounded by `maxLookback`, because a single turn can be
+ * arbitrarily long: one prompt followed by hundreds of tool calls is normal for
+ * a long agent run, and compaction can leave a transcript with only one prompt
+ * at all. Walking back unbounded made `limit` a no-op on exactly those
+ * sessions — the "tail page" resolved back to index 0 and the whole transcript
+ * was shipped and rendered. Past the bound the window starts mid-turn, which
+ * `buildChatRenderUnits()` already handles by showing those entries standalone.
  */
-export function alignWindowStart(messages: AgentMessage[], startIndex: number): number {
+export function alignWindowStart(
+  messages: AgentMessage[],
+  startIndex: number,
+  maxLookback: number = SESSION_PAGE_SIZE,
+): number {
   const from = Math.max(0, Math.min(startIndex, messages.length));
   if (from === 0) return 0;
   if (isGroupAnchorMessage(messages[from])) return from;
-  for (let index = from; index > 0; index -= 1) {
+
+  const floor = Math.max(0, from - Math.max(1, Math.floor(maxLookback)));
+  for (let index = from; index > floor; index -= 1) {
     if (isGroupAnchorMessage(messages[index - 1])) return index - 1;
   }
-  return 0;
+  return from;
 }
 
 export interface ContextWindow {
@@ -66,9 +80,9 @@ export interface ContextLike {
   entryIds: string[];
 }
 
-function sliceWindow(context: ContextLike, startIndex: number, endIndex: number): ContextWindow {
+function sliceWindow(context: ContextLike, startIndex: number, endIndex: number, limit: number): ContextWindow {
   const totalMessages = context.messages.length;
-  const alignedStart = alignWindowStart(context.messages, startIndex);
+  const alignedStart = alignWindowStart(context.messages, startIndex, limit);
   const end = Math.max(alignedStart, Math.min(endIndex, totalMessages));
   return {
     messages: context.messages.slice(alignedStart, end),
@@ -82,8 +96,9 @@ function sliceWindow(context: ContextLike, startIndex: number, endIndex: number)
 /** The newest `limit` messages, aligned back to a turn boundary. */
 export function tailContextWindow(context: ContextLike, limit = SESSION_PAGE_SIZE): ContextWindow {
   const totalMessages = context.messages.length;
-  const startIndex = Math.max(0, totalMessages - clampSessionPageSize(limit));
-  return sliceWindow(context, startIndex, totalMessages);
+  const pageSize = clampSessionPageSize(limit);
+  const startIndex = Math.max(0, totalMessages - pageSize);
+  return sliceWindow(context, startIndex, totalMessages, pageSize);
 }
 
 /**
@@ -99,8 +114,9 @@ export function earlierContextWindow(
   if (!beforeEntryId) return { messages: [], entryIds: [], startIndex: 0, hasEarlier: false, totalMessages: context.messages.length };
   const position = context.entryIds.indexOf(beforeEntryId);
   if (position < 0) return { messages: [], entryIds: [], startIndex: 0, hasEarlier: false, totalMessages: context.messages.length };
-  const startIndex = Math.max(0, position - clampSessionPageSize(limit));
-  return sliceWindow(context, startIndex, position);
+  const pageSize = clampSessionPageSize(limit);
+  const startIndex = Math.max(0, position - pageSize);
+  return sliceWindow(context, startIndex, position, pageSize);
 }
 
 /**

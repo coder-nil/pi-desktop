@@ -77,6 +77,7 @@ lib/
   chat-appearance.ts   chat reading surface constants + clamp + CSS-variable publish (设置 → 常规 → 聊天)
   chat-mode-prompt.ts  chat prompt for plain conversation mode (work ⇄ chat, composer π mark)
   chat-render-units.ts  turn-aware render units for the chat window (one unit = one collapsed turn)
+  session-index.ts    per-file session summaries (size+mtime cache, memory + disk) behind listAllSessions
   session-paging.ts    server-side history paging: tail page, earlier page, turn-boundary alignment
   chat-mode-preference.ts  browser-persisted work/chat mode
   draft-store.ts       local draft persistence helpers
@@ -242,9 +243,19 @@ Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `au
 - While a run is active, `useAgentSession` periodically calls `GET /api/agent/[id]` and also reconciles on `visibilitychange`/`online`. This fixes missed terminal events from background tabs or half-open connections.
 - Prompt runs use a monotonic run id; late SSE or slow reconciliation responses from an old run must be ignored so they cannot resurrect stale streaming bubbles.
 
+### 会话列表走增量索引，不要回到 `SessionManager.listAll()`
+- **`listAll()` 为了 `messageCount` / `firstMessage` / 名称 / 最后活动时间，会用 readline 逐行 `JSON.parse` 每个会话文件的全文。** 488 个会话 / 562MB 下实测 2.7s 纯 CPU，而且它发生在渲染侧边栏那一次请求里——CPU 密集会堵死事件循环，连带同一时刻的 `/api/agent/[id]`（wait 7.9s）、`/api/git/status`（8.6s）、`/api/models` 全部排队，用户看到的是白屏 8 秒，而不是「列表慢」。
+- `lib/session-index.ts` 只缓存**每个文件的摘要**，键是 `size` + `mtimeMs`：没变过的文件一次 `stat` 都不用重新解析，内存缓存 + 磁盘缓存（`~/.pi/agent/desktop-session-index.json`）都给到，所以进程重启后第一次也快。**文件集合永远来自一次新的 readdir**，缓存只当 per-file 查找表用，所以新增 / 删除 / 改名天然正确，消失的文件在扫描时从缓存剔除。
+- 实测：`/api/sessions` 热态 3.05s → **12ms**，`?force=1` 7.13s → **30ms**，进程冷启动（有磁盘缓存）**23ms**；磁盘缓存不存在（全新安装）时首次仍要全扫一遍，约 1.5s，之后不再付。浏览器里同一场景的 `wait` 从 8205ms 降到约 300ms（dev server 并发排队 + 955KB JSON 解析）。
+- **字段定义是跟着 SDK 走的，不是我们发明的**：`messageCount` 统计全部 `message` 条目（含 `role: "system"` 的提示词条目），`firstMessage` 取首条非空 user 文本（没有就 `(no messages)`），`modified` 取最后一次 user/assistant 活动时间、否则 header 时间、再否则 mtime。SDK 改动这些约定时要同步 `summarizeSessionFile()`。
+- **陷阱：mtime 只能整毫秒比较。** `utimes()` 只到毫秒，写回时亚毫秒部分会丢，于是「内容没变」被判成 miss、每次都全解。`lib/session-index.test.mjs` 因此先把 mtime 固定到整毫秒再验证缓存命中。
+- 写盘是 debounce 1.5s 的异步写入并 `unref()`：桌面进程 / dev server 这类长驻进程一定能写，一次性脚本可能在写之前退出（无害，只是下次再全扫）。`resetSessionIndex()` 会先清掉待写 timer，否则它会在 agent 目录（`PI_CODING_AGENT_DIR`）已经换掉的时刻把旧数据写到新位置。
+- `globalThis.__piSessionIndexScanOverride` 是给单元测试的接缝（`lib/session-reader.test.mjs` 用它验证 force 与 in-flight 失效语义），不要在生产代码里设置。
+
 ### 聊天历史分页 + 渲染窗口（长会话不发白屏卡顿）
 - **两层窗口，缺一层都不够。** 服务端只发尾部一页（`lib/session-paging.ts`，`SESSION_PAGE_SIZE=120`，上限 `SESSION_PAGE_MAX=400`），前端只把最新 `VISIBLE_PAGE_SIZE`（**单位是「轮」，不是消息**，见 `lib/chat-lazy-load.ts`）个渲染单元变成 JSX。之前 `/api/sessions/[id]` 每次全量返回 context、ChatWindow 每次渲染都先把全部 messages 构建成 `rendered` 再 `slice`，所以一个 800+ 条消息的会话在慢机器上「发完消息列表迟迟不出现」。
-- **分页边界必须落在轮次错点上。** `isGroupAnchorMessage`（user 消息 / compaction 摘要）是分页与渲染共用的错点定义：窗口起点要向前对齐到最近错点，否则一轮被切两半，process 组会散成独立消息。压缩发生在轮次中间时 pi 会拿掉原 user 消息，所以 compaction 摘要也算错点。
+- **分页边界必须落在轮次错点上，但回溯必须有界。** `isGroupAnchorMessage`（user 消息 / compaction 摘要）是分页与渲染共用的错点定义：窗口起点要向前对齐到最近错点，否则一轮被切两半，process 组会散成独立消息。压缩发生在轮次中间时 pi 会拿掉原 user 消息，所以 compaction 摘要也算错点。
+- **`alignWindowStart` 的回溯上限是 `limit`，找不到锚点就返回原起点，不是返回 0。** 一轮可以无限长（一个 prompt 后面跟几百次工具调用，压缩后整个会话只剩一个 prompt 就是这种形状），无界回溯会让 `limit` 对这类会话彻底失效——「尾部一页」一路退到 index 0，整个会话被下发又整段渲染。实测一个 285 条消息的会话 `?limit=40` 返回了全部 285 条（`startIndex: 0`）。超出上限时窗口从轮中间开始，`buildChatRenderUnits` 已经把非锚点开头的消息渲染成独立单元，所以只是「这轮没有 prompt 头」，往上翻就能补齐。`lib/session-paging.test.mjs` 锁住三件事：超长轮次仍按 `limit` 返回、锚点在上限内仍对齐、分页回溯不重不漏。
 - **`buildChatRenderUnits` 先算索引再渲染。** 它是 O(n) 的纯索引运算（无 JSX），窗口外的一律不创建元素。不要在窗口之前调用 `renderMessage`。
 - **刷新必须带上已加载条数。** `loadSession` / `loadContext` 都会传 `limit = 已加载条数`（仅当 `messagesSessionIdRef` 就是这个会话），否则 prompt_done / agent_settled 的刷新会把用户翻开的几页丢掉、视口直接跳走。
 - **前插的滚动锁在 scrollHeight 差值上。** `loadEarlierMessages()` 返回前插条数，哨兵在 await 之前就 `captureScrollDistance`，effect 里 `restoreScrollTop` 恢复；本地窗口扩张走同一个 `prevScrollDistanceRef`，所以 effect 依赖 `[visibleCount, messages.length]`。

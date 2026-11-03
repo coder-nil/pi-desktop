@@ -58,6 +58,8 @@ declare global {
   var __piSessionIndexCache: Map<string, IndexEntry> | undefined;
   var __piSessionIndexDiskLoaded: boolean | undefined;
   var __piSessionIndexWriteTimer: NodeJS.Timeout | undefined;
+  /** Test seam: replaces the disk scan so unit tests never read a real home directory. */
+  var __piSessionIndexScanOverride: (() => Promise<SessionFileSummary[]>) | undefined;
 }
 
 function getIndexCache(): Map<string, IndexEntry> {
@@ -272,6 +274,9 @@ async function summarizeSessionFile(filePath: string, mtimeMs: number): Promise<
  * file instead of a full parse.
  */
 export async function scanSessionFiles(): Promise<SessionFileSummary[]> {
+  const override = globalThis.__piSessionIndexScanOverride;
+  if (override) return override();
+
   loadDiskCache();
   const cache = getIndexCache();
   const files = await listSessionFiles();
@@ -309,6 +314,12 @@ export async function scanSessionFiles(): Promise<SessionFileSummary[]> {
 
 /** Drops every cached summary so the next scan re-reads all files. */
 export function resetSessionIndex(): void {
+  // A pending write would otherwise land against whatever agent dir is current
+  // when it fires, which is not necessarily the one that was scanned.
+  if (globalThis.__piSessionIndexWriteTimer) {
+    clearTimeout(globalThis.__piSessionIndexWriteTimer);
+    globalThis.__piSessionIndexWriteTimer = undefined;
+  }
   getIndexCache().clear();
   globalThis.__piSessionIndexDiskLoaded = false;
 }
