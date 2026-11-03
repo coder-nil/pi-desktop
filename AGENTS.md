@@ -303,6 +303,12 @@ Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `au
 - 默认模式的唯一裁决处是 `lib/file-viewer-state.ts` 的 `defaultOpenDisplayMode()`：**markdown 无论查看器能不能编辑都先给渲染后的 Preview**（打开 md 基本是来读的，要改再点 Edit），html 只在不可编辑时 Preview，其余可编辑文件仍然默认 Edit（`editable` 由 `AppShell` 打开的文件标签传 `true`）。带行号打开（`path:12` 链接）的一律回 source，预览里没法定位行。
 - 语言要等文件内容回来才知道，所以挂载时先用 `language: undefined` 算一个临时值，真正的裁决在 `data?.language` 到达后的 effect 里，并靠 `defaultModeEligibleRef` 只消费一次——资格必须在 data 到达后才取走，否则 Strict Effects 的重跑会把首次挂载的默认模式丢掉。已保存的标签状态（`initialState`）与显式 `initialDisplayMode` 永远优先。
 
+### 对话里的文件链接默认先看 diff
+- 对话里点文件（含每轮「已写入的文件」芯片）走 `AppShell.handleOpenLinkedFile` → `handleOpenFile`，与 Git 面板共用 `openFileTab` 的 `modeHint`。提示规则单独放在 `lib/file-viewer-state.ts` 的 `chatLinkModeHint({ hasLine })`：**无行号 → `"diff"`，带行号 → `undefined`**。带行号意味着 `path:12` 定位链接，而 diff 视图没有行号坐标系（定位只在 source 生效，`TextFileViewer` 有 `displayMode !== "source"` 守卫），强推 diff 等于把链接变成纯装饰。文件浏览器直接点开仍走 `handleOpenFile`，不带提示。
+- **提示不是裁决。** `FileViewer` 照旧拉 `/api/git/diff`，只有 `hasGitDiff` 才真的停在 diff；没有改动的文件回退到 `defaultOpenDisplayMode()` 自己的结论（md → Preview、可编辑 → Edit、带行号 → source）。不要把回退硬编码成 `"source"`：那样指向未改动 markdown 的链接会丢掉预览、可编辑文件会丢掉编辑器。回退时同时置 `autoDiffAppliedRef`，否则之后 watch 到磁盘改动会把正在读的人拽进 diff。
+- 语言要等 `data` 回来才知道，所以回退在 data 到达后的 effect 里做；`requestedInitialDisplayMode === "diff"` 期间 `loading` 为真（先等 git 结果，避免整篇先画一遍再切 diff 的闪动，`gitDiffLoading` 因此删掉——`gitDiffResolved` 已覆盖其语义）。
+- **有未保存草稿（`Tab.dirty`）的标签忽略 `modeHint`**：`openFileTab` 里 `existing.dirty ? undefined : input.modeHint`。带提示会 `viewerRevision + 1` 重挂载查看器，草稿就没了；对话链接与 Git 面板共用这条规则，点回正在编辑的文件只切到前台。
+
 ### 打开的文件实时跟随磁盘变化
 - **只有当前标签需要实时同步**：`AppShell` 只挂载 `activeFileTab` 的查看器，所以每个查看器自己开 `?type=watch` 的 SSE 就等价于只监视正在看的那个文件。图片/音频/文档查看器一直如此；`TextFileViewer` 的监听在集成 Monaco 时被误删过（只剩一个“进编辑态就断开”的桩，`components/FileViewer.state.test.mjs` 因此失败），别再把它改回按 `editing` 断开。
 - 文本文件收到 `change` 后走 `applyDiskContent()`：一次更新 `data`、基线、草稿，并把内容写回 Monaco 模型。Monaco 用 `defaultValue` 建模，prop 变化不会回写，只能靠 `handleRef` 里的 `getModel().setValue()`；`applyingExternalRef` 用来把这次 `setValue` 触发的 `onChange` 排除在“用户编辑”之外，否则刚同步完就变脏。

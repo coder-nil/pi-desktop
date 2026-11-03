@@ -54,7 +54,7 @@ import type { BlockingExtensionUiRequest, SessionInfo, SessionTreeNode } from "@
 import type { AppUpdateResponse, ProjectTrustStatus } from "@/lib/api-types";
 import type { ChatInputHandle } from "./ChatInput";
 import type { SessionStatsInfo } from "@/lib/pi-types";
-import type { FileViewerState } from "@/lib/file-viewer-state";
+import { chatLinkModeHint, type FileViewerState } from "@/lib/file-viewer-state";
 import { FileViewer } from "./FileViewer";
 
 const TerminalPanel = dynamic(() => import("./TerminalPanel").then((module) => module.TerminalPanel), { ssr: false });
@@ -1029,6 +1029,7 @@ export function AppShell() {
     handleOpenFile(filePath, getFileName(filePath), {
       sourceSessionId: selectedSession?.id ?? null,
       line: location?.line,
+      modeHint: chatLinkModeHint({ hasLine: location?.line !== undefined }),
     });
   }, [handleOpenFile, selectedSession?.id]);
 

@@ -38,3 +38,17 @@ export function defaultOpenDisplayMode({
   if (language === "html") return editable ? "edit" : "preview";
   return editable ? "edit" : "source";
 }
+
+/**
+ * 对话里的文件链接该从哪个显示模式起步。
+ *
+ * 默认 diff：agent 提到某个文件时往往刚改过它，你要看的是「改了什么」而不是整篇。
+ * 带行号的链接例外 —— 用户指的是某一行，diff 视图没法定位它，仍走源码 + 行号跳转。
+ *
+ * 这只是一条**提示**，不是最终裁决：文件没有未提交改动时，查看器会退回该文件本来
+ * 该有的默认模式（见 `FileViewer` 的「没有差异」回退），所以指向未改动文件的链接
+ * 不会停在一个空白 diff 上。
+ */
+export function chatLinkModeHint({ hasLine }: { hasLine: boolean }): "diff" | undefined {
+  return hasLine ? undefined : "diff";
+}

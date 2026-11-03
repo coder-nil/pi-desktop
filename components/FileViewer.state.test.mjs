@@ -118,3 +118,34 @@ test("TextFileViewer reveals the line a file link pointed at", () => {
   assert.match(source, /initialLine=\{initialLine\}/);
   assert.match(source, /onRevealHandled=\{onRevealHandled\}/);
 });
+
+test("a diff hint on a clean file falls back to that file's own default mode", () => {
+  // 对话里的文件链接一律以 diff 起步，但文件没有未提交改动时必须退回默认模式：
+  // 硬编码 source 会让一条指向未改动 markdown 的链接失去预览，也让可编辑文件
+  // 丢掉了它一贯的编辑器。语言要等内容回来才知道，所以 data 未到就先等。
+  assert.match(
+    source,
+    /if \(!gitDiffResolved \|\| hasGitDiff \|\| displayMode !== "diff" \|\| !data\) return;/,
+  );
+  assert.match(
+    source,
+    /updateDisplayMode\(defaultOpenDisplayMode\(\{\s*\n\s*editable,\s*\n\s*language: data\.language,\s*\n\s*openedWithLine: openedWithLineRef\.current,/,
+  );
+  assert.doesNotMatch(source, /displayMode === "diff"\) updateDisplayMode\("source"\)/);
+});
+
+test("settling the diff hint keeps a later external change out of the view", () => {
+  // 回退到默认模式时就把 autoDiffApplied 打上：否则这个文件之后在磁盘上被改出
+  // 差异（watch 重新拉 diff）会把正在读/正在改的人突然拽进 diff。
+  assert.match(
+    source,
+    /autoDiffAppliedRef\.current = true;\s*\n\s*updateDisplayMode\(defaultOpenDisplayMode\(\{/,
+  );
+});
+
+test("a diff-first viewer waits for the git result instead of flashing the whole file", () => {
+  assert.match(
+    source,
+    /if \(loading \|\| \(requestedInitialDisplayMode === "diff" && !gitDiffResolved\)\) \{/,
+  );
+});

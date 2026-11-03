@@ -46,17 +46,20 @@ export function openFileTab(tabs: Tab[], input: OpenFileTabInput): Tab[] {
   const sourceChanged = Boolean(
     input.sourceSessionId && existing.sourceSessionId !== input.sourceSessionId,
   );
+  // 有未写入磁盘的草稿时忽略显示模式提示：重挂载会丢掉草稿，而点回一个正在改的文件
+  // 的人要的是接着改，不是突然看到一个 diff。
+  const modeHint = existing.dirty ? undefined : input.modeHint;
   const wantsReveal = input.line !== undefined;
-  if (!sourceChanged && !input.modeHint && !wantsReveal) return tabs;
+  if (!sourceChanged && !modeHint && !wantsReveal) return tabs;
 
   return tabs.map((tab) => {
     if (tab.id !== input.tabId) return tab;
     const next: Tab = { ...tab };
     if (sourceChanged) next.sourceSessionId = input.sourceSessionId;
-    if (input.modeHint) {
-      next.initialDisplayMode = input.modeHint;
+    if (modeHint) {
+      next.initialDisplayMode = modeHint;
       next.viewerState = {
-        displayMode: input.modeHint,
+        displayMode: modeHint,
         wrapLines: tab.viewerState?.wrapLines ?? false,
         scrollTop: 0,
         scrollLeft: 0,
@@ -64,7 +67,7 @@ export function openFileTab(tabs: Tab[], input: OpenFileTabInput): Tab[] {
     }
     if (wantsReveal) next.revealLine = input.line;
     // 定位要用新的初始行重挂载一次；单纯换数据源或切换模式也要重建。
-    if (sourceChanged || input.modeHint || wantsReveal) {
+    if (sourceChanged || modeHint || wantsReveal) {
       next.viewerRevision = (tab.viewerRevision ?? 0) + 1;
     }
     return next;

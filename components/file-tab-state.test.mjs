@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { openFileTab, markFileTabRevealHandled, renameFileTab, saveFileViewerState } from "./file-tab-state.ts";
+import { openFileTab, markFileTabRevealHandled, renameFileTab, saveFileDirtyState, saveFileViewerState } from "./file-tab-state.ts";
 
 const tabA = {
   id: "file:/repo/a.ts",
@@ -153,4 +153,22 @@ test("opening a file without a line keeps the tab untouched", () => {
   const tabs = [tabA, tabB];
   assert.strictEqual(openFileTab(tabs, openA), tabs);
   assert.equal(openFileTab([tabA], openA)[0].revealLine, undefined);
+});
+
+test("a tab with an unsaved draft keeps its editor when a diff link points at it", () => {
+  // 对话里的文件链接默认带 diff 提示，但重挂载会丢掉草稿：草稿在的标签忽略提示，
+  // 只把标签切到前台（Git 面板与对话链接共用这条路径）。
+  const dirty = saveFileDirtyState([tabA], tabA.id, true);
+  assert.equal(dirty[0].dirty, true);
+
+  const kept = openFileTab(dirty, { ...openA, modeHint: "diff" });
+  assert.strictEqual(kept, dirty);
+  assert.equal(kept[0].viewerState.displayMode, tabA.viewerState.displayMode);
+  assert.equal(kept[0].viewerRevision, 0);
+
+  // 草稿保存后同一次点击又能进 diff。
+  const clean = saveFileDirtyState(kept, tabA.id, false);
+  const diffed = openFileTab(clean, { ...openA, modeHint: "diff" });
+  assert.equal(diffed[0].viewerState.displayMode, "diff");
+  assert.equal(diffed[0].viewerRevision, 1);
 });

@@ -84,3 +84,11 @@ test("routes a linked line number into the opened file tab", () => {
   assert.match(source, /initialLine=\{activeFileTab\.revealLine\}/);
   assert.match(source, /onRevealHandled=\{\(\) => setFileTabs\(\(prev\) => markFileTabRevealHandled\(prev, activeFileTab\.id\)\)\}/);
 });
+
+test("a chat file link opens on the diff", () => {
+  // 对话里的文件链接一律带 diff 提示，带行号的除外（行号要求源码视图）。
+  assert.match(source, /modeHint: chatLinkModeHint\(\{ hasLine: location\?\.line !== undefined \}\)/);
+  // 文件浏览器直接点开仍走默认模式（markdown 预览、可编辑的进编辑器）。
+  assert.match(source, /onOpenFile=\{handleOpenLinkedFile\}/);
+  assert.match(source, /onOpenFile=\{handleOpenFile\}/);
+});

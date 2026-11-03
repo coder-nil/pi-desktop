@@ -1057,7 +1057,6 @@ function TextFileViewer({
   const { t } = useI18n();
   const [data, setData] = useState<FileData | null>(null);
   const [gitDiff, setGitDiff] = useState<GitFileDiffResponse | null>(null);
-  const [gitDiffLoading, setGitDiffLoading] = useState(false);
   const [gitDiffResolved, setGitDiffResolved] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -1329,10 +1328,8 @@ function TextFileViewer({
 
   const fetchGitDiff = useCallback(async (targetPath: string) => {
     const requestId = ++gitDiffRequestRef.current;
-    setGitDiffLoading(true);
     if (!cwd) {
       setGitDiff(null);
-      setGitDiffLoading(false);
       setGitDiffResolved(true);
       return;
     }
@@ -1346,10 +1343,7 @@ function TextFileViewer({
     } catch {
       if (requestId === gitDiffRequestRef.current) setGitDiff(null);
     } finally {
-      if (requestId === gitDiffRequestRef.current) {
-        setGitDiffLoading(false);
-        setGitDiffResolved(true);
-      }
+      if (requestId === gitDiffRequestRef.current) setGitDiffResolved(true);
     }
   }, [cwd]);
 
@@ -1483,9 +1477,20 @@ function TextFileViewer({
   const hasGitDiff = gitDiff?.supported === true && typeof gitDiff.patch === "string";
   const isDeletedDiff = hasGitDiff && gitDiff.status === "deleted";
 
+  // 没未提交改动不等于「打开源码」：对话里的文件链接一律以 diff 起步，文件其实没改动时
+  // 退回这个文件本来该有的默认模式 —— 指向未改动 markdown 的链接仍然预览，可编辑的
+  // 文件仍然进编辑器。语言要等内容回来才知道，所以 data 还没到就等它，别用 undefined
+  // 的语言猜一个 edit。落定后打上 autoDiffApplied 标记：之后这个文件在磁盘上被改出
+  // 差异时，不该把正在读或正在改的人拽进 diff。
   useEffect(() => {
-    if (gitDiffResolved && !hasGitDiff && displayMode === "diff") updateDisplayMode("source");
-  }, [displayMode, gitDiffResolved, hasGitDiff, updateDisplayMode]);
+    if (!gitDiffResolved || hasGitDiff || displayMode !== "diff" || !data) return;
+    autoDiffAppliedRef.current = true;
+    updateDisplayMode(defaultOpenDisplayMode({
+      editable,
+      language: data.language,
+      openedWithLine: openedWithLineRef.current,
+    }));
+  }, [data, displayMode, editable, gitDiffResolved, hasGitDiff, updateDisplayMode]);
 
   // Wait for the git request before restoring diff mode so the unresolved
   // placeholder cannot immediately demote it back to source.
@@ -1673,7 +1678,9 @@ function TextFileViewer({
     viewerStateRef.current.scrollLeft = container.scrollLeft;
   }, [activeMatchIndex, displayMode, searchMatches, searchOpen, wrapLines]);
 
-  if (loading || (requestedInitialDisplayMode === "diff" && gitDiffLoading && !data)) {
+  // diff 起步时也等 git 结果：先把整篇源码画出来再切成 diff 会闪一下，
+  // 而 git diff 只剩一个请求，失败/非 git 仓库也会立即 resolved。
+  if (loading || (requestedInitialDisplayMode === "diff" && !gitDiffResolved)) {
     return (
       <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", fontSize: 13 }}>
         {t("i18n.loading")}
