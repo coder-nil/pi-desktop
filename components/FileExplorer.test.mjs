@@ -31,3 +31,20 @@ test("a collapsed Java package row keeps the server-provided innermost path", ()
 test("a collapsed Java package row cannot be renamed", () => {
   assert.match(source, /if \(node\.packageChain\) return;/);
 });
+
+test("an expanding or refreshing folder turns its chevron into the loading spinner", () => {
+  // 加载指示必须在箭头的位置上，而不是行尾再挂一个图标：
+  // 行尾那个转圈会和重命名输入框、Git 徽标抢位置，文件名也会跟着抖。
+  assert.match(
+    source,
+    /\{node\.isDir && \([\s\S]*?\{loading \? \(\s*<TreeLoadingSpinner size=\{10\} label=\{t\("files\.loading"\)\} \/>\s*\) : \(/,
+  );
+  assert.doesNotMatch(source, /M12 2v4M12 18v4/);
+});
+
+test("a refresh keeps the visible root list and reports loading upward", () => {
+  // 只有换项目才清空根节点；单纯刷新时保留列表，转圈交给侧边栏标题行的箭头。
+  assert.match(source, /if \(cwdChanged\) setRoots\(\[\]\);\s*\n\s*setLoading\(true\);/);
+  assert.match(source, /onLoadingChange\?\.\(loading\)/);
+  assert.match(source, /error \? \([\s\S]*?\) : loading && roots\.length === 0 \? \(/);
+});

@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const source = await readFile(new URL("./SessionSidebar.tsx", import.meta.url), "utf8");
+const styles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
 const sessionItemSource = source.slice(source.indexOf("function SessionItem("));
 
 test("only Shift+click bypasses session deletion confirmation", () => {
@@ -99,7 +100,8 @@ test("reports the selected project's resolved Git state to the shell", () => {
 
 test("persists successfully added projects through the server directory list", () => {
   assert.match(source, /fetch\("\/api\/projects", \{ cache: "no-store", signal: controller\.signal \}\)/);
-  assert.match(source, /setAddedProjects\(\(previous\) => \[/);
+  assert.match(source, /setAddedProjects\(\(previous\) => \{/);
+  assert.match(source, /\.\.\.previous\.filter\(\(project\) => project\.projectKey !== addedProject\.projectKey\)/);
   assert.match(source, /fetch\("\/api\/projects", \{[\s\S]*?method: "DELETE"/);
   assert.match(source, /handleRemoveProject\(\s*project\.key,/);
   assert.match(source, /project\.key === selectedProject\?\.key/);
@@ -159,4 +161,64 @@ test("the Git panel entry sits on the branch row, not only in the bottom bar", (
   assert.match(source, /right: showBranchGitButton \? 28 : 0,/);
   assert.match(source, /right: showBranchGitButton \? 56 : 28,/);
   assert.match(source, /padding: showBranchGitButton \? "0 100px 0 10px" : "0 72px 0 10px",/);
+});
+
+test("project rows can be starred and starred projects are listed first", () => {
+  // 星标是项目记录上的一列（不是浏览器偏好），所以排序也在同一份数据上做；
+  // 排序规则要和 lib/added-projects-store.ts 的 SQL 一致，否则点星后的落点和
+  // 刷新后的位置会不一样。
+  assert.match(source, /Number\(b\.starred\) - Number\(a\.starred\) \|\| b\.addedAt\.localeCompare\(a\.addedAt\)/);
+  assert.match(source, /starred: project\.starred === true,/);
+  // 点星星只切收藏，不能顺带切换项目。
+  assert.match(
+    source,
+    /onClick=\{\(event\) => \{\s*event\.stopPropagation\(\);\s*void handleToggleProjectStar\(project\.key, !project\.starred\);/,
+  );
+  assert.match(source, /fetch\("\/api\/projects", \{\s*method: "PATCH",/);
+  // 写入失败要回滚，列表不能显示一个没有存下来的状态。
+  assert.match(source, /if \(response\.ok\) return;[\s\S]{0,200}?apply\(!starred\);/);
+  assert.match(source, /className="project-row-icon-button project-star-button"/);
+  assert.match(source, /data-starred=\{project\.starred \? "true" : "false"\}/);
+  assert.match(source, /aria-pressed=\{project\.starred\}/);
+  assert.match(source, /fill=\{project\.starred \? "currentColor" : "none"\}/);
+  assert.match(source, /t\("sidebar\.starProject", \{ path: project\.root \}\)/);
+  assert.match(source, /t\("sidebar\.unstarProject", \{ path: project\.root \}\)/);
+});
+
+test("the project row hover style only paints the background", () => {
+  // CSS 侧同样锁住：只有 .project-row:hover 改背景色，不存在「行 hover 影响
+  // 子元素」的规则（那会让行内图标淡入/变亮，等于 hover 时内部元素发生变化）。
+  assert.match(styles, /\.project-row:hover \{\s*background: var\(--bg-hover\);\s*\}/);
+  assert.doesNotMatch(styles, /\.project-row:hover[^{]*\{[^}]*opacity/);
+  assert.doesNotMatch(styles, /\[data-project-row\]:hover/);
+});
+
+test("hovering a project row never changes what is inside it", () => {
+  // 行 hover 只能改行自己的背景（.project-row:hover）。以前 hover 会把
+  // margin 从 "3px 0" 改成 "3px 5px"（整行内容左右位移）、把移除按钮从
+  // opacity 0 淡入、并让未收藏星标提亮——读起来像列表在抖。这里锁住：
+  // 行上没有 hover 处理器，选中也不是靠内联 margin/background 切换的。
+  const rowStart = source.indexOf('className="project-row"');
+  assert.notEqual(rowStart, -1);
+  const rowBlock = source.slice(Math.max(0, rowStart - 400), rowStart + 400);
+  assert.doesNotMatch(rowBlock, /onMouseEnter/);
+  assert.doesNotMatch(rowBlock, /onMouseLeave/);
+  assert.doesNotMatch(rowBlock, /data-remove-btn\)\.style/);
+  // 行内图标按钮常驻显示，不带 opacity/pointerEvents 的显隐切换。
+  assert.doesNotMatch(source, /opacity: 0, pointerEvents: "none"/);
+  assert.match(source, /className="project-row-icon-button project-remove-button"/);
+  assert.match(source, /data-selected=\{project\.key === selectedProject\?\.key \? "true" : "false"\}/);
+  // 选中行与未选中行占位一致：行样式统一由 .project-row 提供。
+  assert.doesNotMatch(source, /margin: project\.key === selectedProject\?\.key \? "3px 5px" : "3px 0"/);
+});
+
+test("the file explorer header swaps its chevron for a spinner while loading", () => {
+  // 标题行的箭头在根目录列表请求期间变成转圈；收起时不显示转圈（此时没有请求）。
+  assert.match(
+    source,
+    /aria-expanded=\{explorerOpen\}[\s\S]*?\{explorerOpen && explorerLoading \? \(\s*<TreeLoadingSpinner size=\{9\} label=\{t\("files\.loading"\)\} \/>\s*\) : \(/,
+  );
+  assert.match(source, /import \{ FileExplorer, TreeLoadingSpinner, type FileExplorerHandle \} from "\.\/FileExplorer"/);
+  assert.match(source, /onLoadingChange=\{setExplorerLoading\}/);
+  assert.match(source, /const \[explorerLoading, setExplorerLoading\] = useState\(false\)/);
 });

@@ -259,6 +259,13 @@ Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `au
 - Sessions whose cwd points at a removed worktree are inferred back into the main project instead of becoming a phantom project row.
 - git prints POSIX-style absolute paths even on Windows, so every path read out of git goes through `toNativePath()` (`lib/paths.ts`) before it is compared or returned. Compare paths with `samePath()`, never `===` — raw equality made `isTopLevel` permanently false on Windows and hid the worktree switcher entirely. Branch names are not paths and must keep their forward slashes. Browser code cannot apply Node path rules, so `/api/worktrees` resolves `currentWorktreePath` server-side; the sidebar must use that identity for highlighting and removal fallback.
 
+### 项目列表的星标（收藏）
+- **星标存在项目的数据库记录里，不是浏览器偏好。** `added_projects.starred`（列由 `lib/added-projects-store.ts` 的 `ensureStarredColumn()` 补上——SQLite 没有 `ADD COLUMN IF NOT EXISTS`，只能靠 `PRAGMA table_info` 探测）由 `PATCH /api/projects` 写入。项目列表本来就是服务端数据，把置顶状态放进 localStorage 等于让「同一份列表」有两套真相。
+- **排序只有一套规则：`starred DESC, added_at DESC`。** 服务端 `listAddedProjects()` 的 `ORDER BY` 与前端 `availableProjects` 的 `sort` 必须逐字对应，否则点星后的落点与刷新后的位置会不一样（早期版本只按 `starred` 稳定排序，星标组内部保持点击前的相对位置）。
+- `saveAddedProject()` 重新添加同一个目录时只刷新 `added_at`，**不清 `starred`**：星标是这个目录上的用户偏好，不是这次写入的内容。前端 `commitCustomPath` 的乐观插入同样要把已有的 `starred` 带过去。
+- 点星是乐观更新：先改状态再 `PATCH`，非 2xx 或抛错时回滚，列表不能显示一个没存下来的状态。星标按钮（`.project-row-icon-button.project-star-button`，`aria-pressed`）只切收藏，**不能顺带切换项目**；当前项目被标星时，收起状态的项目选择器按钮前面还会显示一颗实心星（`--star` 令牌）。
+- **项目下拉的行 hover 只允许改行自己的背景色。** 行样式统一由 `.project-row` 提供（选中靠 `data-selected`），行内不允许随 hover 变位置或显隐：早先 hover 会把 margin 从 `3px 0` 改成 `3px 5px`（整行内容左右位移）、把移除按钮从 `opacity: 0` 淡入、让未收藏星标提亮，读起来像列表在抖。行内图标按钮（`.project-row-icon-button`）常驻显示，只有按钮自己被 hover / 聚焦时才换颜色。`components/SessionSidebar.test.mjs` 同时锁了 TSX（行上没有 `onMouseEnter`）和 CSS（不存在 `.project-row:hover ...` 的子元素规则）。
+
 ### Sidebar order and border ownership
 - Top-to-bottom in the outer flex column: 项目选择器 / worktree 切换器 (header) → 文件浏览器 → 搜索对话 + 新建/刷新 → 会话列表. The explorer sits between the branch switcher and the session search on purpose, with its own `.jsonl`-free collapsible section, so all three sections are siblings of the header — never nest one inside the header div, that breaks its `flex: 1 1 0` scroll area.
 - The header carries **no** `borderBottom`: each following section owns its `borderTop` (explorer, search row). The search row deliberately draws no bottom border, so the session list starts flush under it.
@@ -275,6 +282,11 @@ Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `au
 - **折叠在 `/api/files?type=list` 服务端做，不是前端拼名字**：服务端直接读磁盘跟进整条链（一次请求，无需逐级往返），返回的条目里多一个 `entryPath`（最内层目录），客户端 `fullPath` 取 `entryPath ?? joinFilePath(dir, name)`。因此那条行的实际路径**不等于**「父目录 + 显示名」，任何“用 name 反推路径”的写法都会指向一个不存在的 `com.example.demo` 目录。
 - 折叠行代表整条包链，重命名只能落在一个目录上，所以 `startRename` 对它直接返回（`node.packageChain`）。`@提及`、在访达/资源管理器中显示、Git 变更点都按最内层路径工作。
 - 测试：`lib/java-packages.test.mjs`（纯函数）与 `app/api/files/java-packages-route.test.mjs`（真实临时 Maven 布局跑真 `GET`）。
+
+### 文件浏览器的加载指示就是折叠箭头本身
+- 展开目录、以及刷新时重新拉回已展开目录的子项，那一行的折叠箭头会换成转圈（`TreeLoadingSpinner`），加载结束再换回箭头并转到展开角度。以前行尾那个独立的转圈图标已删除：它和重命名输入框、Git 徽标抢位置，文件名会跟着抖。
+- 侧边栏标题行的折叠箭头同样在根目录列表请求期间变成转圈（`FileExplorer` 的 `onLoadingChange` → `SessionSidebar` 的 `explorerLoading`，只在展开时显示）。
+- `loading` 现在对「刷新」也为真，但列表不再被 `Loading files...` 顶掉：占位只在 `roots.length === 0` 时出现，且换项目（`cwdChanged`）会先 `setRoots([])`，避免新目录请求期间闪一帧旧项目的文件。
 
 ### 打开的文件默认显示模式
 - 默认模式的唯一裁决处是 `lib/file-viewer-state.ts` 的 `defaultOpenDisplayMode()`：**markdown 无论查看器能不能编辑都先给渲染后的 Preview**（打开 md 基本是来读的，要改再点 Edit），html 只在不可编辑时 Preview，其余可编辑文件仍然默认 Edit（`editable` 由 `AppShell` 打开的文件标签传 `true`）。带行号打开（`path:12` 链接）的一律回 source，预览里没法定位行。

@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Speech } from "lucide-react";
-import { Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff, Star } from "lucide-react";
 import type { SessionInfo } from "@/lib/types";
 import type { AppUpdateResponse } from "@/lib/api-types";
 import { loadExplorerOpen, saveExplorerOpen } from "@/lib/file-explorer-state";
@@ -21,7 +21,7 @@ import type { SessionSearchMatch } from "@/lib/session-search";
 import { useI18n } from "@/hooks/useI18n";
 import { AboutButton } from "./AboutDialog";
 import { DirectoryPicker } from "./DirectoryPicker";
-import { FileExplorer, type FileExplorerHandle } from "./FileExplorer";
+import { FileExplorer, TreeLoadingSpinner, type FileExplorerHandle } from "./FileExplorer";
 import { BranchPicker } from "./BranchPicker";
 
 declare global {
@@ -182,6 +182,12 @@ interface ProjectSelection {
   key: string;
 }
 
+/** A selector row: the persisted project plus its starred (listed-first) flag. */
+interface ProjectEntry extends ProjectSelection {
+  starred: boolean;
+  addedAt: string;
+}
+
 interface ValidatedProject {
   cwd: string;
   root: string;
@@ -193,6 +199,8 @@ interface AddedProject {
   projectRoot: string;
   cwd: string;
   addedAt: string;
+  /** Starred projects are listed before the rest of the recent list. */
+  starred?: boolean;
 }
 
 const UNREAD_SESSIONS_STORAGE_KEY = "pi-desktop:unread-session-ids";
@@ -511,6 +519,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [explorerOpen, setExplorerOpen] = useState(true);
   const [explorerKey, setExplorerKey] = useState(0);
   const [explorerUploadBusy, setExplorerUploadBusy] = useState(false);
+  const [explorerLoading, setExplorerLoading] = useState(false);
   const [hideDotDirs, setHideDotDirsState] = useState(false);
   const [changesCount, setChangesCount] = useState(0);
   const [changesCollapsed, setChangesCollapsed] = useState(true);
@@ -532,11 +541,20 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   // regardless of whether it has chat history. Sessions are still grouped under
   // the project the user selects; deleting a record never touches local files or
   // session files.
-  const availableProjects = useMemo<ProjectSelection[]>(
-    () => addedProjects.map((project) => ({
-      key: project.projectKey,
-      root: project.projectRoot,
-    })),
+  const availableProjects = useMemo<ProjectEntry[]>(
+    () => addedProjects
+      .map((project) => ({
+        key: project.projectKey,
+        root: project.projectRoot,
+        starred: project.starred === true,
+        addedAt: project.addedAt,
+      }))
+      // Mirror the store's own order — starred first, then most recently added —
+      // so an optimistic star click lands where a reload would put it. Array#sort
+      // is stable: equal timestamps keep the order the list was loaded in.
+      .sort((a, b) => (
+        Number(b.starred) - Number(a.starred) || b.addedAt.localeCompare(a.addedAt)
+      )),
     [addedProjects],
   );
 
@@ -1017,16 +1035,22 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         projectRoot: data.projectRoot,
         cwd: data.cwd,
         addedAt: new Date().toISOString(),
+        starred: false,
       };
       setValidatedProject({
         cwd: addedProject.cwd,
         root: addedProject.projectRoot,
         key: addedProject.projectKey,
       });
-      setAddedProjects((previous) => [
-        addedProject,
-        ...previous.filter((project) => project.projectKey !== addedProject.projectKey),
-      ]);
+      setAddedProjects((previous) => {
+        // The store keeps an existing project's star when it is re-added, so the
+        // optimistically inserted record has to carry it over too.
+        const existing = previous.find((project) => project.projectKey === addedProject.projectKey);
+        return [
+          { ...addedProject, starred: existing?.starred === true },
+          ...previous.filter((project) => project.projectKey !== addedProject.projectKey),
+        ];
+      });
       setSelectedCwd(addedProject.cwd);
       setCustomPathOpen(false);
       setCustomPathValue("");
@@ -1243,8 +1267,35 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     }
   }, []);
 
+  // Star / unstar a project. The row and the sort order update immediately and
+  // roll back if the write fails, so the list never claims a stored state it
+  // does not have.
+  const handleToggleProjectStar = useCallback(async (projectKey: string, starred: boolean) => {
+    const apply = (value: boolean) => setAddedProjects((previous) => previous.map((project) => (
+      project.projectKey === projectKey ? { ...project, starred: value } : project
+    )));
+    apply(starred);
+    try {
+      const response = await fetch("/api/projects", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectKey, starred }),
+      });
+      if (response.ok) return;
+    } catch {
+      // fall through to the rollback
+    }
+    apply(!starred);
+  }, []);
+
   // Sessions of every worktree in the selected project are shown together
   const selectedProject = projectFor(selectedCwd);
+
+  // The collapsed selector shows a star when the current project is a starred
+  // one, so the flag is visible without opening the list.
+  const selectedProjectStarred = Boolean(
+    selectedProject && availableProjects.find((project) => project.key === selectedProject.key)?.starred,
+  );
 
   // Per-project activity counts (running / unread / waiting for an answer) for
   // the workspace selector. Uses the same stable server key as the project list
@@ -1428,15 +1479,26 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             }}
           >
             {selectedCwd ? (
-              <PathLabel
-                text={getFileName(selectedProject?.root ?? selectedCwd) || selectedProject?.root || selectedCwd}
-                style={{
-                  flex: 1,
-                  fontFamily: "var(--font-mono)",
-                  fontSize: 11,
-                  color: "var(--text)",
-                }}
-              />
+              <>
+                {selectedProjectStarred && (
+                  <span
+                    title={t("sidebar.starredProject")}
+                    aria-label={t("sidebar.starredProject")}
+                    style={{ display: "inline-flex", alignItems: "center", flexShrink: 0, marginRight: 5, color: "var(--star)" }}
+                  >
+                    <Star size={11} strokeWidth={2} fill="currentColor" aria-hidden="true" />
+                  </span>
+                )}
+                <PathLabel
+                  text={getFileName(selectedProject?.root ?? selectedCwd) || selectedProject?.root || selectedCwd}
+                  style={{
+                    flex: 1,
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 11,
+                    color: "var(--text)",
+                  }}
+                />
+              </>
             ) : (
               <span
                 style={{
@@ -1567,30 +1629,15 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 </div>
               )}
               <div style={{ maxHeight: "min(50vh, 380px)", overflowY: "auto" }}>
+                {/* 行 hover 只改背景色（见 .project-row）：不改 margin、不淡入
+                    行内按钮，行内文字和图标的位置与显隐全程不动。 */}
                 {visibleProjects.map((project, index) => (
-                  <div key={project.key} style={{ display: "flex", alignItems: "center", minWidth: 0, padding: "0 6px 0 10px", margin: project.key === selectedProject?.key ? "3px 5px" : "3px 0", background: project.key === selectedProject?.key ? "var(--bg-selected)" : "none", borderRadius: project.key === selectedProject?.key ? "6px" : "0", overflow: "hidden" }} onMouseEnter={(event) => {
-                      if (project.key !== selectedProject?.key) {
-                        event.currentTarget.style.background = "var(--bg-hover)";
-                        event.currentTarget.style.borderRadius = "6px";
-                        event.currentTarget.style.margin = "3px 5px";
-                        const removeBtn = event.currentTarget.querySelector('[data-remove-btn]');
-                        if (removeBtn) {
-                          (removeBtn as HTMLElement).style.opacity = '1';
-                          (removeBtn as HTMLElement).style.pointerEvents = 'auto';
-                        }
-                      }
-                    }} onMouseLeave={(event) => {
-                      if (project.key !== selectedProject?.key) {
-                        event.currentTarget.style.background = "none";
-                        event.currentTarget.style.borderRadius = "0";
-                        event.currentTarget.style.margin = "3px 0";
-                        const removeBtn = event.currentTarget.querySelector('[data-remove-btn]');
-                        if (removeBtn) {
-                          (removeBtn as HTMLElement).style.opacity = '0';
-                          (removeBtn as HTMLElement).style.pointerEvents = 'none';
-                        }
-                      }
-                    }}>
+                  <div
+                    key={project.key}
+                    data-project-row
+                    data-selected={project.key === selectedProject?.key ? "true" : "false"}
+                    className="project-row"
+                  >
                     <button
                       type="button"
                       onClick={() => {
@@ -1614,6 +1661,27 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                     </button>
                     <button
                       type="button"
+                      // Starring is what puts a project at the top of this list, so
+                      // the control must not also select the project.
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void handleToggleProjectStar(project.key, !project.starred);
+                      }}
+                      data-star-btn
+                      data-starred={project.starred ? "true" : "false"}
+                      aria-pressed={project.starred}
+                      title={project.starred
+                        ? t("sidebar.unstarProject", { path: project.root })
+                        : t("sidebar.starProject", { path: project.root })}
+                      aria-label={project.starred
+                        ? t("sidebar.unstarProject", { path: project.root })
+                        : t("sidebar.starProject", { path: project.root })}
+                      className="project-row-icon-button project-star-button"
+                    >
+                      <Star size={13} strokeWidth={1.8} fill={project.starred ? "currentColor" : "none"} aria-hidden="true" />
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => void handleRemoveProject(
                         project.key,
                         project.key === selectedProject?.key,
@@ -1622,7 +1690,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                       data-remove-btn
                       title={t("sidebar.removeProjectHistory", { path: project.root })}
                       aria-label={t("sidebar.removeProjectHistory", { path: project.root })}
-                      style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 24, height: 24, padding: 0, border: "none", borderRadius: 4, background: "transparent", color: "var(--text-muted)", cursor: "pointer", flexShrink: 0, opacity: 0, pointerEvents: "none", transition: "opacity 0.15s, background 0.15s" }}
+                      className="project-row-icon-button project-remove-button"
                     >
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
                         <path d="m6 6 12 12M18 6 6 18" />
@@ -2221,13 +2289,17 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 textAlign: "left",
               }}
             >
-              <svg
-                width="9" height="9" viewBox="0 0 10 10" fill="none"
-                stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"
-                style={{ transform: explorerOpen ? "rotate(90deg)" : "none", transition: "transform 0.15s", flexShrink: 0 }}
-              >
-                <polyline points="3 2 7 5 3 8" />
-              </svg>
+              {explorerOpen && explorerLoading ? (
+                <TreeLoadingSpinner size={9} label={t("files.loading")} />
+              ) : (
+                <svg
+                  width="9" height="9" viewBox="0 0 10 10" fill="none"
+                  stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"
+                  style={{ transform: explorerOpen ? "rotate(90deg)" : "none", transition: "transform 0.15s", flexShrink: 0 }}
+                >
+                  <polyline points="3 2 7 5 3 8" />
+                </svg>
+              )}
               {t("files.explorer")}
             </button>
             {explorerOpen && (
@@ -2311,6 +2383,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 onAtMention={onAtMention}
                 onAtMentions={onAtMentions}
                 onUploadBusyChange={setExplorerUploadBusy}
+                onLoadingChange={setExplorerLoading}
                 changesCollapsed={changesCollapsed}
                 onChangesCountChange={setChangesCount}
                 hideDotDirs={hideDotDirs}

@@ -8,6 +8,8 @@ export interface AddedProject {
   projectRoot: string;
   cwd: string;
   addedAt: string;
+  /** Starred projects are listed first; the flag lives on the project record. */
+  starred: boolean;
 }
 
 export interface SelectedProject {
@@ -20,6 +22,7 @@ interface AddedProjectRow {
   project_root: string;
   cwd: string;
   added_at: string;
+  starred: number | null;
 }
 
 function openDatabase(databasePath = getPiDatabasePath()): DatabaseSync {
@@ -42,41 +45,84 @@ function openDatabase(databasePath = getPiDatabasePath()): DatabaseSync {
       updated_at TEXT NOT NULL
     );
   `);
+  ensureStarredColumn(database);
   return database;
+}
+
+/**
+ * Records written before starring existed have no `starred` column, and SQLite
+ * has no `ADD COLUMN IF NOT EXISTS` — so the migration is a table_info probe.
+ */
+function ensureStarredColumn(database: DatabaseSync): void {
+  const columns = database.prepare("PRAGMA table_info(added_projects)").all() as unknown as Array<{ name?: unknown }>;
+  if (columns.some((column) => column.name === "starred")) return;
+  database.exec("ALTER TABLE added_projects ADD COLUMN starred INTEGER NOT NULL DEFAULT 0");
 }
 
 export function listAddedProjects(databasePath?: string): AddedProject[] {
   const database = openDatabase(databasePath);
   try {
     const rows = database.prepare(`
-      SELECT project_key, project_root, cwd, added_at
+      SELECT project_key, project_root, cwd, added_at, starred
       FROM added_projects
-      ORDER BY added_at DESC
+      ORDER BY starred DESC, added_at DESC
     `).all() as unknown as AddedProjectRow[];
-    return rows.map((row) => ({
-      projectKey: row.project_key,
-      projectRoot: row.project_root,
-      cwd: row.cwd,
-      addedAt: row.added_at,
-    }));
+    return rows.map(rowToAddedProject);
   } finally {
     database.close();
   }
 }
 
-export function saveAddedProject(project: Omit<AddedProject, "addedAt">, databasePath?: string): AddedProject {
+function rowToAddedProject(row: AddedProjectRow): AddedProject {
+  return {
+    projectKey: row.project_key,
+    projectRoot: row.project_root,
+    cwd: row.cwd,
+    addedAt: row.added_at,
+    starred: Number(row.starred ?? 0) === 1,
+  };
+}
+
+export function saveAddedProject(
+  project: Omit<AddedProject, "addedAt" | "starred">,
+  databasePath?: string,
+): AddedProject {
   const addedAt = new Date().toISOString();
   const database = openDatabase(databasePath);
   try {
+    // Re-adding an existing project refreshes its position but keeps the star:
+    // the flag is a user preference for that directory, not part of the record
+    // being written.
     database.prepare(`
-      INSERT INTO added_projects(project_key, project_root, cwd, added_at)
-      VALUES (?, ?, ?, ?)
+      INSERT INTO added_projects(project_key, project_root, cwd, added_at, starred)
+      VALUES (?, ?, ?, ?, 0)
       ON CONFLICT(project_key) DO UPDATE SET
         project_root = excluded.project_root,
         cwd = excluded.cwd,
         added_at = excluded.added_at
     `).run(project.projectKey, project.projectRoot, project.cwd, addedAt);
-    return { ...project, addedAt };
+    const row = database.prepare(`
+      SELECT project_key, project_root, cwd, added_at, starred
+      FROM added_projects WHERE project_key = ?
+    `).get(project.projectKey) as unknown as AddedProjectRow | undefined;
+    return row ? rowToAddedProject(row) : { ...project, addedAt, starred: false };
+  } finally {
+    database.close();
+  }
+}
+
+/** Stars or unstars a recorded project. Returns false when the record is gone. */
+export function setAddedProjectStarred(
+  projectKey: string,
+  starred: boolean,
+  databasePath?: string,
+): boolean {
+  const database = openDatabase(databasePath);
+  try {
+    const result = database
+      .prepare("UPDATE added_projects SET starred = ? WHERE project_key = ?")
+      .run(starred ? 1 : 0, projectKey);
+    return result.changes > 0;
   } finally {
     database.close();
   }

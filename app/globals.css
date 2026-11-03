@@ -263,6 +263,8 @@
   --switch-track-off: #8f8f8f;
   --switch-track-off-hover: #9b9b9b;
   --switch-knob: #ffffff;
+  /* 置顶星标的琥珀色：白底上够深、深色底上换成亮一档，两个主题都不刺眼。 */
+  --star: #d99a00;
 }
 
 html.dark {
@@ -285,6 +287,7 @@ html.dark {
   --switch-track-off: #6b6b6b;
   --switch-track-off-hover: #7d7d7d;
   --switch-knob: #f4f4f5;
+  --star: #f5c04a;
 }
 
 /* ── 设置 → 常规 ───────────────────────────────────────────────
@@ -1935,6 +1938,75 @@ span.token.table {
   .git-panel-dialog {
     width: 100% !important;
     max-width: none !important;
+  }
+}
+
+/* ── 项目下拉列表的一行 ────────────────────────────────────────
+   行 hover 只改行自身的背景色：尺寸、内边距、行内文字与图标的位置和显隐
+   全部不随 hover 变化（早先 hover 会改 margin 把整行左右推移、还能把移除
+   按钮淡入，读起来像列表在抖）。选中行与未选中行占位完全一致，区别只有
+   背景色与文字色。 */
+.project-row {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  margin: 3px 5px;
+  padding: 0 6px 0 10px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: transparent;
+  transition: background-color 120ms;
+}
+
+.project-row:hover {
+  background: var(--bg-hover);
+}
+
+.project-row[data-selected="true"],
+.project-row[data-selected="true"]:hover {
+  background: var(--bg-selected);
+}
+
+/* 行内图标按钮（星标 / 移除）常驻显示：行 hover 不改变它们的透明度或可点性，
+   只有按钮自己被 hover / 键盘聚焦时才换颜色。 */
+.project-row-icon-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: color 120ms;
+}
+
+.project-row-icon-button:hover,
+.project-row-icon-button:focus-visible {
+  color: var(--text);
+}
+
+/* 已收藏的星标保持琥珀色，不因 hover 变灰。 */
+.project-star-button[data-starred="true"],
+.project-star-button[data-starred="true"]:hover,
+.project-star-button[data-starred="true"]:focus-visible {
+  color: var(--star);
+}
+
+/* 移除是破坏性操作，按钮自己被 hover 时才转成危险色。 */
+.project-remove-button:hover,
+.project-remove-button:focus-visible {
+  color: var(--danger);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .project-row,
+  .project-row-icon-button {
+    transition: none;
   }
 }
 

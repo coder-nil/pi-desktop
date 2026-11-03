@@ -1,0 +1,12 @@
+import { createJiti } from "jiti";
+const jiti = createJiti(import.meta.url);
+const { scanSessionFiles } = await jiti.import("./lib/session-index.ts");
+await scanSessionFiles();
+await new Promise(r => setTimeout(r, 2500));
+const cache = globalThis.__piSessionIndexCache;
+console.log("cache entries:", cache?.size);
+const first = [...cache.entries()][0];
+console.log("sample key:", first?.[0]);
+console.log("sample size/mtime:", first?.[1].size, first?.[1].mtimeMs);
+const { statSync } = await import("node:fs");
+console.log("real stat:", statSync(first[0]).size, statSync(first[0]).mtimeMs);

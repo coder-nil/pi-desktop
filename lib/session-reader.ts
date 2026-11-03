@@ -7,7 +7,8 @@ import {
 import { closeSync, existsSync, openSync, readSync } from "fs";
 import { normalize as normalizePath } from "path";
 import type { AgentMessage, SessionEntry, SessionHeader, SessionInfo, SessionContext } from "./types";
-import type { SessionEntry as PiSessionEntry, SessionInfo as PiSessionInfo } from "@earendil-works/pi-coding-agent";
+import type { SessionEntry as PiSessionEntry } from "@earendil-works/pi-coding-agent";
+import { scanSessionFiles } from "./session-index";
 import { normalizeToolCalls } from "./normalize";
 import { projectIdentityKey } from "./project-identity";
 import { sessionPathKey } from "./session-path";
@@ -46,22 +47,25 @@ export function mergeSessionLists(
 }
 
 async function loadAllSessions(): Promise<SessionInfo[]> {
-  const piSessions: PiSessionInfo[] = await SessionManager.listAll();
+  // `scanSessionFiles()` keeps a per-file summary cache, so unchanged
+  // transcripts cost one `stat` instead of a full re-parse. The file *set*
+  // still comes from a fresh scan, which is what keeps adds/removals honest.
+  const files = await scanSessionFiles();
   const pathToId = new Map<string, string>();
-  for (const s of piSessions) pathToId.set(sessionPathKey(s.path), s.id);
+  for (const file of files) pathToId.set(sessionPathKey(file.path), file.id);
 
-  const sessions = piSessions.map((s) => {
-    cacheSessionPath(s.id, s.path);
+  const sessions = files.map((file) => {
+    cacheSessionPath(file.id, file.path);
     return {
-      path: s.path,
-      id: s.id,
-      cwd: s.cwd,
-      name: s.name,
-      created: s.created instanceof Date ? s.created.toISOString() : String(s.created),
-      modified: s.modified instanceof Date ? s.modified.toISOString() : String(s.modified),
-      messageCount: s.messageCount,
-      firstMessage: s.firstMessage || "(no messages)",
-      parentSessionId: s.parentSessionPath ? pathToId.get(sessionPathKey(s.parentSessionPath)) : undefined,
+      path: file.path,
+      id: file.id,
+      cwd: file.cwd,
+      name: file.name,
+      created: file.created,
+      modified: file.modified,
+      messageCount: file.messageCount,
+      firstMessage: file.firstMessage,
+      parentSessionId: file.parentSessionPath ? pathToId.get(sessionPathKey(file.parentSessionPath)) : undefined,
       transient: false,
     };
   });

@@ -49,6 +49,8 @@ interface Props {
   onAtMention?: (relativePath: string, isDir: boolean) => void;
   onAtMentions?: (relativePaths: string[]) => void;
   onUploadBusyChange?: (busy: boolean) => void;
+  /** 根目录列表正在请求，用于把侧边栏标题行里的折叠箭头换成转圈。 */
+  onLoadingChange?: (loading: boolean) => void;
   changesCollapsed: boolean;
   onChangesCountChange?: (count: number) => void;
   hideDotDirs?: boolean;
@@ -59,6 +61,29 @@ export interface FileExplorerHandle {
   openUploadPicker: () => void;
   setHideDotDirs: (updater: (prev: boolean) => boolean) => void;
   getHideDotDirs: () => boolean;
+}
+
+/**
+ * 与树的折叠箭头同尺寸的加载指示。请求进行时直接把它画在箭头的位置上，
+ * 而不是在行尾再塞一个图标：文件名那一行空间本来就紧，多一个图标会让名字抖动。
+ */
+export function TreeLoadingSpinner({ size = 10, label }: { size?: number; label: string }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2.4}
+      strokeLinecap="round"
+      role="status"
+      aria-label={label}
+      style={{ flexShrink: 0, animation: "spin 0.8s linear infinite" }}
+    >
+      <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+    </svg>
+  );
 }
 
 type UploadPhase = "idle" | "checking" | "uploading";
@@ -424,13 +449,29 @@ function TreeNode({
         }}
       >
         {node.isDir && (
-          <svg
-            width="10" height="10" viewBox="0 0 10 10" fill="none"
-            stroke="var(--text-dim)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"
-            style={{ flexShrink: 0, transform: open ? "rotate(90deg)" : "none", transition: "transform 0.1s" }}
+          <span
+            style={{
+              width: 10,
+              height: 10,
+              flexShrink: 0,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              color: "var(--text-dim)",
+            }}
           >
-            <polyline points="3 2 7 5 3 8" />
-          </svg>
+            {loading ? (
+              <TreeLoadingSpinner size={10} label={t("files.loading")} />
+            ) : (
+              <svg
+                width="10" height="10" viewBox="0 0 10 10" fill="none"
+                stroke="var(--text-dim)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"
+                style={{ flexShrink: 0, transform: open ? "rotate(90deg)" : "none", transition: "transform 0.1s" }}
+              >
+                <polyline points="3 2 7 5 3 8" />
+              </svg>
+            )}
+          </span>
         )}
         {!node.isDir && <span style={{ width: 10, flexShrink: 0 }} />}
         <span style={{ flexShrink: 0, display: "flex", alignItems: "center" }}>
@@ -519,11 +560,6 @@ function TreeNode({
           >
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#d6a84b" }} />
           </span>
-        )}
-        {loading && (
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--text-dim)" strokeWidth="2" strokeLinecap="round">
-            <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4" />
-          </svg>
         )}
         {onAtMention && hovered && !renaming && (
           <button
@@ -700,6 +736,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
   onAtMention,
   onAtMentions,
   onUploadBusyChange,
+  onLoadingChange,
   changesCollapsed,
   onChangesCountChange,
   hideDotDirs: propHideDotDirs,
@@ -886,6 +923,12 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
   useEffect(() => () => onUploadBusyChange?.(false), [onUploadBusyChange]);
 
   useEffect(() => {
+    onLoadingChange?.(loading);
+  }, [loading, onLoadingChange]);
+
+  useEffect(() => () => onLoadingChange?.(false), [onLoadingChange]);
+
+  useEffect(() => {
     const cwdChanged = prevCwdRef.current !== cwd;
     prevCwdRef.current = cwd;
 
@@ -898,7 +941,10 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
       setUploadError(null);
     }
 
-    setLoading(cwdChanged);
+    // 换项目时旧根节点必须立刻清掉，否则新目录还在请求中会先闪一帧旧项目的文件；
+    // 只是刷新时保留现有列表，转圈交给标题行的箭头，列表不跳。
+    if (cwdChanged) setRoots([]);
+    setLoading(true);
     setError(null);
     let cancelled = false;
     fetchEntries(cwd, cwd, hideDotDirs)
@@ -1087,10 +1133,10 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
       {(changesCollapsed || gitFiles.length === 0) && (
         <div>
           <div style={{ padding: "2px 4px" }}>
-          {loading ? (
-            <div style={{ padding: "8px 12px", fontSize: 11, color: "var(--text-dim)" }}>Loading files...</div>
-          ) : error ? (
+          {error ? (
             <div style={{ padding: "8px 12px", fontSize: 11, color: "#f87171" }}>{error}</div>
+          ) : loading && roots.length === 0 ? (
+            <div style={{ padding: "8px 12px", fontSize: 11, color: "var(--text-dim)" }}>{t("files.loading")}</div>
           ) : (
             roots.map((node) => (
               <TreeNode
