@@ -91,6 +91,13 @@ export function GitPanel({ cwd, sessionId, onClose, onChanged, onOpenFile }: { c
     setSummary(await readApiJson<GitSummary>(res, { hint: t("git.serverErrorHint") }));
   }, [cwd, t]);
 
+  // 一个项目里可以有多个仓库（子项目），从文件浏览器的徽标切换仓库根时先丢掉上一个
+  // 仓库的文件列表与错误，否则新目标会先闪一帧旧仓库的内容。
+  useEffect(() => {
+    setSummary(null);
+    setError(null);
+  }, [cwd]);
+
   useEffect(() => { void refresh().catch((reason: unknown) => setError(reason instanceof Error ? reason.message : String(reason))); }, [refresh]);
 
   // When the panel opens and there are remote updates (behind > 0), show a gentle reminder.

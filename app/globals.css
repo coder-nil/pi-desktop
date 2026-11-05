@@ -47,9 +47,15 @@
   cursor: default;
 }
 
+/* send/stop are content items of the scrolling field, so scrollbar-gutter's
+   reserved strip (0 on overlay scrollbars, 4px for our custom one, 15px when
+   macOS is set to always show scrollbars) would push them inward by exactly
+   that width. The measured gutter comes back as a negative margin from
+   ChatInput's ResizeObserver so the controls always sit on the padding edge. */
 .chat-composer-send {
   position: sticky;
   bottom: var(--composer-padding-y);
+  margin-right: calc(-1 * var(--composer-scrollbar-gutter, 0px));
 }
 
 .chat-composer-field:focus-within {
@@ -70,6 +76,8 @@
   align-self: flex-end;
   flex-shrink: 0;
   gap: 4px;
+  /* Same gutter offset as .chat-composer-send. */
+  margin-right: calc(-1 * var(--composer-scrollbar-gutter, 0px));
 }
 
 .chat-composer-queue-button {
@@ -582,6 +590,46 @@ html.dark .catppuccin-file-icon {
     background: var(--text-dim);
     mask-image: var(--catppuccin-icon-dark);
     -webkit-mask-image: var(--catppuccin-icon-dark);
+  }
+}
+
+/* 目录行上的 Git 徽标：自身直接含 `.git` 的子目录就是一个独立仓库（多仓库项目里的
+   一个子项目）。徽标常驻显示，好让人一眼看出哪几个子目录是仓库；点它按该仓库为根打开
+   Git 面板，行本身的单击仍然只负责展开/收起。 */
+.file-tree-git-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+}
+
+.file-tree-git-button {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  opacity: 0.9;
+  transition: background-color 120ms, opacity 120ms;
+}
+
+.file-tree-git-button:hover,
+.file-tree-git-button:focus-visible {
+  /* 行 hover 已经用 --bg-hover 底层色，徽标自己的 hover 必须更深一级才看得见。 */
+  background: var(--bg-selected);
+  opacity: 1;
+}
+
+.file-tree-git-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .file-tree-git-button {
+    transition: none;
   }
 }
 

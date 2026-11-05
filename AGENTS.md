@@ -294,6 +294,14 @@ Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `au
 - 折叠行代表整条包链，重命名只能落在一个目录上，所以 `startRename` 对它直接返回（`node.packageChain`）。`@提及`、在访达/资源管理器中显示、Git 变更点都按最内层路径工作。
 - 测试：`lib/java-packages.test.mjs`（纯函数）与 `app/api/files/java-packages-route.test.mjs`（真实临时 Maven 布局跑真 `GET`）。
 
+### 多仓库项目：子项目目录上的 Git 徽标
+- 一个项目目录下可以并排多个**各自带 `.git` 的子项目**。`GET /api/files?type=list` 对每个子目录做一次 `fs.existsSync(<dir>/.git)`（`.git` 目录与 worktree / submodule 那种指针文件都算），命中时给该条目加 `gitRepository: true`；文件条目不做这次检查，未命中的条目连键都没有。
+- 文件浏览器据此在目录图标旁渲染一个**常驻** Git 徽标（`.file-tree-git-badge` / `.file-tree-git-button`，catppuccin `git` 图标，见 `FileIcons.tsx` 的 `GitRepositoryIcon`）。它是行内 `<button>`：`onClick` 必须 `stopPropagation()`，否则会连带展开/收起这一行；`onDoubleClick` 也要拦，否则双击就进了重命名。没有回调时降级成纯指示器（`<span aria-hidden>`）。
+- `gitRepository` 在 Java 包链折叠时靠 `{ ...entry, name, entryPath }` 的展开自然保留 —— 标记看的是列表时那一级真实目录，不是显示出来的点号名。
+- **Git 面板的仓库根不再固定是当前项目。** `AppShell` 的 `gitPanelCwd` 为 `null` 时跟随当前项目（并且只有 `activeProjectIsGit === true` 才渲染），点徽标时设成该子项目路径并**打开**面板（不是 toggle：子项目自己带 `.git`，主项目不是仓库也照样能用）。侧边栏分支行与底部工具条的 Git 按钮走 `toggleGitPanel`，它会先把 `gitPanelCwd` 清空，因此永远切回当前项目的仓库；`closeGitPanel` 与 `activeCwd` 变化也会清空它，避免面板指着上一个项目里已不可达的子目录。
+- `if (activeProjectIsGit === false && gitPanelCwd === null) setGitPanelOpen(false)` 里的 `&& gitPanelCwd === null` **不能省**：主项目不是仓库恰恰是多仓库项目最常见的样子，少了它子项目面板会被立刻关掉。
+- 测试：`app/api/files/git-repository-route.test.mjs`（真实临时布局 + 真 GET）、`components/FileExplorer.test.mjs`、`components/AppShell.git-subproject.test.mjs`；`AppShell.mobile-toolbar.test.mjs` 与 `GitPanel.test.mjs` 里原先钉住 `onClick: () => setGitPanelOpen(...)` 和 `<GitPanel cwd={activeCwd}` 的断言已跟着改成新的入口。
+
 ### 文件浏览器的加载指示就是折叠箭头本身
 - 展开目录、以及刷新时重新拉回已展开目录的子项，那一行的折叠箭头会换成转圈（`TreeLoadingSpinner`），加载结束再换回箭头并转到展开角度。以前行尾那个独立的转圈图标已删除：它和重命名输入框、Git 徽标抢位置，文件名会跟着抖。
 - 侧边栏标题行的折叠箭头同样在根目录列表请求期间变成转圈（`FileExplorer` 的 `onLoadingChange` → `SessionSidebar` 的 `explorerLoading`，只在展开时显示）。
@@ -407,6 +415,7 @@ Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `au
 ### The composer field scrolls, not the textarea
 - `.chat-composer-field` owns `max-height: 222px` + `overflow-y: auto` (200px of text plus its own padding and border) and the textarea is uncapped with `overflow: hidden`, so the scrollbar is drawn along the outer border instead of exposing an inner textarea edge. `resizeComposerTextarea()` in `ChatInput.tsx` is the single resize site: it sets the height from `scrollHeight` and measures once more for the reflow a classic scrollbar causes when it appears (`scrollbar-gutter: stable` on the field keeps that from shifting anything). Do not reintroduce `Math.min(..., 200)` or a `maxHeight` on the textarea — that moves the scrollbar back inside.
 - The pi mark and the send/queue controls are `position: sticky` (`top: 0`, `bottom: var(--composer-padding-y)`) so they stay visible while the text scrolls behind them.
+- **`scrollbar-gutter: stable` reserves the *system* scrollbar width, and the sticky controls are content items of that scroll container, so they drift inward by exactly that width.** Overlay scrollbars (the macOS default) reserve 0 and nothing moves, which is why the bug only showed on one machine. macOS set to „always show scrollbars“ reserves the classic 15px and the send/stop controls ended up 25px from the border instead of 11px (measured off a 2x screenshot: 50 device px between the button edge and the field border); Chromium reserves the 4px our own `::-webkit-scrollbar` rule asks for. `composerScrollbarGutter()` in `ChatInput.tsx` measures `offsetWidth - clientWidth - borders` (a `useLayoutEffect` plus a `ResizeObserver`, so the first paint is already offset) and publishes `--composer-scrollbar-gutter`; `.chat-composer-send` and `.chat-composer-queue-actions` negate it with `margin-right: calc(-1 * var(--composer-scrollbar-gutter, 0px))`. Do not hardcode 4px or drop the variable — the width is per-platform and per-system-setting. The controls do overlap the scrollbar's inner edge by (10px − gutter) when the gutter is wider than 10px, which is the accepted trade-off for keeping a constant inset.
 - A scroll container clips absolutely positioned children, so `.chat-composer-queue-menu` is rendered as a sibling **before** the field inside the relative wrapper and carries its own `handleQueueMenuKeyDown` — the same handler `.chat-composer-queue-actions` still holds, because its buttons are inside the field. `ChatInput.test.mjs` pins all of this.
 
 ### Completion sound

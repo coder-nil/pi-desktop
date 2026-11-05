@@ -139,6 +139,8 @@ interface Props {
   openDirectoryRequest?: number;
   /** 当前项目是 git 仓库且底部 tab 栏存在时，把 Git 面板入口放到分支这一行。 */
   onOpenGitPanel?: () => void;
+  /** 文件浏览器里点子项目目录的 Git 徽标：以该仓库为根打开 Git 面板。 */
+  onOpenRepositoryGitPanel?: (repositoryPath: string) => void;
   gitPanelOpen?: boolean;
 }
 
@@ -468,7 +470,7 @@ function PiWebTitle({ onAboutClick }: { onAboutClick?: () => void }) {
   );
 }
 
-export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onFileRenamed, canRenamePath, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onProjectGitStateChange, onGenerateTitle, titleGenerationStatus, appUpdate, onAppUpdateClick, onAboutClick, onHideSidebar, openDirectoryRequest, onOpenGitPanel, gitPanelOpen }: Props) {
+export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onFileRenamed, canRenamePath, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onProjectGitStateChange, onGenerateTitle, titleGenerationStatus, appUpdate, onAppUpdateClick, onAboutClick, onHideSidebar, openDirectoryRequest, onOpenGitPanel, onOpenRepositoryGitPanel, gitPanelOpen }: Props) {
   const { t } = useI18n();
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -2382,6 +2384,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 refreshKey={explorerKey}
                 onAtMention={onAtMention}
                 onAtMentions={onAtMentions}
+                onOpenRepositoryGitPanel={onOpenRepositoryGitPanel}
                 onUploadBusyChange={setExplorerUploadBusy}
                 onLoadingChange={setExplorerLoading}
                 changesCollapsed={changesCollapsed}

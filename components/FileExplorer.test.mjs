@@ -48,3 +48,25 @@ test("a refresh keeps the visible root list and reports loading upward", () => {
   assert.match(source, /onLoadingChange\?\.\(loading\)/);
   assert.match(source, /error \? \([\s\S]*?\) : loading && roots\.length === 0 \? \(/);
 });
+
+test("a sub-project directory shows a Git badge that opens the panel for that repository", () => {
+  // 一个项目目录里可以有多个各自带 .git 的子项目：服务端的 `gitRepository`
+  // 一路带到节点上，徽标只在「目录 + 是仓库」的行上出现。
+  assert.match(source, /gitRepository\?: boolean;/);
+  assert.match(source, /\.\.\.\(e\.gitRepository \? \{ gitRepository: true \} : \{\}\),/);
+  assert.match(source, /\{node\.isDir && node\.gitRepository && \(/);
+  // 徽标是行内按钮：单击只打开 Git 面板，不展开/收起这一行，也不触发行内的重命名。
+  assert.match(source, /onClick=\{\(event\) => \{\s*event\.stopPropagation\(\);\s*onOpen\(repositoryPath\);\s*\}\}/);
+  assert.match(source, /onDoubleClick=\{\(event\) => event\.stopPropagation\(\)\}/);
+  // Git 面板的仓库根是这一行自己的路径（子项目），不是项目根，标题里带完整路径。
+  assert.match(source, /repositoryPath=\{node\.fullPath\}/);
+  assert.match(source, /const title = `\$\{t\("files\.openGitPanel"\)\} · \$\{repositoryPath\}`;/);
+});
+
+test("the Git badge is forwarded through every nested TreeNode", () => {
+  // 子目录的徽标同样可点：递归渲染处必须继续传下去，否则只有第一层能用。
+  assert.equal(
+    source.match(/onOpenRepositoryGitPanel=\{onOpenRepositoryGitPanel\}/g)?.length,
+    2,
+  );
+});

@@ -148,6 +148,20 @@ function resizeComposerTextarea(textarea: HTMLTextAreaElement | null): void {
   if (settled > measured) textarea.style.height = `${settled}px`;
 }
 
+/**
+ * Width the field's `scrollbar-gutter: stable` reserves on the right. It is the
+ * platform's scrollbar width: 0 with overlay scrollbars (the macOS default), the
+ * 4px our `::-webkit-scrollbar` rule asks for on Chromium, and the classic 15px
+ * scrollbar once macOS is set to always show scrollbars. Send and stop are
+ * content items of the scrolling field, so they shift inward by exactly that
+ * width unless globals.css cancels it out.
+ */
+function composerScrollbarGutter(field: HTMLElement): number {
+  const styles = window.getComputedStyle(field);
+  const borders = (parseFloat(styles.borderLeftWidth) || 0) + (parseFloat(styles.borderRightWidth) || 0);
+  return Math.max(0, field.offsetWidth - field.clientWidth - borders);
+}
+
 function compareModelOptions(a: ModelOption, b: ModelOption): number {
   return MODEL_OPTION_COLLATOR.compare(a.name || a.modelId, b.name || b.modelId)
     || MODEL_OPTION_COLLATOR.compare(a.provider, b.provider)
@@ -585,6 +599,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const [skillMenuError, setSkillMenuError] = useState<string | null>(null);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const composerFieldRef = useRef<HTMLDivElement>(null);
   // 字号同时驱动输入框自身与高度重算：这里是全应用最早挂载的消费者，
   // 自定义属性也随这次订阅应用到文档根节点上（见 hooks/useChatAppearance.ts）。
   const { fontSize: chatFontSize } = useChatAppearance();
@@ -933,6 +948,24 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   useEffect(() => {
     resizeComposerTextarea(textareaRef.current);
   }, [value, chatFontSize]);
+
+  // scrollbar-gutter: stable reserves the system scrollbar's width on the right
+  // of the field. Measure it and publish it as --composer-scrollbar-gutter so
+  // the sticky send/stop controls can negate it (globals.css) instead of being
+  // pushed inward when macOS is set to always show scrollbars. The layout effect
+  // keeps the first paint from showing the un-offset position.
+  useLayoutEffect(() => {
+    const field = composerFieldRef.current;
+    if (!field) return;
+    const syncGutter = () => {
+      field.style.setProperty("--composer-scrollbar-gutter", `${composerScrollbarGutter(field)}px`);
+    };
+    syncGutter();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(syncGutter);
+    observer.observe(field);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -2395,6 +2428,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           )}
           <div
             className="chat-composer-field"
+            ref={composerFieldRef}
           >
           <button
             type="button"
