@@ -469,6 +469,7 @@ export const zhCNLocale: LocalePlugin = {
     "chat.filesWritten": "改动的文件",
     "chat.openWrittenFile": "打开 {name}",
     "chat.loadEarlier": "向上滚动以加载更早的消息（隐藏 {count} 条）",
+    "chat.jumpToLatest": "回到最新",
     "chat.extensionRequest": "扩展请求",
     "chat.cancel": "取消",
     "chat.confirm": "确认",

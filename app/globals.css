@@ -222,6 +222,141 @@
   }
 }
 
+/* 「回到最新」趴在输入框上沿，轮廓是一道底部外撇的弧（喇叭口）：
+   矩形的 border 在底边处只能是垂直切线，撇不出去，所以轮廓交给内联 SVG。
+   SVG 铺满 84×22 并压过输入框上边框 1px：那条线在疙瘩宽度内被顶开，
+   疙瘩和框内是同一块地方，读起来才是「长出来的」而不是「贴上来的」。
+   84×22：拱顶收在 y≈4.2，两条腿各向外撇出约 20°，
+   宽高比再大就会读成两个尖脚，再小又变成一条普通半圆。 */
+.chat-jump-to-latest {
+  /* 输入框没有焦点时，它只是一层白色半透明的雾面凸起，自己不描边：
+     底下那条边框会隐约透出来，读法仍然是「从框里鼓出来」，
+     却不跟输入框抢那一圈线的注意力。 */
+  --jump-fill: color-mix(in srgb, #fff 42%, transparent);
+  --jump-stroke: transparent;
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  /* 居中用 translate（独立属性），transform 留给按压位移：
+     animation 的 fill 会盖住 transform。 */
+  translate: -50% 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 84px;
+  height: 22px;
+  /* 压进输入框 1px：形状底边落在它的边框外沿上，不留半像素亮缝。 */
+  margin-bottom: -1px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  /* backwards 而不是 both：动画跑完就交还基础值，:active 才动得起来。 */
+  animation: chat-jump-to-latest-in 200ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+
+.chat-jump-to-latest__shape {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  overflow: visible;
+  fill: var(--jump-fill);
+  stroke: var(--jump-stroke);
+  pointer-events: none;
+  /* 白色半透明在浅色主题里等于消失，靠一层柔和投影交代体积：
+     影子是「雾面凸起」的一部分，不是描边，用户要的无边框仍然成立。 */
+  filter: drop-shadow(0 1px 2px color-mix(in srgb, var(--text) 14%, transparent));
+  transition: fill 140ms ease, stroke 140ms ease;
+}
+
+/* 非等比缩放不影响描边粗细：曲线怎么变形，线都还是 1px。 */
+.chat-jump-to-latest__shape path {
+  vector-effect: non-scaling-stroke;
+  stroke-width: 1;
+}
+
+/* 悬停：这层雾直接变不透明，作为「指针确实在它上面」的反馈；
+   仍然不加描边，箭头也沉 1px。 */
+.chat-jump-to-latest:hover {
+  --jump-fill: #fff;
+  color: var(--text);
+}
+
+/* 只有箭头参与 hover 位移；形状层是背景，不跟着动。 */
+.chat-jump-to-latest svg:not(.chat-jump-to-latest__shape) {
+  transition: transform 140ms ease;
+}
+
+.chat-jump-to-latest:hover svg:not(.chat-jump-to-latest__shape) {
+  transform: translateY(1px);
+}
+
+/* 按下时整块跟着沉 1px，像被压回输入框里。 */
+.chat-jump-to-latest:active {
+  transform: translateY(1px);
+}
+
+/* 输入框一有焦点，只换颜色，别的一个都不动：仍然是半透明、仍然没有描边，
+   只是从白雾变成外沿那圈淡蓝光晕的色系。几何、投影、箭头位移全部共用基础样式。
+   :has(~ …) 让按钮读到后面兄弟的焦点状态。 */
+.chat-jump-to-latest:has(~ .chat-composer-field:focus-within) {
+  --jump-fill: color-mix(in srgb, var(--accent) 22%, transparent);
+  color: var(--accent);
+}
+
+/* 聚焦状态下把指针移上去，走的还是「变不透明」这一条规则：
+   用不透明的淡蓝，而不是又退回半透明。 */
+.chat-jump-to-latest:has(~ .chat-composer-field:focus-within):hover {
+  --jump-fill: color-mix(in srgb, var(--accent) 22%, var(--bg));
+}
+
+/* 形状不规则，outline 会沿矩形框走；焦点直接加粗轮廓本身。 */
+.chat-jump-to-latest:focus-visible {
+  outline: none;
+  color: var(--accent);
+}
+
+.chat-jump-to-latest:focus-visible .chat-jump-to-latest__shape path {
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+/* 可见形状只有 84×22，热区向四周多扩 7px（不往输入框里挤）。 */
+.chat-jump-to-latest::before {
+  content: "";
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  bottom: 0;
+  left: -7px;
+}
+
+@keyframes chat-jump-to-latest-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-jump-to-latest {
+    animation: none;
+    transition: none;
+  }
+
+  .chat-jump-to-latest__shape {
+    transition: none;
+  }
+
+  .chat-jump-to-latest:hover svg:not(.chat-jump-to-latest__shape) {
+    transform: none;
+  }
+}
+
 @theme {
   --color-bg: var(--bg);
   --color-bg-panel: var(--bg-panel);
@@ -2336,3 +2471,4 @@ span.token.table {
 .file-editor-surface { height: 100%; }
 .file-editor-surface .cm-editor { height: 100%; }
 .file-editor-surface .cm-scroller { overflow: auto; }
+/* mk7 */

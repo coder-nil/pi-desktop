@@ -7,6 +7,7 @@ import type {TextContent, UserMessage} from "@/lib/types";
 import {type ChatDraftCommand, type ChatDraftCommandKind, type ChatDraftImage, type ChatDraftMention, clearDraft, getDraft, mergeRestoredSubmissionDraft, mergeRestoredSubmissionText, rekeyDraft as rekeyStoredDraft, setDraft,} from "@/lib/draft-store";
 import {isBase64ImageWithinLimits, MAX_ATTACHED_IMAGE_BYTES, MAX_ATTACHED_IMAGES,} from "@/lib/image-attachments";
 import {type AtQueryMatch, buildAtInsertText, buildEntriesFromFiles, extractAtQuery, type FileIndexEntry, filterFileEntries,} from "@/lib/file-fuzzy";
+import {ChevronDown} from "lucide-react";
 import {FolderIcon, getFileIcon} from "./FileIcons";
 import {useIsMobile} from "@/hooks/useIsMobile";
 import {useI18n} from "@/hooks/useI18n";
@@ -71,6 +72,9 @@ interface Props {
   cwd?: string | null;
   /** 当前会话 id，用于生成手机遥控二维码。 */
   sessionId?: string;
+  /** 对话向上滚动离开底部时，在输入框上沿拱出「回到最新」。 */
+  showJumpToLatest?: boolean;
+  onJumpToLatest?: () => void;
 }
 
 export interface ChatInputHandle {
@@ -537,6 +541,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   draftKey,
   cwd,
   sessionId,
+  showJumpToLatest = false,
+  onJumpToLatest,
 }: Props, ref) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
@@ -2425,6 +2431,24 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 </button>
               )}
             </div>
+          )}
+          {showJumpToLatest && onJumpToLatest && (
+            // 「回到最新」不是浮在消息区中间，而是从输入框上沿长出来的一个疙瘩：
+            // 底部两撇是外撇的切线，矩形 + border 做不出来，所以轮廓交给这个
+            // 内联 SVG（装饰性形状，图标仍然只用 lucide）。填充一直铺到输入框
+            // 边框的内沿，等于把那条线在疙瘩宽度内顶开，疙瘩与框内连成一体。
+            <button
+              type="button"
+              className="chat-jump-to-latest"
+              onClick={onJumpToLatest}
+              aria-label={t("chat.jumpToLatest")}
+              title={t("chat.jumpToLatest")}
+            >
+              <svg className="chat-jump-to-latest__shape" viewBox="0 0 84 22" aria-hidden="true" focusable="false">
+                <path d="M0.5 22C3.5 16 11 4.2 42 4.2S80.5 16 83.5 22" />
+              </svg>
+              <ChevronDown size={13} strokeWidth={2} aria-hidden="true" />
+            </button>
           )}
           <div
             className="chat-composer-field"
