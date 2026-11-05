@@ -145,6 +145,12 @@ export interface AgentSessionLike {
       thinkingLevel?: string;
       streamingMessage?: PiAgentMessage;
       /**
+       * Executable tools for the next request. `read` being absent means the prompt
+       * must keep `<project_context>` inline: a path the model cannot open is worse
+       * than the tokens (`lib/project-context-digest.ts`).
+       */
+      tools?: readonly { readonly name: string }[];
+      /**
        * Agent-state transcript. A just-accepted prompt lives here before its
        * `message_end` appends it to the SessionManager, so the session list
        * reads it as the first-message fallback.

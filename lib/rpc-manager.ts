@@ -36,6 +36,7 @@ import type {
 import { createHeadlessCustomUiTui, DEFAULT_CUSTOM_UI_COLUMNS, type HeadlessCustomUiTui } from "./custom-ui-terminal";
 import { diagnosticErrorMessage, logAgentDiagnostic } from "./agent-diagnostics";
 import { buildChatModeSystemPrompt } from "./chat-mode-prompt";
+import { digestProjectContext } from "./project-context-digest";
 import { LANGUAGE_INSTRUCTION_EN, LANGUAGE_INSTRUCTION_ZH, languageInstruction, type UiLocale } from "./language-instruction";
 
 // ============================================================================
@@ -203,6 +204,7 @@ export interface RpcSessionStartOptions {
 
 const SYSTEM_PROMPT_TRANSLATIONS: Record<string, string> = {
   "You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.": "你是运行在 pi 编程代理框架中的专业编程助手。你通过读取文件、执行命令、编辑代码和创建新文件来帮助用户。",
+  "You are a coding assistant running inside pi, a coding agent harness. Help users inspect files, run commands, and modify code.": "你是运行在 pi 编程代理框架中的编程助手。你帮助用户检查文件、执行命令并修改代码。",
   "Available tools:": "可用工具：",
   "In addition to the tools above, you may have access to other custom tools depending on the project.": "除上述工具外，你还可能根据项目获得其他自定义工具。",
   "Guidelines:": "行为准则：",
@@ -211,20 +213,22 @@ const SYSTEM_PROMPT_TRANSLATIONS: Record<string, string> = {
   "Use bash for file operations like ls, rg, find": "使用 bash 执行 ls、rg、find 等文件操作",
   "Use bash or PowerShell for file operations like listing, searching, and finding files": "使用 bash 或 PowerShell 执行列目录、搜索和查找文件等操作",
   "Use PowerShell for file operations like listing, searching, and finding files": "使用 PowerShell 执行列目录、搜索和查找文件等操作",
-  "Pi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):": "Pi 文档（仅当用户询问 pi、其 SDK、扩展、主题、技能或 TUI 时阅读）：",
+  "Pi documentation (read only when the user asks about the harness itself, its SDK, extensions, themes, skills, or TUI):": "Pi 文档（仅当用户询问 pi 框架本身、其 SDK、扩展、主题、技能或 TUI 时阅读）：",
   "- Main documentation:": "- 主文档：",
   "- Additional docs:": "- 补充文档：",
   "- Examples:": "- 示例：",
   "(extensions, custom tools, SDK)": "（扩展、自定义工具、SDK）",
   "- When asked about:": "- 当用户询问以下主题时：",
   "When reading pi docs or examples, resolve docs/... under Additional docs and examples/... under Examples, not the current working directory": "阅读 pi 文档或示例时，应从补充文档中的 docs/... 和示例中的 examples/... 解析路径，而不是当前工作目录",
-  "extensions (docs/extensions.md, examples/extensions/), themes (docs/themes.md), skills (docs/skills.md), prompt templates (docs/prompt-templates.md), TUI components (docs/tui.md), keybindings (docs/keybindings.md), SDK integrations (docs/sdk.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), pi packages (docs/packages.md), environment variables (docs/environment-variables.md), MCP servers (docs/mcp.md), codemode scripts and non-LLM models such as classifiers and image models (docs/codemode.md)": "扩展（docs/extensions.md、examples/extensions/）、主题（docs/themes.md）、技能（docs/skills.md）、提示词模板（docs/prompt-templates.md）、TUI 组件（docs/tui.md）、快捷键（docs/keybindings.md）、SDK 集成（docs/sdk.md）、自定义提供商（docs/custom-provider.md）、添加模型（docs/models.md）、Pi 包（docs/packages.md）、环境变量（docs/environment-variables.md）、MCP 服务器（docs/mcp.md）、codemode 脚本与非 LLM 模型（如分类器、图像模型）（docs/codemode.md）",
+  "Before implementing harness changes, read the relevant docs and examples in full, following related cross-references.": "在修改 pi 框架本身之前，先完整阅读相关文档与示例，并顺着其中的交叉引用继续读。",
+  "extensions (docs/extensions.md, examples/extensions/), themes (docs/themes.md), skills (docs/skills.md), prompt templates (docs/prompt-templates.md), TUI components (docs/tui.md), keybindings (docs/keybindings.md), SDK integrations (docs/sdk.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), packages (docs/packages.md), environment variables (docs/environment-variables.md), MCP servers (docs/mcp.md), codemode scripts and non-LLM models such as classifiers and image models (docs/codemode.md)": "扩展（docs/extensions.md、examples/extensions/）、主题（docs/themes.md）、技能（docs/skills.md）、提示词模板（docs/prompt-templates.md）、TUI 组件（docs/tui.md）、快捷键（docs/keybindings.md）、SDK 集成（docs/sdk.md）、自定义提供商（docs/custom-provider.md）、添加模型（docs/models.md）、Pi 包（docs/packages.md）、环境变量（docs/environment-variables.md）、MCP 服务器（docs/mcp.md）、codemode 脚本与非 LLM 模型（如分类器、图像模型）（docs/codemode.md）",
   "When working on pi topics, read the docs and examples, and follow .md cross-references before implementing": "处理 pi 相关主题时，先完整阅读文档和示例，并在实现前遵循 .md 文件中的交叉引用",
   "Always read pi .md files completely and follow links to related docs (e.g., tui.md for TUI API details)": "始终完整阅读 pi 的 .md 文件，并遵循指向相关文档的链接（例如 TUI API 详情对应 tui.md）",
   "Project-specific instructions and guidelines:": "项目专属说明和行为准则：",
   "Current working directory:": "当前工作目录：",
   "The following skills provide specialized instructions for specific tasks.": "以下技能为特定任务提供专门说明。",
   "Use the read tool to load a skill's file when the task matches its description.": "当任务与某技能的描述相符时，使用 read 工具加载该技能的文件。",
+  "Resolve relative paths against the skill's directory (parent of SKILL.md). Use absolute paths in tool calls.": "相对路径以技能目录（SKILL.md 的父目录）为基准解析。工具调用里请用绝对路径。",
   "Use bash to load a skill's file when the task matches its description.": "当任务与某技能的描述相符时，使用 bash 加载该技能的文件。",
   "Load a skill's file when the task matches its description.": "当任务与某技能的描述相符时，加载该技能的文件。",
   "When a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.": "当技能文件引用相对路径时，请相对技能目录（SKILL.md 所在目录，或该路径的 dirname）解析，并在工具命令中使用该绝对路径。",
@@ -238,6 +242,7 @@ const SYSTEM_PROMPT_TRANSLATIONS: Record<string, string> = {
   "Create or overwrite files": "创建或覆盖文件",
   "Use read to examine files instead of cat or sed.": "使用 read 查看文件，不要使用 cat 或 sed。",
   "Use edit for precise changes (edits[].oldText must match exactly)": "使用 edit 进行精确修改（edits[].oldText 必须完全匹配）",
+  "Use edit for targeted changes. Batch changes to one file in a single call.": "使用 edit 进行定向修改；对同一个文件的批量改动放在一次调用里。",
   "When changing multiple separate locations in one file, use one edit call with multiple entries in edits[] instead of multiple edit calls": "修改同一文件中的多个独立位置时，请在一次 edit 调用的 edits[] 中提供多个条目，而不是多次调用 edit",
   "Each edits[].oldText is matched against the original file, not after earlier edits are applied. Do not emit overlapping or nested edits. Merge nearby changes into one edit.": "每个 edits[].oldText 都会针对原始文件匹配，而不是针对前面修改后的文件。不要提交相互重叠或嵌套的修改；相邻修改应合并为一次 edit。",
   "Keep edits[].oldText as small as possible while still being unique in the file. Do not pad with large unchanged regions.": "在保证文件中唯一匹配的前提下，让 edits[].oldText 尽可能简短。不要加入大段未修改的内容。",
@@ -299,6 +304,27 @@ function applyLanguageInstruction(prompt: string, locale: UiLocale): string {
   return withoutPreviousInstruction ? `${withoutPreviousInstruction}\n\n${instruction}` : instruction;
 }
 
+/**
+ * 请求里是否真的有 `read` 工具。没有它时不能把 AGENTS.md 换成路径——那等于给模型
+ * 一条读不到的指引，比多花 token 更糟（工具预设 `off` 与普通对话模式都会落到这里）。
+ */
+function hasReadTool(toolNames: readonly string[] | undefined): boolean {
+  return (toolNames ?? []).includes("read");
+}
+
+/**
+ * 生成的提示词 → 实际请求的提示词。
+ *
+ * 顺序有意义：先中文化（整句替换，不能作用在 AGENTS.md 原文上），再把
+ * `<project_context>` 压成路径（那份原文是本项目 90KB 的 AGENTS.md，每轮都发）。
+ */
+function effectivePromptText(prompt: string, locale: UiLocale, canRead: boolean): string {
+  return applyLanguageInstruction(
+    digestProjectContext(translateGeneratedSystemPrompt(prompt, locale), locale, canRead),
+    locale,
+  );
+}
+
 function createLanguagePromptExtension(promptState: SessionPromptState): InlineExtension {
   return {
     name: "pi-desktop-language-prompt",
@@ -309,7 +335,11 @@ function createLanguagePromptExtension(promptState: SessionPromptState): InlineE
           ? buildChatModeSystemPrompt(promptState.value)
           : promptState.forceEmpty
             ? ""
-            : applyLanguageInstruction(translateGeneratedSystemPrompt(event.systemPrompt, promptState.value), promptState.value),
+            : effectivePromptText(
+                event.systemPrompt,
+                promptState.value,
+                hasReadTool(event.systemPromptOptions.selectedTools),
+              ),
       }));
     },
   };
@@ -441,9 +471,12 @@ export class AgentSessionWrapper {
     // 普通对话模式优先：它虽然同样不使用任何工具，但需要一整段闲聊提示词。
     if (this.chatMode) return buildChatModeSystemPrompt(this.uiLocale);
     if (this.forceEmptySystemPrompt) return "";
-    return applyLanguageInstruction(
-      translateGeneratedSystemPrompt(this.inner.agent.state?.systemPrompt ?? "", this.uiLocale),
+    // 与 `createLanguagePromptExtension` 走同一个函数，面板显示必须等于实际请求。
+    const activeTools = this.inner.agent?.state?.tools?.map((tool: { name: string }) => tool.name);
+    return effectivePromptText(
+      this.inner.agent.state?.systemPrompt ?? "",
       this.uiLocale,
+      hasReadTool(activeTools),
     );
   }
 
