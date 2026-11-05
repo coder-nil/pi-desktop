@@ -2,7 +2,7 @@
 
 import { forwardRef, useState, useCallback, useEffect, useImperativeHandle, useMemo, useRef } from "react";
 import { RevealFileButton } from "./RevealFileButton";
-import { getFileIcon, FolderIcon } from "./FileIcons";
+import { getFileIcon, FolderIcon, GitRepositoryIcon } from "./FileIcons";
 import {
   encodeFilePathForApi,
   getFileDirectory,
@@ -27,6 +27,8 @@ interface FileEntry {
    * 此时 `name` 不再是目录名，路径只能由服务端给出。
    */
   entryPath?: string;
+  /** 该目录自身就是一个 Git 仓库（直接含有 `.git`），可以单独打开 Git 面板。 */
+  gitRepository?: boolean;
 }
 
 interface FileNode {
@@ -38,6 +40,8 @@ interface FileNode {
   loaded?: boolean;
   /** 这一行代表一条被折叠的 Java 包链，`fullPath` 是最内层目录。 */
   packageChain?: boolean;
+  /** 见 `FileEntry.gitRepository`。 */
+  gitRepository?: boolean;
 }
 
 interface Props {
@@ -48,6 +52,11 @@ interface Props {
   refreshKey?: number;
   onAtMention?: (relativePath: string, isDir: boolean) => void;
   onAtMentions?: (relativePaths: string[]) => void;
+  /**
+   * 点击目录行上的 Git 徽标：以该子项目仓库为根打开 Git 面板。
+   * 一个项目目录里可以有多个各自带 `.git` 的子项目，所以面板的仓库根跟着这行走。
+   */
+  onOpenRepositoryGitPanel?: (repositoryPath: string) => void;
   onUploadBusyChange?: (busy: boolean) => void;
   /** 根目录列表正在请求，用于把侧边栏标题行里的折叠箭头换成转圈。 */
   onLoadingChange?: (loading: boolean) => void;
@@ -146,6 +155,7 @@ async function fetchEntries(dirPath: string, cwd: string, hideDotDirs = false): 
     children: e.isDir ? [] : undefined,
     loaded: !e.isDir,
     ...(e.entryPath !== undefined ? { packageChain: true } : {}),
+    ...(e.gitRepository ? { gitRepository: true } : {}),
   }));
 }
 
@@ -260,6 +270,45 @@ function DismissButton({ onClick, title }: { onClick: () => void; title: string 
   );
 }
 
+/**
+ * 目录行上的仓库徽标。
+ *
+ * 一个项目目录里可以并排着多个各自带 `.git` 的子项目，所以每个仓库行多一个 Git
+ * 图标：点它只切换 Git 面板的仓库根（`repositoryPath`），不会展开/收起这一行，
+ * 因为行本身的单击仍然是「展开」。没有回调时它就是纯指示器。
+ */
+function GitRepositoryBadge({ repositoryPath, name, onOpen, t }: {
+  repositoryPath: string;
+  name: string;
+  onOpen?: (repositoryPath: string) => void;
+  t: Translate;
+}) {
+  const title = `${t("files.openGitPanel")} · ${repositoryPath}`;
+  const content = <GitRepositoryIcon size={12} />;
+  if (!onOpen) {
+    return (
+      <span className="file-tree-git-badge" title={title} aria-hidden="true">
+        {content}
+      </span>
+    );
+  }
+  return (
+    <button
+      type="button"
+      className="file-tree-git-badge file-tree-git-button"
+      title={title}
+      aria-label={`${t("files.openGitPanel")}: ${name}`}
+      onClick={(event) => {
+        event.stopPropagation();
+        onOpen(repositoryPath);
+      }}
+      onDoubleClick={(event) => event.stopPropagation()}
+    >
+      {content}
+    </button>
+  );
+}
+
 function TreeNode({
   node,
   depth,
@@ -268,6 +317,7 @@ function TreeNode({
   onFileRenamed,
   canRenamePath,
   onAtMention,
+  onOpenRepositoryGitPanel,
   expandedPaths,
   onToggleExpanded,
   refreshToken,
@@ -284,6 +334,7 @@ function TreeNode({
   onFileRenamed?: (oldPath: string, newPath: string, newName: string) => void;
   canRenamePath?: (filePath: string) => boolean;
   onAtMention?: (relativePath: string, isDir: boolean) => void;
+  onOpenRepositoryGitPanel?: (repositoryPath: string) => void;
   expandedPaths: Set<string>;
   onToggleExpanded: (fullPath: string, open: boolean) => void;
   refreshToken: string;
@@ -477,6 +528,14 @@ function TreeNode({
         <span style={{ flexShrink: 0, display: "flex", alignItems: "center" }}>
           {node.isDir ? <FolderIcon size={14} open={open} /> : getFileIcon(node.name, 14)}
         </span>
+        {node.isDir && node.gitRepository && (
+          <GitRepositoryBadge
+            repositoryPath={node.fullPath}
+            name={node.name}
+            onOpen={onOpenRepositoryGitPanel}
+            t={t}
+          />
+        )}
         {renaming ? (
           <input
             ref={renameInputRef}
@@ -649,6 +708,7 @@ function TreeNode({
                 onFileRenamed={onFileRenamed}
                 canRenamePath={canRenamePath}
                 onAtMention={onAtMention}
+                onOpenRepositoryGitPanel={onOpenRepositoryGitPanel}
                 expandedPaths={expandedPaths}
                 onToggleExpanded={onToggleExpanded}
                 refreshToken={refreshToken}
@@ -735,6 +795,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
   refreshKey,
   onAtMention,
   onAtMentions,
+  onOpenRepositoryGitPanel,
   onUploadBusyChange,
   onLoadingChange,
   changesCollapsed,
@@ -1152,6 +1213,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
                 }}
                 canRenamePath={canRenamePath}
                 onAtMention={onAtMention}
+                onOpenRepositoryGitPanel={onOpenRepositoryGitPanel}
                 expandedPaths={expandedPaths}
                 onToggleExpanded={handleToggleExpanded}
                 refreshToken={refreshToken}

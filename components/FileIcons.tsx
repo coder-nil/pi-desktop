@@ -63,6 +63,11 @@ export function FolderIcon({ size = 14, open = false }: IconProps & { open?: boo
   return <CatppuccinIcon name={open ? "_folder_open" : "_folder"} size={size} />;
 }
 
+/** 目录自身的仓库标记：该子目录直接含有 `.git`，可以按它自己打开 Git 面板。 */
+export function GitRepositoryIcon({ size = 12 }: IconProps) {
+  return <CatppuccinIcon name="git" size={size} />;
+}
+
 export function GenericFileIcon({ size = 14 }: IconProps) {
   return <CatppuccinIcon name="_file" size={size} />;
 }

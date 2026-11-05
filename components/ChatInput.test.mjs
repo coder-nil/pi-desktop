@@ -306,8 +306,19 @@ test("scrolls the composer field so the scrollbar and send controls sit on the o
   assert.match(globalsCss, /\.chat-composer-field \{[\s\S]*?max-height: 222px;[\s\S]*?overflow-y: auto;/);
   // Mark and send controls stay pinned while the text scrolls behind them.
   assert.match(globalsCss, /\.chat-composer-mark-button \{\s*position: sticky;\s*top: 0;/);
-  assert.match(globalsCss, /\.chat-composer-send \{\s*position: sticky;\s*bottom: var\(--composer-padding-y\);\s*\}/);
+  assert.match(globalsCss, /\.chat-composer-send \{\s*position: sticky;[\s\S]*?bottom: var\(--composer-padding-y\);/);
   assert.match(globalsCss, /\.chat-composer-queue-actions \{\s*position: sticky;\s*bottom: var\(--composer-padding-y\);/);
+
+  // scrollbar-gutter: stable reserves the platform's scrollbar width, so the
+  // sticky controls subtract the measured width instead of drifting inward on
+  // systems that always show scrollbars (15px) or on Chromium (4px).
+  assert.match(source, /function composerScrollbarGutter\(field: HTMLElement\): number \{[\s\S]*?field\.offsetWidth - field\.clientWidth - borders/);
+  assert.match(source, /field\.style\.setProperty\("--composer-scrollbar-gutter", `\$\{composerScrollbarGutter\(field\)\}px`\)/);
+  assert.match(source, /<div\s+className="chat-composer-field"\s+ref=\{composerFieldRef\}/);
+  for (const selector of [".chat-composer-send", ".chat-composer-queue-actions"]) {
+    const block = globalsCss.match(new RegExp(`\\${selector} \\{[^}]*\\}`))?.[0] ?? "";
+    assert.match(block, /margin-right: calc\(-1 \* var\(--composer-scrollbar-gutter, 0px\)\)/, `${selector} must negate the composer scrollbar gutter`);
+  }
 
   // The textarea grows with its content; scrolling it would expose an inner
   // boundary again.

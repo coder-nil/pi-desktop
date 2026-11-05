@@ -63,7 +63,9 @@ test("places trust warnings below the mobile toolbar and the file toggle in tool
 });
 
 test("toggles the Git panel from the same Git button", () => {
-  assert.match(source, /onClick: \(\) => setGitPanelOpen\(\(open\) => !open\)/);
+  // 底部工具条的 Git 按钮总是切回当前项目自己的仓库，所以走 toggleGitPanel 而不是直接 set。
+  assert.match(source, /onClick: toggleGitPanel,/);
+  assert.match(source, /const toggleGitPanel = useCallback\(\(\) => \{\s*setGitPanelCwd\(null\);\s*setGitPanelOpen\(\(open\) => !open\);\s*\}, \[\]\);/);
   assert.match(source, /aria-pressed=\{id === "git" \? gitPanelOpen : undefined\}/);
   assert.match(source, /zIndex: id === "git" && gitPanelOpen \? 1200 : undefined/);
   assert.match(source, /zIndex: gitPanelOpen \? 1200 : 200/);
@@ -73,6 +75,9 @@ test("toggles the Git panel from the same Git button", () => {
 test("shows Git controls only for a resolved Git project", () => {
   assert.match(source, /onProjectGitStateChange=\{setActiveProjectIsGit\}/);
   assert.match(source, /filter\(\(\{\s*id\s*\}\) => id !== "git" \|\| activeProjectIsGit === true\)/);
-  assert.match(source, /gitPanelOpen && activeProjectIsGit === true && activeCwd/);
-  assert.match(source, /if \(activeProjectIsGit === false\) setGitPanelOpen\(false\)/);
+  // 面板只在确实有一个目标仓库时渲染：项目根仓库，或文件浏览器里选中的子项目仓库。
+  assert.match(source, /const gitPanelTargetCwd = gitPanelCwd \?\? \(activeProjectIsGit === true \? activeCwd : null\);/);
+  assert.match(source, /\{gitPanelOpen && gitPanelTargetCwd && \(/);
+  assert.match(source, /<GitPanel cwd=\{gitPanelTargetCwd\}/);
+  assert.match(source, /if \(activeProjectIsGit === false && gitPanelCwd === null\) setGitPanelOpen\(false\)/);
 });

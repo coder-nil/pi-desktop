@@ -419,6 +419,7 @@ export const zhCNLocale: LocalePlugin = {
     "files.conflict": "冲突",
     "files.newlyUploaded": "刚上传",
     "files.containsChangedFiles": "包含已更改文件",
+    "files.openGitPanel": "打开 Git 面板",
     "files.insertPath": "将路径插入聊天",
     "files.mention": "提及",
     "files.reveal": "在 Finder / 文件管理器中显示",

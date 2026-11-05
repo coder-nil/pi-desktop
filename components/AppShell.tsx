@@ -163,6 +163,11 @@ export function AppShell() {
   const [aboutOpen, setAboutOpen] = useState(false);
   const [bannerEnabled, setBannerEnabledState] = useState(true);
   const [gitPanelOpen, setGitPanelOpen] = useState(false);
+  /**
+   * Git 面板的仓库根。`null` = 跟随当前项目；一个项目里可以有多个各自带 `.git`
+   * 的子项目，此时它指向文件浏览器里那颗被点击的 Git 徽标所在的子目录。
+   */
+  const [gitPanelCwd, setGitPanelCwd] = useState<string | null>(null);
   const [activeProjectIsGit, setActiveProjectIsGit] = useState<boolean | null>(null);
   const [projectTrust, setProjectTrust] = useState<ProjectTrustStatus | null>(null);
   const [projectTrustDialogOpen, setProjectTrustDialogOpen] = useState(false);
@@ -1143,12 +1148,37 @@ export function AppShell() {
   const activeCwdName = activeCwd ? getFileName(activeCwd) || activeCwd : null;
   const windowTitle = activeCwdName ? `${activeCwdName} - Pi Desktop` : "Pi Desktop";
 
+  // Git 面板的目标仓库：默认跟随当前项目；从文件浏览器的子项目行打开时指向该子仓库。
+  const gitPanelTargetCwd = gitPanelCwd ?? (activeProjectIsGit === true ? activeCwd : null);
+
+  const closeGitPanel = useCallback(() => {
+    setGitPanelOpen(false);
+    setGitPanelCwd(null);
+  }, []);
+
+  // 侧边栏分支行 / 底部工具条的 Git 按钮：总是切回当前项目自己的仓库。
+  const toggleGitPanel = useCallback(() => {
+    setGitPanelCwd(null);
+    setGitPanelOpen((open) => !open);
+  }, []);
+
+  const openRepositoryGitPanel = useCallback((repositoryPath: string) => {
+    setGitPanelCwd(repositoryPath);
+    setGitPanelOpen(true);
+  }, []);
+
   useEffect(() => {
     // `null` means the sidebar is still resolving the current project. Keep
     // an already-open panel mounted until Git detection resolves explicitly
-    // to a non-repository result.
-    if (activeProjectIsGit === false) setGitPanelOpen(false);
-  }, [activeProjectIsGit]);
+    // to a non-repository result — unless the panel is looking at a sub-project
+    // repository, which is a repository regardless of the enclosing project.
+    if (activeProjectIsGit === false && gitPanelCwd === null) setGitPanelOpen(false);
+  }, [activeProjectIsGit, gitPanelCwd]);
+
+  // 换项目后不再沿用上一个项目里的子仓库，避免面板指向已不可见/已删除的目录。
+  useEffect(() => {
+    setGitPanelCwd(null);
+  }, [activeCwd]);
 
   useEffect(() => {
     const syncWindowTitle = () => {
@@ -1191,7 +1221,8 @@ export function AppShell() {
         onAboutClick={() => setAboutOpen(true)}
         onHideSidebar={handleSidebarToggle}
         openDirectoryRequest={openDirectoryRequest}
-        onOpenGitPanel={() => setGitPanelOpen((open) => !open)}
+        onOpenGitPanel={toggleGitPanel}
+        onOpenRepositoryGitPanel={openRepositoryGitPanel}
         gitPanelOpen={gitPanelOpen}
       />
       <div style={{ padding: "8px", flexShrink: 0, display: "flex", justifyContent: "space-between", gap: 4 }}>
@@ -1212,7 +1243,7 @@ export function AppShell() {
           {
             id: "git",
             label: translate("common.git"),
-            onClick: () => setGitPanelOpen((open) => !open),
+            onClick: toggleGitPanel,
             disabled: !activeCwd && !selectedSession?.cwd && !newSessionCwd,
             icon: (
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
@@ -2421,8 +2452,8 @@ export function AppShell() {
         </div>
       )}
 
-      {gitPanelOpen && activeProjectIsGit === true && activeCwd && (
-        <GitPanel cwd={activeCwd} sessionId={selectedSession?.id ?? null} onClose={() => setGitPanelOpen(false)} onChanged={handleExplorerRefresh} onOpenFile={handleOpenFile} />
+      {gitPanelOpen && gitPanelTargetCwd && (
+        <GitPanel cwd={gitPanelTargetCwd} sessionId={selectedSession?.id ?? null} onClose={closeGitPanel} onChanged={handleExplorerRefresh} onOpenFile={handleOpenFile} />
       )}
 
       <div

@@ -64,6 +64,16 @@ function readJavaPackageChildren(dir: string): JavaPackageChild[] {
     .map((d) => ({ name: d.name, isDir: resolveDirentIsDirectory(d, path.join(dir, d.name)) === true }));
 }
 
+/**
+ * 子目录自身直接含 `.git` 时它就是一个独立仓库（多仓库项目里的一个子项目）。
+ *
+ * `.git` 既可以是指向仓库目录的普通目录，也可以是 worktree / submodule 那种指针
+ * 文件，所以只按「存在」判断，并且只用一次 `existsSync`，不跑任何 git 命令。
+ */
+function hasGitMetadata(directoryPath: string): boolean {
+  return fs.existsSync(path.join(directoryPath, ".git"));
+}
+
 const FILE_REQUEST_TYPES = ["list", "read", "download", "meta", "preview", "watch"] as const;
 type FileRequestType = typeof FILE_REQUEST_TYPES[number];
 const FILE_REQUEST_TYPE_SET = new Set<string>(FILE_REQUEST_TYPES);
@@ -773,10 +783,12 @@ export async function GET(
       .filter((d) => !IGNORED_NAMES.has(d.name) && !IGNORED_SUFFIXES.some((s) => d.name.endsWith(s)))
       .filter((d) => !hideDotDirs || !d.name.startsWith("."))
       .flatMap((d) => {
-        const isDir = resolveDirentIsDirectory(d, path.join(filePath, d.name));
-        return isDir === null
-          ? []
-          : [{ name: d.name, isDir, size: 0, modified: "" }];
+        const entryPath = path.join(filePath, d.name);
+        const isDir = resolveDirentIsDirectory(d, entryPath);
+        if (isDir === null) return [];
+        // 只有目录才可能是一个仓库的根；文件不付这次 existsSync 的代价。
+        const gitRepository = isDir && hasGitMetadata(entryPath);
+        return [{ name: d.name, isDir, size: 0, modified: "", ...(gitRepository ? { gitRepository: true } : {}) }];
       });
 
     // Java 项目里 `com/example/demo` 会占掉三行。在 src/main/java、src/test/java

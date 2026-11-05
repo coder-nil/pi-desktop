@@ -58,7 +58,7 @@ test("opens a clicked changed file in the existing diff viewer", () => {
   assert.match(source, /<button type="button" onClick=\{\(\) => onOpenDiff\(file\)\}/);
   assert.doesNotMatch(source.slice(source.indexOf("const openDiff"), source.indexOf("const staged")), /onClose\(\)/);
   assert.match(appShellSource, /onChanged=\{handleExplorerRefresh\} onOpenFile=\{handleOpenFile\}/);
-  const gitPanelMount = appShellSource.indexOf("<GitPanel cwd={activeCwd}");
+  const gitPanelMount = appShellSource.indexOf("<GitPanel cwd={gitPanelTargetCwd}");
   const filePanelMount = appShellSource.indexOf('id="file-panel"');
   assert.ok(gitPanelMount >= 0 && gitPanelMount < filePanelMount, "Git panel must be mounted immediately before file-panel");
   assert.match(globalStyles, /Dock the Git panel as a real split-layout panel immediately left of file-panel/);

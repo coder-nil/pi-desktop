@@ -419,6 +419,7 @@ export const enLocale: LocalePlugin = {
     "files.conflict": "Conflict",
     "files.newlyUploaded": "Newly uploaded",
     "files.containsChangedFiles": "Contains changed files",
+    "files.openGitPanel": "Open Git panel",
     "files.insertPath": "Insert path into chat",
     "files.mention": "mention",
     "files.reveal": "Show in Finder / file manager",
