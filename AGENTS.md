@@ -302,11 +302,12 @@ Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `au
 - 折叠行代表整条包链，重命名只能落在一个目录上，所以 `startRename` 对它直接返回（`node.packageChain`）。`@提及`、在访达/资源管理器中显示、Git 变更点都按最内层路径工作。
 - 测试：`lib/java-packages.test.mjs`（纯函数）与 `app/api/files/java-packages-route.test.mjs`（真实临时 Maven 布局跑真 `GET`）。
 
-### 多仓库项目：子项目目录上的 Git 徽标
+### 多仓库项目：子项目目录上的 Git 按钮
 - 一个项目目录下可以并排多个**各自带 `.git` 的子项目**。`GET /api/files?type=list` 对每个子目录做一次 `fs.existsSync(<dir>/.git)`（`.git` 目录与 worktree / submodule 那种指针文件都算），命中时给该条目加 `gitRepository: true`；文件条目不做这次检查，未命中的条目连键都没有。
-- 文件浏览器据此在目录图标旁渲染一个**常驻** Git 徽标（`.file-tree-git-badge` / `.file-tree-git-button`，catppuccin `git` 图标，见 `FileIcons.tsx` 的 `GitRepositoryIcon`）。它是行内 `<button>`：`onClick` 必须 `stopPropagation()`，否则会连带展开/收起这一行；`onDoubleClick` 也要拦，否则双击就进了重命名。没有回调时降级成纯指示器（`<span aria-hidden>`）。
+- 文件浏览器据此在行右侧的 hover 操作区里渲染一个 Git 按钮（`.file-row-actions` 内，顺序是 **@（提及）→ Git → 在访达中显示**）。**不要把它做成目录图标旁的常驻徽标**：那个位置会把仓库行的文件名整体右移 20px，而操作区里三个按钮在同一个 flex 容器里依次排布，不随 hover 变位置。它是行内 `<button>`：`onClick` 必须 `stopPropagation()`，否则会连带展开/收起这一行；`onDoubleClick` 也要拦，否则双击就进了重命名；没有回调时不渲染（不是除一个死按钮）。
+- 操作区三个按钮共用**同一种图标语言**：lucide 线性图标 `14px` / `strokeWidth 2` / `currentColor`，颜色统一 `--text-muted`（提及不再单独用 `--accent`）。@ 是 lucide 的 `AtSign` 图标，**不是字体画出来的 `@` 字符**；Git 是 `GitBranch`，**不要再用 catppuccin 的 `git.svg`**（那是文件类型图标，遮罩上色，和线性操作图标不是一套）。文字标签只留在 `title` / `aria-label` 里。
 - `gitRepository` 在 Java 包链折叠时靠 `{ ...entry, name, entryPath }` 的展开自然保留 —— 标记看的是列表时那一级真实目录，不是显示出来的点号名。
-- **Git 面板的仓库根不再固定是当前项目。** `AppShell` 的 `gitPanelCwd` 为 `null` 时跟随当前项目（并且只有 `activeProjectIsGit === true` 才渲染），点徽标时设成该子项目路径并**打开**面板（不是 toggle：子项目自己带 `.git`，主项目不是仓库也照样能用）。侧边栏分支行与底部工具条的 Git 按钮走 `toggleGitPanel`，它会先把 `gitPanelCwd` 清空，因此永远切回当前项目的仓库；`closeGitPanel` 与 `activeCwd` 变化也会清空它，避免面板指着上一个项目里已不可达的子目录。
+- **Git 面板的仓库根不再固定是当前项目。** `AppShell` 的 `gitPanelCwd` 为 `null` 时跟随当前项目（并且只有 `activeProjectIsGit === true` 才渲染），点这颗 Git 按钮时设成该子项目路径并**打开**面板（不是 toggle：子项目自己带 `.git`，主项目不是仓库也照样能用）。侧边栏分支行与底部工具条的 Git 按钮走 `toggleGitPanel`，它会先把 `gitPanelCwd` 清空，因此永远切回当前项目的仓库；`closeGitPanel` 与 `activeCwd` 变化也会清空它，避免面板指着上一个项目里已不可达的子目录。
 - `if (activeProjectIsGit === false && gitPanelCwd === null) setGitPanelOpen(false)` 里的 `&& gitPanelCwd === null` **不能省**：主项目不是仓库恰恰是多仓库项目最常见的样子，少了它子项目面板会被立刻关掉。
 - 测试：`app/api/files/git-repository-route.test.mjs`（真实临时布局 + 真 GET）、`components/FileExplorer.test.mjs`、`components/AppShell.git-subproject.test.mjs`；`AppShell.mobile-toolbar.test.mjs` 与 `GitPanel.test.mjs` 里原先钉住 `onClick: () => setGitPanelOpen(...)` 和 `<GitPanel cwd={activeCwd}` 的断言已跟着改成新的入口。
 

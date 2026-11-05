@@ -2,7 +2,7 @@
 
 import { forwardRef, useState, useCallback, useEffect, useImperativeHandle, useMemo, useRef } from "react";
 import { RevealFileButton } from "./RevealFileButton";
-import { getFileIcon, FolderIcon, GitRepositoryIcon } from "./FileIcons";
+import { getFileIcon, FolderIcon } from "./FileIcons";
 import {
   encodeFilePathForApi,
   getFileDirectory,
@@ -13,7 +13,7 @@ import {
 } from "@/lib/file-paths";
 import type { GitFileStatus, GitFileStatusKind, GitStatusResponse } from "@/lib/git-types";
 import { useI18n } from "@/hooks/useI18n";
-import { Eye, EyeOff } from "lucide-react";
+import { AtSign, GitBranch } from "lucide-react";
 import { samePath } from "@/lib/paths";
 type Translate = ReturnType<typeof useI18n>["t"];
 
@@ -242,15 +242,6 @@ function uploadFiles(
   });
 }
 
-function MentionIcon({ size = 11 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <circle cx="12" cy="12" r="4" />
-      <path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8" />
-    </svg>
-  );
-}
-
 function DismissButton({ onClick, title }: { onClick: () => void; title: string }) {
   return (
     <button
@@ -271,40 +262,41 @@ function DismissButton({ onClick, title }: { onClick: () => void; title: string 
 }
 
 /**
- * 目录行上的仓库徽标。
+ * 目录行右侧操作区里的 Git 按钮（排在「提及」之后、在访达之前）。
  *
- * 一个项目目录里可以并排着多个各自带 `.git` 的子项目，所以每个仓库行多一个 Git
- * 图标：点它只切换 Git 面板的仓库根（`repositoryPath`），不会展开/收起这一行，
- * 因为行本身的单击仍然是「展开」。没有回调时它就是纯指示器。
+ * 一个项目目录里可以并排着多个各自带 `.git` 的子项目，所以每个仓库行多一个按钮：
+ * 点它把 Git 面板的仓库根切到这一行的目录，不会展开/收起这一行，也不会触发行内重命名。
  */
-function GitRepositoryBadge({ repositoryPath, name, onOpen, t }: {
+function GitRepositoryButton({ repositoryPath, name, onOpen, t }: {
   repositoryPath: string;
   name: string;
-  onOpen?: (repositoryPath: string) => void;
+  onOpen: (repositoryPath: string) => void;
   t: Translate;
 }) {
-  const title = `${t("files.openGitPanel")} · ${repositoryPath}`;
-  const content = <GitRepositoryIcon size={12} />;
-  if (!onOpen) {
-    return (
-      <span className="file-tree-git-badge" title={title} aria-hidden="true">
-        {content}
-      </span>
-    );
-  }
   return (
     <button
       type="button"
-      className="file-tree-git-badge file-tree-git-button"
-      title={title}
+      className="file-row-git-button"
+      title={`${t("files.openGitPanel")} · ${repositoryPath}`}
       aria-label={`${t("files.openGitPanel")}: ${name}`}
       onClick={(event) => {
         event.stopPropagation();
         onOpen(repositoryPath);
       }}
       onDoubleClick={(event) => event.stopPropagation()}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "0 5px",
+        height: 20,
+        background: "var(--bg-panel)",
+        border: "1px solid var(--border)",
+        color: "var(--text-muted)",
+        cursor: "pointer",
+      }}
     >
-      {content}
+      <GitBranch size={14} strokeWidth={2} aria-hidden="true" />
     </button>
   );
 }
@@ -528,14 +520,6 @@ function TreeNode({
         <span style={{ flexShrink: 0, display: "flex", alignItems: "center" }}>
           {node.isDir ? <FolderIcon size={14} open={open} /> : getFileIcon(node.name, 14)}
         </span>
-        {node.isDir && node.gitRepository && (
-          <GitRepositoryBadge
-            repositoryPath={node.fullPath}
-            name={node.name}
-            onOpen={onOpenRepositoryGitPanel}
-            t={t}
-          />
-        )}
         {renaming ? (
           <input
             ref={renameInputRef}
@@ -620,41 +604,9 @@ function TreeNode({
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#d6a84b" }} />
           </span>
         )}
-        {onAtMention && hovered && !renaming && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onAtMention(getRelativeFilePath(node.fullPath, cwd), node.isDir);
-            }}
-            title={t("files.insertPath")}
-            style={{
-              position: "absolute",
-              right: 28,
-              top: "50%",
-              transform: "translateY(-50%)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 4,
-              padding: "0 8px",
-              height: 20,
-              background: "var(--bg-panel)",
-              border: "1px solid var(--border)",
-              borderRadius: 4,
-              color: "var(--accent)",
-              cursor: "pointer",
-              fontSize: 11,
-              fontWeight: 600,
-              whiteSpace: "nowrap",
-            }}
-          >
-            <MentionIcon />
-            {t("files.mention")}
-          </button>
-        )}
         {hovered && !renaming && (
-          <RevealFileButton
-            filePath={node.fullPath}
+          <div
+            className="file-row-actions"
             style={{
               position: "absolute",
               right: 4,
@@ -662,21 +614,60 @@ function TreeNode({
               transform: "translateY(-50%)",
               display: "flex",
               alignItems: "center",
-              justifyContent: "center",
-              gap: 4,
-              padding: "0 5px",
-              height: 20,
-              background: "var(--bg-panel)",
-              border: "1px solid var(--border)",
-              borderRadius: 4,
-              color: "var(--text-muted)",
-              cursor: "pointer",
-              fontSize: 11,
-              fontWeight: 600,
-              whiteSpace: "nowrap",
-              textDecoration: "none",
             }}
-          />
+          >
+            {onAtMention && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onAtMention(getRelativeFilePath(node.fullPath, cwd), node.isDir);
+                }}
+                title={t("files.insertPath")}
+                aria-label={t("files.mention")}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  padding: "0 5px",
+                  height: 20,
+                  background: "var(--bg-panel)",
+                  border: "1px solid var(--border)",
+                  color: "var(--text-muted)",
+                  cursor: "pointer",
+                }}
+              >
+                {/* 符号本身就是「提及」，文字标签只留在 title / aria-label 里。 */}
+                <AtSign size={14} strokeWidth={2} aria-hidden="true" />
+              </button>
+            )}
+            {node.isDir && node.gitRepository && onOpenRepositoryGitPanel && (
+              <GitRepositoryButton
+                repositoryPath={node.fullPath}
+                name={node.name}
+                onOpen={onOpenRepositoryGitPanel}
+                t={t}
+              />
+            )}
+            <RevealFileButton
+              filePath={node.fullPath}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                padding: "0 5px",
+                height: 20,
+                background: "var(--bg-panel)",
+                border: "1px solid var(--border)",
+                color: "var(--text-muted)",
+                cursor: "pointer",
+                fontSize: 11,
+                fontWeight: 600,
+                whiteSpace: "nowrap",
+                textDecoration: "none",
+              }}
+            />
+          </div>
         )}
       </div>
       {renameError && (
@@ -1146,10 +1137,10 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
                   onClick={addUploadedFilesToChat}
                   title={uploadSummary.uploaded.length === 1 ? t("files.addUploadedFile") : t("files.addAllUploadedFiles")}
                   aria-label={uploadSummary.uploaded.length === 1 ? t("files.addUploadedFile") : t("files.addAllUploadedFiles")}
-                  style={{ height: 22, padding: "0 7px", display: "flex", alignItems: "center", justifyContent: "center", gap: 4, flexShrink: 0, border: "1px solid var(--border)", borderRadius: 4, background: "var(--bg-panel)", color: "var(--accent)", cursor: "pointer", fontSize: 11, fontWeight: 600, whiteSpace: "nowrap" }}
+                  style={{ height: 22, padding: "0 7px", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, border: "1px solid var(--border)", borderRadius: 4, background: "var(--bg-panel)", color: "var(--accent)", cursor: "pointer" }}
                 >
-                  <MentionIcon />
-                  {t("files.mention")}
+                  {/* 与文件树行的提及按钮一致：符号代替「提及」文字。 */}
+                  <AtSign size={14} strokeWidth={2} aria-hidden="true" />
                 </button>
               )}
               <DismissButton onClick={() => setUploadSummary(null)} title={t("files.dismissUploadResults")} />
