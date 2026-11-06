@@ -19,6 +19,13 @@
           "将 Git 徽标移入行内操作区并统一图标。它与「提及」「在访达中显示」并排组成无间隙按钮组，三个按钮统一为 lucide 线性图标（`AtSign` / `GitBranch`，14px、`strokeWidth` 2、`--text-muted`）。",
           "应用、npm、Tauri 和 Cargo 版本号统一为 `1.5.0-alpha.21`。"
         ]
+      },
+      {
+        "title": "Fixed",
+        "kind": "fixed",
+        "items": [
+          "将 macOS 构建镜像从已退役的 macos-14 迁到 macos-15。GitHub Actions 已于 2026-11-02 全面退役 macOS 14 镜像，原先两个 macOS job 会以 `The configuration 'macos-14-arm64-us-default' is not supported` 失败；ARM64 改用 `macos-15`，Intel 改用官方保留的 `macos-15-intel` 标签。"
+        ]
       }
     ]
   },
