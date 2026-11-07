@@ -447,8 +447,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     const container = scrollContainerRef.current;
-    messagesEndRef.current?.scrollIntoView({ behavior });
-    if (container) previousScrollTopRef.current = container.scrollTop;
+    const end = messagesEndRef.current;
+    // Hidden/minimized WebViews can report an empty layout. Keep the scroll
+    // intent until the foreground/layout recovery below can measure it again.
+    if (!container || !end || document.visibilityState === "hidden" || container.clientHeight === 0) return;
+    end.scrollIntoView({ behavior });
+    previousScrollTopRef.current = container.scrollTop;
   }, []);
 
   const currentModel = currentModelOverride ?? data?.context.model ?? pendingModel ?? null;
@@ -2056,7 +2060,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const scrollUserMsgToTop = useCallback(() => {
     const container = scrollContainerRef.current;
     const el = lastUserMsgRef.current;
-    if (!container || !el) return;
+    if (!container || !el || document.visibilityState === "hidden" || container.clientHeight === 0) return;
     const elAbsTop = el.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop;
     const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
     const targetTop = Math.min(Math.max(0, elAbsTop - 16), maxScrollTop);
@@ -2070,9 +2074,32 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     container.scrollTo({ top: targetTop, behavior: "auto" });
   }, []);
 
+  const restoreChatScroll = useCallback(() => {
+    const container = scrollContainerRef.current;
+    if (
+      messagesRef.current.length === 0
+      || !container
+      || !messagesEndRef.current
+      || document.visibilityState === "hidden"
+      || container.clientHeight === 0
+    ) return;
+
+    if (pendingScrollToUserRef.current) {
+      if (!lastUserMsgRef.current) return;
+      pendingScrollToUserRef.current = false;
+      initialScrollDoneRef.current = true;
+      scrollUserMsgToTop();
+    } else if (!initialScrollDoneRef.current) {
+      initialScrollDoneRef.current = true;
+      scrollToBottom("instant");
+    } else if (isNearBottomRef.current) {
+      scrollToBottom("auto");
+    }
+  }, [scrollToBottom, scrollUserMsgToTop]);
+
   const handleScrollPositionChange = useCallback(() => {
     const container = scrollContainerRef.current;
-    if (container) {
+    if (container && document.visibilityState !== "hidden" && container.clientHeight > 0) {
       const { scrollTop, clientHeight, scrollHeight } = container;
       const isAgentRunning = agentRunningRef.current;
       const wasAttached = isNearBottomRef.current;
@@ -2179,34 +2206,63 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     onBranchDataChange(data?.tree ?? [], activeLeafId, handleLeafChange);
   }, [data?.tree, activeLeafId, handleLeafChange, onBranchDataChange]);
 
+  const hasMessages = messages.length > 0;
   useEffect(() => {
     const container = scrollContainerRef.current;
     if (!container) return;
-    previousScrollTopRef.current = container.scrollTop;
+    if (document.visibilityState !== "hidden" && container.clientHeight > 0) {
+      previousScrollTopRef.current = container.scrollTop;
+    }
     container.addEventListener("scroll", handleScrollPositionChange, { passive: true });
     return () => {
       container.removeEventListener("scroll", handleScrollPositionChange);
     };
-  }, [messages.length, loading, handleScrollPositionChange]);
+  }, [hasMessages, loading, handleScrollPositionChange]);
 
   useEffect(() => {
     if (!agentRunning) setPromptAnchorActive(false);
   }, [agentRunning]);
 
   useLayoutEffect(() => {
-    if (messages.length > 0) {
-      if (pendingScrollToUserRef.current) {
-        pendingScrollToUserRef.current = false;
-        initialScrollDoneRef.current = true;
-        scrollUserMsgToTop();
-      } else if (!initialScrollDoneRef.current) {
-        initialScrollDoneRef.current = true;
-        scrollToBottom("instant");
-      } else if (!agentRunningRef.current && isNearBottomRef.current) {
-        scrollToBottom("auto");
-      }
-    }
-  }, [messages.length, agentRunning, scrollToBottom, scrollUserMsgToTop]);
+    restoreChatScroll();
+  }, [messages, agentRunning, loading, restoreChatScroll]);
+
+  // This subscription outlives the run: completion can happen while hidden,
+  // with no further message or running-state change after returning. Observe
+  // actual layout as well, including delayed rendering and window restoration.
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    let frame: number | null = null;
+    const scheduleRestore = () => {
+      if (document.visibilityState === "hidden" || frame !== null) return;
+      frame = requestAnimationFrame(() => {
+        frame = null;
+        restoreChatScroll();
+      });
+    };
+    const onForeground = () => {
+      if (document.visibilityState === "hidden") return;
+      // Restore before a delayed scroll event mistakes a layout clamp for an
+      // upward user scroll; retry next frame if layout has not resumed yet.
+      restoreChatScroll();
+      scheduleRestore();
+    };
+    document.addEventListener("visibilitychange", onForeground);
+    window.addEventListener("focus", onForeground);
+    const observer = typeof ResizeObserver === "undefined"
+      ? null
+      : new ResizeObserver(scheduleRestore);
+    observer?.observe(container);
+    const content = messagesEndRef.current?.parentElement;
+    if (content) observer?.observe(content);
+    return () => {
+      document.removeEventListener("visibilitychange", onForeground);
+      window.removeEventListener("focus", onForeground);
+      observer?.disconnect();
+      if (frame !== null) cancelAnimationFrame(frame);
+    };
+  }, [hasMessages, loading, restoreChatScroll]);
 
   // Load model list
   useEffect(() => {

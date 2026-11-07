@@ -1,30 +1,53 @@
 @import "tailwindcss";
 
-.chat-composer-field {
-  --composer-padding-y: 10px;
+.chat-composer-shell {
+  --composer-padding: 10px;
   position: relative;
   container-type: inline-size;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg);
+  transition: border-color 150ms, box-shadow 150ms;
+}
+
+.chat-composer-field {
+  position: relative;
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
   min-width: 0;
-  padding: var(--composer-padding-y) 10px var(--composer-padding-y) 12px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--bg);
-  /* The field scrolls instead of the textarea so the scrollbar sits on the
-     outer edge: 200px of text, plus the field's own padding and border. */
-  max-height: 222px;
+  padding: var(--composer-padding) var(--composer-padding) var(--composer-padding) 12px;
+  border-radius: 11px;
+  /* Keep the scrollbar beside the outer border: 200px of text + padding. */
+  max-height: 220px;
   overflow-y: auto;
   overflow-x: hidden;
   scrollbar-gutter: stable;
-  transition: border-color 150ms, box-shadow 150ms;
 }
 
-/* Mark and send controls stay visible while the composer content scrolls.
-   The mark is the work/chat mode switch (see components/ChatInput.tsx), so the
-   sticky box is the button and the masked glyph inside only carries the colour. */
+/* Reserve the actions' actual size without painting them in the scrollport.
+   Its gutter already takes space, so subtract it only from this empty spacer. */
+.chat-composer-actions-spacer {
+  flex-shrink: 0;
+  width: max(0px, calc(var(--composer-actions-width, 76px) - var(--composer-scrollbar-gutter, 0px)));
+  height: var(--composer-actions-height, 34px);
+  align-self: flex-end;
+  pointer-events: none;
+}
+
+/* The shell anchors the controls independently of the system scrollbar. */
+.chat-composer-actions {
+  position: absolute;
+  right: var(--composer-padding);
+  bottom: var(--composer-padding);
+  z-index: 1;
+  display: flex;
+}
+
+/* The mode switch stays visible at the top while the field scrolls. The masked
+   glyph inside only carries the colour (see components/ChatInput.tsx). */
 .chat-composer-mark-button {
   position: sticky;
   top: 0;
@@ -47,18 +70,7 @@
   cursor: default;
 }
 
-/* send/stop are content items of the scrolling field, so scrollbar-gutter's
-   reserved strip (0 on overlay scrollbars, 4px for our custom one, 15px when
-   macOS is set to always show scrollbars) would push them inward by exactly
-   that width. The measured gutter comes back as a negative margin from
-   ChatInput's ResizeObserver so the controls always sit on the padding edge. */
-.chat-composer-send {
-  position: sticky;
-  bottom: var(--composer-padding-y);
-  margin-right: calc(-1 * var(--composer-scrollbar-gutter, 0px));
-}
-
-.chat-composer-field:focus-within {
+.chat-composer-shell:focus-within {
   border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 8%, transparent);
 }
@@ -69,15 +81,10 @@
 }
 
 .chat-composer-queue-actions {
-  position: sticky;
-  bottom: var(--composer-padding-y);
   display: flex;
   align-items: center;
-  align-self: flex-end;
   flex-shrink: 0;
   gap: 4px;
-  /* Same gutter offset as .chat-composer-send. */
-  margin-right: calc(-1 * var(--composer-scrollbar-gutter, 0px));
 }
 
 .chat-composer-queue-button {

@@ -288,7 +288,7 @@ test("vertically centers the textarea content in its single-line composer", () =
   assert.match(source, /<textarea[\s\S]*?lineHeight: "calc\(24px \+ var\(--chat-font-size-offset, 0px\)\)"[\s\S]*?minHeight: 24/);
 });
 
-test("scrolls the composer field so the scrollbar and send controls sit on the outer edge", () => {
+test("keeps composer controls outside the scrollport with equal shell padding", () => {
   const idleHtml = renderWithI18n(
     React.createElement(ChatInput, { onSend() {}, onAbort() {}, isStreaming: false }),
   );
@@ -303,22 +303,24 @@ test("scrolls the composer field so the scrollbar and send controls sit on the o
 
   // The field is the scroll container, so the scrollbar is drawn next to the
   // border instead of along an inner textarea edge.
-  assert.match(globalsCss, /\.chat-composer-field \{[\s\S]*?max-height: 222px;[\s\S]*?overflow-y: auto;/);
-  // Mark and send controls stay pinned while the text scrolls behind them.
+  assert.match(globalsCss, /\.chat-composer-field \{[\s\S]*?max-height: 220px;[\s\S]*?overflow-y: auto;/);
+  // The mark scrolls with the field; controls are anchored to the outer shell.
   assert.match(globalsCss, /\.chat-composer-mark-button \{\s*position: sticky;\s*top: 0;/);
-  assert.match(globalsCss, /\.chat-composer-send \{\s*position: sticky;[\s\S]*?bottom: var\(--composer-padding-y\);/);
-  assert.match(globalsCss, /\.chat-composer-queue-actions \{\s*position: sticky;\s*bottom: var\(--composer-padding-y\);/);
+  assert.match(globalsCss, /\.chat-composer-shell \{\s*--composer-padding: 10px;\s*position: relative;/);
+  assert.match(globalsCss, /\.chat-composer-actions \{\s*position: absolute;\s*right: var\(--composer-padding\);\s*bottom: var\(--composer-padding\);/);
+  for (const html of [idleHtml, streamingHtml]) {
+    assert.match(html, /class="chat-composer-actions-spacer" aria-hidden="true"><\/span><\/div><div class="chat-composer-actions">/);
+  }
 
-  // scrollbar-gutter: stable reserves the platform's scrollbar width, so the
-  // sticky controls subtract the measured width instead of drifting inward on
-  // systems that always show scrollbars (15px) or on Chromium (4px).
+  // Only the empty spacer accounts for the platform scrollbar width. Real
+  // buttons remain outside its clipping edge with no negative margin.
   assert.match(source, /function composerScrollbarGutter\(field: HTMLElement\): number \{[\s\S]*?field\.offsetWidth - field\.clientWidth - borders/);
   assert.match(source, /field\.style\.setProperty\("--composer-scrollbar-gutter", `\$\{composerScrollbarGutter\(field\)\}px`\)/);
-  assert.match(source, /<div\s+className="chat-composer-field"\s+ref=\{composerFieldRef\}/);
-  for (const selector of [".chat-composer-send", ".chat-composer-queue-actions"]) {
-    const block = globalsCss.match(new RegExp(`\\${selector} \\{[^}]*\\}`))?.[0] ?? "";
-    assert.match(block, /margin-right: calc\(-1 \* var\(--composer-scrollbar-gutter, 0px\)\)/, `${selector} must negate the composer scrollbar gutter`);
-  }
+  assert.match(source, /observer\.observe\(actions\)/);
+  assert.match(source, /field\.style\.setProperty\("--composer-actions-width", `\$\{width\}px`\)/);
+  assert.match(source, /field\.style\.setProperty\("--composer-actions-height", `\$\{height\}px`\)/);
+  assert.match(globalsCss, /\.chat-composer-actions-spacer \{[\s\S]*?var\(--composer-actions-width, 76px\) - var\(--composer-scrollbar-gutter, 0px\)/);
+  assert.doesNotMatch(globalsCss, /--composer-controls-offset|margin-right: calc\(-1 \* var\(--composer/);
 
   // The textarea grows with its content; scrolling it would expose an inner
   // boundary again.

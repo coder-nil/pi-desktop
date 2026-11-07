@@ -432,12 +432,14 @@ test("keeps live following cancellable when the user scrolls away from the tail"
   assert.match(source, /const wasAttached = isNearBottomRef\.current;[\s\S]*?const isAttached = getLiveFollowAttached\([\s\S]*?wasAttached,[\s\S]*?previousScrollTopRef\.current,[\s\S]*?scrollTop,[\s\S]*?clientHeight,[\s\S]*?scrollHeight/);
   assert.match(scrollHandlerSource, /const isAgentRunning = agentRunningRef\.current;[\s\S]*?isAgentRunning\s*\? CHAT_SCROLL_REATTACH_TOLERANCE\s*:\s*CHAT_SCROLL_TAIL_TOLERANCE/);
   assert.match(source, /previousScrollTopRef\.current = scrollTop/);
-  assert.match(scrollToBottomSource, /messagesEndRef\.current\?\.scrollIntoView\(\{ behavior \}\);\s*if \(container\) previousScrollTopRef\.current = container\.scrollTop/);
+  assert.match(scrollToBottomSource, /document\.visibilityState === "hidden" \|\| container\.clientHeight === 0/);
+  assert.match(scrollToBottomSource, /end\.scrollIntoView\(\{ behavior \}\);\s*previousScrollTopRef\.current = container\.scrollTop/);
   assert.match(streamUpdateSource, /liveFollowFrameRef\.current === null/);
   assert.match(streamUpdateSource, /requestAnimationFrame\(\(\) => \{[\s\S]*?liveFollowFrameRef\.current = null;[\s\S]*?if \(isNearBottomRef\.current\) scrollToBottom\("auto"\)/);
   assert.match(scrollHandlerSource, /!wasAttached && isAttached && isAgentRunning[\s\S]*?scrollToBottom\("auto"\)/);
   assert.match(scrollHandlerSource, /cancelAnimationFrame\(liveFollowFrameRef\.current\)/);
-  assert.match(source, /previousScrollTopRef\.current = container\.scrollTop;\s*container\.addEventListener\("scroll", handleScrollPositionChange/);
+  assert.match(scrollHandlerSource, /document\.visibilityState !== "hidden" && container\.clientHeight > 0/);
+  assert.match(source, /previousScrollTopRef\.current = container\.scrollTop;[\s\S]*?container\.addEventListener\("scroll", handleScrollPositionChange/);
   assert.doesNotMatch(source, /SCROLL_BOTTOM_THRESHOLD|completionScrollAllowedRef|ignoreProgrammaticScrollUntilRef/);
 });
 
@@ -451,8 +453,8 @@ test("keeps a newly sent user message at the top while its response starts", () 
     source.indexOf("const handleScrollPositionChange"),
   );
   const scrollEffectSource = source.slice(
-    source.indexOf("useLayoutEffect(() => {\n    if (messages.length > 0)"),
-    source.indexOf("// Load model list"),
+    source.indexOf("const restoreChatScroll = useCallback"),
+    source.indexOf("const handleScrollPositionChange"),
   );
 
   assert.match(streamUpdateSource, /!pendingScrollToUserRef\.current && isNearBottomRef\.current/);
@@ -538,11 +540,12 @@ test("never lets a steering message become a silent no-op", () => {
 
 test("keeps a detached viewport in place when streaming completes", () => {
   const scrollEffectSource = source.slice(
-    source.indexOf("useLayoutEffect(() => {\n    if (messages.length > 0)"),
-    source.indexOf("// Load model list"),
+    source.indexOf("const restoreChatScroll = useCallback"),
+    source.indexOf("const handleScrollPositionChange"),
   );
 
-  assert.match(scrollEffectSource, /!agentRunningRef\.current && isNearBottomRef\.current[\s\S]*?scrollToBottom\("auto"\)/);
-  assert.doesNotMatch(scrollEffectSource, /\|\|/);
+  assert.match(scrollEffectSource, /else if \(isNearBottomRef\.current\)[\s\S]*?scrollToBottom\("auto"\)/);
+  assert.doesNotMatch(scrollEffectSource, /agentRunningRef/);
+  assert.match(source, /\[messages, agentRunning, loading, restoreChatScroll\]/);
   assert.match(source, /addEventListener\("scroll", handleScrollPositionChange/);
 });

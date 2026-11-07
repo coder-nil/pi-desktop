@@ -152,9 +152,8 @@ function resizeComposerTextarea(textarea: HTMLTextAreaElement | null): void {
  * Width the field's `scrollbar-gutter: stable` reserves on the right. It is the
  * platform's scrollbar width: 0 with overlay scrollbars (the macOS default), the
  * 4px our `::-webkit-scrollbar` rule asks for on Chromium, and the classic 15px
- * scrollbar once macOS is set to always show scrollbars. Send and stop are
- * content items of the scrolling field, so they shift inward by exactly that
- * width unless globals.css cancels it out.
+ * scrollbar once macOS is set to always show scrollbars. Only the invisible
+ * actions spacer subtracts this width; the buttons are outside the scrollport.
  */
 function composerScrollbarGutter(field: HTMLElement): number {
   const styles = window.getComputedStyle(field);
@@ -600,6 +599,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const composerFieldRef = useRef<HTMLDivElement>(null);
+  const composerActionsRef = useRef<HTMLDivElement>(null);
   // 字号同时驱动输入框自身与高度重算：这里是全应用最早挂载的消费者，
   // 自定义属性也随这次订阅应用到文档根节点上（见 hooks/useChatAppearance.ts）。
   const { fontSize: chatFontSize } = useChatAppearance();
@@ -949,21 +949,29 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     resizeComposerTextarea(textareaRef.current);
   }, [value, chatFontSize]);
 
-  // scrollbar-gutter: stable reserves the system scrollbar's width on the right
-  // of the field. Measure it and publish it as --composer-scrollbar-gutter so
-  // the sticky send/stop controls can negate it (globals.css) instead of being
-  // pushed inward when macOS is set to always show scrollbars. The layout effect
-  // keeps the first paint from showing the un-offset position.
+  // The controls live outside the scrollport, anchored to the shell's padding.
+  // Reserve their measured size inside the field so text cannot run under them.
   useLayoutEffect(() => {
     const field = composerFieldRef.current;
-    if (!field) return;
-    const syncGutter = () => {
+    const actions = composerActionsRef.current;
+    if (!field || !actions) return;
+    let previousMetrics = "";
+    const syncLayout = () => {
+      const { width, height } = actions.getBoundingClientRect();
+      field.style.setProperty("--composer-actions-width", `${width}px`);
+      field.style.setProperty("--composer-actions-height", `${height}px`);
       field.style.setProperty("--composer-scrollbar-gutter", `${composerScrollbarGutter(field)}px`);
+      const metrics = `${width}:${height}:${textareaRef.current?.clientWidth}`;
+      if (metrics !== previousMetrics) {
+        previousMetrics = metrics;
+        resizeComposerTextarea(textareaRef.current);
+      }
     };
-    syncGutter();
+    syncLayout();
     if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(syncGutter);
+    const observer = new ResizeObserver(syncLayout);
     observer.observe(field);
+    observer.observe(actions);
     return () => observer.disconnect();
   }, []);
 
@@ -2426,6 +2434,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               )}
             </div>
           )}
+          <div className="chat-composer-shell">
           <div
             className="chat-composer-field"
             ref={composerFieldRef}
@@ -2640,6 +2649,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             }}
           />
 
+          <span className="chat-composer-actions-spacer" aria-hidden="true" />
+          </div>
+          <div className="chat-composer-actions" ref={composerActionsRef}>
           {isStreaming ? (
             <div
               ref={queueActionsRef}
@@ -2705,6 +2717,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               {!isMobile && t("chat.send")}
             </button>
           )}
+          </div>
           </div>
         </div>
 
