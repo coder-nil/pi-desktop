@@ -22,13 +22,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-14
+          - os: macos-15
             name: macOS ARM64
             node_target: darwin-arm64
             rust_target: aarch64-apple-darwin
             artifact: macos-arm64
             smoke_with_system_node: false
-          - os: macos-14
+          - os: macos-15-intel
             name: macOS Intel
             node_target: darwin-x64
             rust_target: x86_64-apple-darwin

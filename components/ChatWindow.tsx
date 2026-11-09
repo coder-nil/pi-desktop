@@ -24,6 +24,7 @@ import {
   getPromptAnchorSpacerHeight,
   getVisibleRenderWindow,
   restoreScrollTop,
+  shouldShowJumpToLatest,
   VISIBLE_PAGE_SIZE,
 } from "@/lib/chat-lazy-load";
 
@@ -199,7 +200,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     handleSteer, handleFollowUp, handlePromptWithStreamingBehavior,
     handleRecallQueue,
     handleBuiltinSlashCommand,
-    handleToolPresetChange, handleChatModeChange, handleThinkingLevelChange, loadSlashCommands, scrollUserMsgToTop,
+    handleToolPresetChange, handleChatModeChange, handleThinkingLevelChange, loadSlashCommands, scrollToBottom, scrollUserMsgToTop,
   } = useAgentSession({
     session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd: wrappedOnAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked,
     modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemPromptLoaderChange, onSessionStatsPanelOpen,
@@ -232,6 +233,36 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
   const [visibleCount, setVisibleCount] = useState(VISIBLE_PAGE_SIZE);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const prevScrollDistanceRef = useRef<number | null>(null);
+
+  // 「回到底部」按钮：只在离开贴底时出现。scroll 监听里只翻转这一位，滚动过程本身不重渲染；
+  // 贴底跟随由 useAgentSession 自己那份监听负责，这里用同一个容忍度独立判定。
+  const [showJumpToLatest, setShowJumpToLatest] = useState(false);
+  // 只拿「有没有消息」这个布尔值做依赖：按 messages.length 重订阅会让内容长高与贴底跟随
+  // 之间的那一帧被当成“离开底部”，流式输出时按钮会一下一下闪。
+  const hasNoMessages = messages.length === 0;
+
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const syncJumpVisibility = () => {
+      const show = shouldShowJumpToLatest(container.scrollTop, container.clientHeight, container.scrollHeight);
+      setShowJumpToLatest((previous) => (previous === show ? previous : show));
+    };
+    container.addEventListener("scroll", syncJumpVisibility, { passive: true });
+    // 首帧延后一帧再同步：挂载时 useAgentSession 刚把长会话滚到底，等它落地再量一次，
+    // 否则按钮会在会话打开的瞬间闪一下。
+    const initialFrame = requestAnimationFrame(syncJumpVisibility);
+    return () => {
+      cancelAnimationFrame(initialFrame);
+      container.removeEventListener("scroll", syncJumpVisibility);
+    };
+  }, [scrollContainerRef, isNew, hasNoMessages]);
+
+  const handleJumpToLatest = useCallback(() => {
+    const reduceMotion = typeof window !== "undefined"
+      && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    scrollToBottom(reduceMotion ? "auto" : "smooth");
+  }, [scrollToBottom]);
 
   const renderUnits = useMemo(
     () => buildChatRenderUnits(messages, { liveTail: sessionBusy || streamState.isStreaming }),
@@ -492,6 +523,8 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
       onFollowUp={agentRunning ? handleFollowUp : undefined}
       onPromptWithStreamingBehavior={agentRunning ? handlePromptWithStreamingBehavior : undefined}
       isStreaming={sessionBusy}
+      showJumpToLatest={showJumpToLatest}
+      onJumpToLatest={handleJumpToLatest}
       model={displayModelValue}
       isAutoModelSelection={isAutoModelSelection}
       modelNames={modelNames}

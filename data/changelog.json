@@ -1,5 +1,35 @@
 [
   {
+    "version": "1.5.0-alpha.21",
+    "date": "2026-11-05",
+    "sections": [
+      {
+        "title": "Added",
+        "kind": "added",
+        "items": [
+          "为多仓库项目中的子项目添加 Git 徽标与面板切换。文件浏览器为每个自带 `.git` 的子目录提供 Git 入口，点击后以该子目录为仓库根打开 Git 面板；面板记住目标仓库，切换项目或关闭时清空旧摘要，主项目本身不是仓库也能用。",
+          "将 project_context 压缩为 AGENTS.md 路径列表。AGENTS.md 全文不再内联进系统提示词，改为「路径列表 + 动手前先 read」的指引（本仓库实测 75,547 → 315 字符）；没有 `read` 工具（工具预设关闭、普通对话模式）时仍回退全文。",
+          "对话离开底部时显示「回到最新」按钮。按钮出现在输入框上沿，点击回到最新消息，并遵循系统的减少动效设置。"
+        ]
+      },
+      {
+        "title": "Changed",
+        "kind": "changed",
+        "items": [
+          "将 Git 徽标移入行内操作区并统一图标。它与「提及」「在访达中显示」并排组成无间隙按钮组，三个按钮统一为 lucide 线性图标（`AtSign` / `GitBranch`，14px、`strokeWidth` 2、`--text-muted`）。",
+          "应用、npm、Tauri 和 Cargo 版本号统一为 `1.5.0-alpha.21`。"
+        ]
+      },
+      {
+        "title": "Fixed",
+        "kind": "fixed",
+        "items": [
+          "将 macOS 构建镜像从已退役的 macos-14 迁到 macos-15。GitHub Actions 已于 2026-11-02 全面退役 macOS 14 镜像，原先两个 macOS job 会以 `The configuration 'macos-14-arm64-us-default' is not supported` 失败；ARM64 改用 `macos-15`，Intel 改用官方保留的 `macos-15-intel` 标签。"
+        ]
+      }
+    ]
+  },
+  {
     "version": "1.5.0-alpha.20",
     "date": "2026-11-03",
     "sections": [
