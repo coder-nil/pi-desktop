@@ -557,3 +557,44 @@ test("publishes the chat reading surface as clamped custom properties", () => {
   // 表格原本是 0.93em（相对 14px）；改成绝对值才能跟着字号一起放大。
   assert.match(globalsCss, /\.markdown-body table \{[\s\S]*?font-size: calc\(13px \+ var\(--chat-font-size-offset, 0px\)\);/);
 });
+
+// /new 是内置命令：运行中也要立刻生效，不能被塞进 3 秒排队倒计时。
+test("registers /new as a builtin command that bypasses the queue countdown", () => {
+  // 面板里要带上自解释的副标题。
+  assert.match(source, /\{ name: "new", description: "chat\.commandNew", source: "builtin" \}/);
+  // 中英文案都要有，否则面板描述会退化成 key。
+  assert.match(enMessages, /"chat\.commandNew": /);
+  assert.match(zhMessages, /"chat\.commandNew": /);
+
+  const requestQueuedSource = source.slice(
+    source.indexOf("const requestQueuedSend = useCallback"),
+    source.indexOf("const selectQueueMode = useCallback"),
+  );
+  assert.match(requestQueuedSource, /BUILTIN_SLASH_COMMANDS\.some\(\(command\) => command\.name === builtinName\)/);
+  // 内置命令走 sendQueued，由它把命令交给 handleBuiltinSlashCommand。
+  assert.match(requestQueuedSource, /void sendQueued\("followup"\)/);
+  assert.ok(
+    requestQueuedSource.indexOf("void sendQueued(\"followup\")") < requestQueuedSource.indexOf("setQueueCountdown(3)"),
+    "the builtin branch must return before the countdown starts",
+  );
+});
+
+// /new 没有参数可填：从面板选中后应当立刻建新会话，而不是把命令挂成
+// 还要再回车一次的 chip。
+test("executes /new straight from the palette instead of staging a command tag", () => {
+  const applySource = source.slice(
+    source.indexOf("const applySlashCommand = useCallback"),
+    source.indexOf("const loadSkillMenu = useCallback"),
+  );
+
+  assert.match(applySource, /command\.source === "builtin" && command\.name === "new" && onBuiltinCommand/);
+  assert.match(applySource, /void onBuiltinCommand\("\/new"\)/);
+  // 立即执行的分支必须在挂 chip 之前 return。
+  assert.ok(
+    applySource.indexOf('void onBuiltinCommand("/new")') < applySource.indexOf("setSelectedSlashCommand({ name: command.name"),
+    "the /new branch must return before the tag is staged",
+  );
+  // 没有处理者时退回挂 chip，选择不会静默丢失。
+  assert.match(applySource, /if \(!result\.handled\) \{/);
+  assert.match(source, /const applySlashCommand = useCallback\(\(command: SlashCommandPaletteItem\) => \{[\s\S]*?\}, \[onBuiltinCommand\]\);/);
+});

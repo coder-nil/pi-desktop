@@ -176,6 +176,12 @@ export interface UseAgentSessionOptions {
   /** Registers an action that lazily starts the session and returns its system prompt. */
   onSystemPromptLoaderChange?: (loader: (() => Promise<void>) | null) => void;
   onSessionStatsPanelOpen?: () => void;
+  /**
+   * `/new`：与 Cmd+N 完全等价 —— 切到一个新的空会话（纯前端 draft，不先
+   * POST /api/agent/new），不打断其它正在运行的会话。返回 false 表示当前
+   * 没有可用的项目目录，命令会以错误提示收场。
+   */
+  onNewSessionRequest?: () => boolean;
   setToolPreset?: (preset: ToolPreset) => void;
 }
 
@@ -313,6 +319,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const {
     session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked,
     modelsRefreshKey, onBranchDataChange, onSystemPromptChange, onSystemPromptLoaderChange, onSessionStatsPanelOpen,
+    onNewSessionRequest,
   } = opts;
 
   const isNew = session === null && newSessionCwd !== null;
@@ -1815,6 +1822,21 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
     const [, commandName, rawArgs = ""] = match;
     const args = rawArgs.trim();
+
+    // /new 必须早于 ensureNewSession：在空 draft 里执行 /new 时若先
+    // ensureNewSession，会凭空创建一个后端会话再切走，留下一个空 session
+    // 文件。它也刻意不看 agentRunning —— 与 Cmd+N 一致：当前运行留在后台
+    // 继续跑，不被中断，也不影响其它会话。
+    if (commandName === "new") {
+      if (!onNewSessionRequest) return { handled: false };
+      if (!onNewSessionRequest()) {
+        const error = t("chat.newNoProject");
+        addNotice({ type: "error", message: error });
+        return { handled: true, error };
+      }
+      return { handled: true };
+    }
+
     const sid = sessionIdRef.current ?? await ensureNewSession();
     const complete = (result: BuiltinSlashCommandResult): BuiltinSlashCommandResult => {
       if (!result.handled) return result;
@@ -1892,7 +1914,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } finally {
       if (commandName === "compact") setIsCompacting(false);
     }
-  }, [addNotice, ensureNewSession, isCompacting, loadModels, loadSession, loadSlashCommands, loadTools, promoteNewSession, onSessionStatsPanelOpen, t]);
+  }, [addNotice, ensureNewSession, isCompacting, loadModels, loadSession, loadSlashCommands, loadTools, onNewSessionRequest, promoteNewSession, onSessionStatsPanelOpen, t]);
 
   // Let AgentSession.prompt decide atomically whether to queue against the
   // current run or start a new turn if it settled while the request was in

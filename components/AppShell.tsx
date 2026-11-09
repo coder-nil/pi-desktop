@@ -1059,6 +1059,14 @@ export function AppShell() {
     activeCwd,
   });
 
+  // `/new` 行走与 Ctrl/Cmd+N 完全相同的路径：纯前端 draft，不先行创建后端
+  // 会话，也不去碰任何正在运行的会话（它们在 rpc-manager 里继续跑）。
+  const handleNewSessionRequest = useCallback((): boolean => {
+    if (!activeCwd) return false;
+    handleNewSession(`kb-${Date.now()}`, activeCwd);
+    return true;
+  }, [activeCwd, handleNewSession]);
+
   const handleCloseFileTab = useCallback((tabId: string) => {
     setFileTabs((prev) => {
       const next = prev.filter((t) => t.id !== tabId);
@@ -2365,6 +2373,7 @@ export function AppShell() {
               onSystemPromptLoaderChange={handleSystemPromptLoaderChange}
               onSessionStatsChange={handleSessionStatsChange}
               onSessionStatsPanelOpen={openSessionStatsPanel}
+              onNewSessionRequest={handleNewSessionRequest}
               onContextUsageChange={handleContextUsageChange}
               onScrollContainerChange={handleChatScrollContainerChange}
               minimapHost={minimapHost}

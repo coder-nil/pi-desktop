@@ -549,3 +549,27 @@ test("keeps a detached viewport in place when streaming completes", () => {
   assert.match(source, /\[messages, agentRunning, loading, restoreChatScroll\]/);
   assert.match(source, /addEventListener\("scroll", handleScrollPositionChange/);
 });
+
+// /new 与 Cmd+N 等价：只切前端 draft，先 ensureNewSession 会凭空创建一个
+// 后端会话再切走，留下一个空 session 文件。也刻意不看运行状态——运行中的
+// 会话留在后台继续，和 Cmd+N 一样不被中断。
+test("intercepts /new before ensureNewSession and without touching a running agent", () => {
+  const builtinSource = source.slice(
+    source.indexOf("const handleBuiltinSlashCommand = useCallback"),
+    source.indexOf("const sendStreamingPrompt = useCallback"),
+  );
+  const newBranch = builtinSource.slice(
+    builtinSource.indexOf('if (commandName === "new")'),
+    builtinSource.indexOf("const sid = sessionIdRef.current ?? await ensureNewSession();"),
+  );
+
+  assert.ok(newBranch.length > 0, "/new must be handled before the sid lookup");
+  assert.match(newBranch, /onNewSessionRequest\(\)/);
+  assert.match(newBranch, /t\("chat\.newNoProject"\)/);
+  assert.doesNotMatch(newBranch, /ensureNewSession\(\)/);
+  // 运行中不是错误：/new 允许在流式进行时切走。
+  assert.doesNotMatch(newBranch, /agentRunningRef/);
+  // 回调必须进依赖数组，否则 Cmd+N 之外的 activeCwd 变化会留下旧闭包。
+  assert.match(source, /onSessionStatsPanelOpen, t\]\);/);
+  assert.match(source, /onNewSessionRequest, promoteNewSession/);
+});

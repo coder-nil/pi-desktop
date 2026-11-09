@@ -211,6 +211,7 @@ export interface SkillMenuGroup {
 }
 
 const BUILTIN_SLASH_COMMANDS: SlashCommandPaletteItem[] = [
+  { name: "new", description: "chat.commandNew", source: "builtin" },
   { name: "compact", description: "chat.commandCompact", source: "builtin" },
   { name: "reload", description: "chat.commandReload", source: "builtin" },
   { name: "name", description: "chat.commandName", source: "builtin" },
@@ -1207,10 +1208,23 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   }, []);
 
   const applySlashCommand = useCallback((command: SlashCommandPaletteItem) => {
-    setSelectedSlashCommand({ name: command.name, kind: getSlashCommandTagKind(command) });
-    setValue("");
     setSlashMenuOpen(false);
     setSlashActiveIndex(0);
+
+    // /new 没有参数可填，选中即执行：不往输入框里挂一个还要再回车一次的命令 chip。
+    if (command.source === "builtin" && command.name === "new" && onBuiltinCommand) {
+      setValue("");
+      void onBuiltinCommand("/new").then((result) => {
+        // 没接住（无可用项目目录等）时退回挂 chip，不让这次选择静默丢掉。
+        if (!result.handled) {
+          setSelectedSlashCommand({ name: command.name, kind: getSlashCommandTagKind(command) });
+        }
+      });
+      return;
+    }
+
+    setSelectedSlashCommand({ name: command.name, kind: getSlashCommandTagKind(command) });
+    setValue("");
     requestAnimationFrame(() => {
       const ta = textareaRef.current;
       if (!ta) return;
@@ -1218,7 +1232,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       ta.setSelectionRange(0, 0);
       resizeComposerTextarea(ta);
     });
-  }, []);
+  }, [onBuiltinCommand]);
 
   const loadSkillMenu = useCallback(async () => {
     if (!cwd) return;
@@ -1289,6 +1303,15 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
 
   const requestQueuedSend = useCallback(() => {
     if (!canQueueStreamingMessage) return;
+    // 内置命令不排进倒计时：sendQueued 会把它直接交给 handleBuiltinSlashCommand。
+    // /new 因此和 Cmd+N 一样即时生效（运行中的会话留在后台继续，不被中断），
+    // 运行中不合法的 /compact、/reload 也会马上得到拒绝提示，而不是等 3 秒。
+    const pending = buildComposerMessage(value, selectedSlashCommand, selectedAtMentions);
+    const builtinName = pending.startsWith("/") ? pending.slice(1).split(/\s+/, 1)[0].toLowerCase() : null;
+    if (builtinName && BUILTIN_SLASH_COMMANDS.some((command) => command.name === builtinName)) {
+      void sendQueued("followup");
+      return;
+    }
     if (onSteer && onFollowUp) {
       setQueueCountdown(3);
       setQueueCountdownPaused(false);
@@ -1296,7 +1319,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       setQueueMenuOpen(true);
     }
     else if (onSteer || onFollowUp) void sendQueued(onSteer ? "steer" : "followup");
-  }, [canQueueStreamingMessage, onSteer, onFollowUp, sendQueued]);
+  }, [canQueueStreamingMessage, onSteer, onFollowUp, selectedAtMentions, selectedSlashCommand, sendQueued, value]);
 
   const selectQueueMode = useCallback((mode: QueueSendMode) => {
     setQueueCountdownPaused(true);
