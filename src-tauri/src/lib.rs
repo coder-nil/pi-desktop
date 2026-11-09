@@ -370,6 +370,30 @@ fn open_release_url(url: String) -> Result<(), String> {
         .ok_or_else(|| "The operating system could not open the release page.".to_string())
 }
 
+#[tauri::command]
+fn open_external_url(url: String) -> Result<(), String> {
+    // 只放行 http(s)：登录链接来自远端服务，不能让它把本地协议送到系统打开器。
+    let allowed = (url.starts_with("https://") || url.starts_with("http://")) && url.len() <= 2048;
+    if !allowed {
+        return Err("Only http(s) links can be opened.".to_string());
+    }
+
+    #[cfg(target_os = "macos")]
+    let status = Command::new("open").arg(&url).status();
+    #[cfg(target_os = "windows")]
+    let status = hidden_command("rundll32")
+        .args(["url.dll,FileProtocolHandler", &url])
+        .status();
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let status = Command::new("xdg-open").arg(&url).status();
+
+    status
+        .map_err(|error| format!("Could not open the link: {error}"))?
+        .success()
+        .then_some(())
+        .ok_or_else(|| "The operating system could not open the link.".to_string())
+}
+
 fn reserve_port() -> Result<u16, String> {
     let listener = TcpListener::bind((HOST, 0))
         .map_err(|error| format!("Could not reserve a local port: {error}"))?;
@@ -939,6 +963,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             hide_startup_overlay,
             open_release_url,
+            open_external_url,
             terminal_start,
             terminal_write,
             terminal_resize,

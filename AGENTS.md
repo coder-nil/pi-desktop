@@ -10,6 +10,8 @@ Typecheck: `node_modules/.bin/tsc --noEmit`
 Lint: `npm run lint`  
 **Never run `next build` during dev** — pollutes `.next/` and breaks `npm run dev`.
 
+**在 Pi Desktop 自己的终端里起 dev server 要先摘掉宿主注入的 Next 环境变量**：Pi Desktop 本身是个 Next standalone 应用，会把 `__NEXT_PRIVATE_STANDALONE_CONFIG` / `__NEXT_PRIVATE_ORIGIN` 传给子进程，`next dev` 读到那份配置后按打包时的 `outputFileTracingRoot`（CI 路径 `/Users/runner/work/...`）解析，直接崩在 `failed to canonicalize path`。跑 `env -u __NEXT_PRIVATE_STANDALONE_CONFIG -u __NEXT_PRIVATE_ORIGIN npm run dev` 即可；这不是仓库问题，普通终端不会有。
+
 ---
 
 ## Architecture
@@ -369,6 +371,12 @@ Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `au
 - `prepare-desktop.mjs` 补 chunk 之前比对两份 `BUILD_ID`（`.next/BUILD_ID` vs 打包的 `.next/BUILD_ID`），不一致就 `console.warn` 并附加到「缺 chunk」的错误里：那种情况下源头还在、但已经不是 standalone 的那份构建，只说「源头也没有」会把人引向完全错误的结论。
 - 本地复现这类构建问题时注意：在 dev server 起的 shell 里跑 `npm run build` 会继承 `__NEXT_PRIVATE_STANDALONE_CONFIG`（还有 `PI_WEB_BUILD_TARGET`），前者让 `next build` 在 `Running next.config` 之后直接报 `TypeError: generate is not a function`，后者会把产物写到 `.next-desktop-dev`。要复现就用干净的 env（`env -u __NEXT_PRIVATE_STANDALONE_CONFIG -u PI_WEB_BUILD_TARGET …`），或者干脆在仓库副本里跑，别打扰正在运行的 dev。
 
+### 新增 Tauri 命令要改三处，少一处就静默失效
+- Tauri v2 的 WebView 里，自定义命令必须**三处同时到位**：`src-tauri/src/lib.rs` 的 `#[tauri::command]` + `generate_handler!` 注册、`src-tauri/build.rs` 里 `AppManifest::commands(&[...])` 的清单（ACL 权限由它生成，漏了 `cargo check` 直接 panic：`Permission allow-xxx not found`）、以及 `src-tauri/capabilities/default.json` 的 `allow-xxx`（漏了命令能编过，但 WebView `invoke` 会被 ACL 拒绝）。
+- `src-tauri/capabilities/default.test.mjs` 枚举了全部命令并校验这两份清单的映射，新增命令时把它一起加上，否则这条不变量就失效了。
+- **WebView 不能打开浏览器**：`window.open` 在 Tauri（尤其 macOS WebView）里不创建子窗口，是静默无操作。需要外部浏览器时一律走 `open_external_url`（Rust 侧 `open` / `rundll32` / `xdg-open`，只放行 http(s)）；前端封装在 `lib/open-external-url.ts`，并且在桌面端 invoke 失败时自动复制链接 + 在 UI 里提示，绝不允许按钮点了没反应。
+- **对话里的外链同理**：`MarkdownBody` / `FileViewer` 的 `a` 渲染器在桌面端用 `takeOverExternalLink()`（同一个封装）拦下 http(s) 点击并交给系统浏览器——WebView 里 `target="_blank"` 不开窗，不拦则整页被导航走、应用界面丢失；纯浏览器里该函数返回 false，原生新标签/修饰键语义保持不变。
+
 ### Windows 发布版不弹控制台窗口
 - **`src-tauri/src/main.rs` 的 `windows_subsystem = "windows"` 不能删。** 少了它 release 版是控制台子系统 exe，从资源管理器/开始菜单启动时 Windows 先给应用本身分配一个黑窗，随后 spawn 的 node.exe（Next server）继承同一个窗口——用户看到的现象是「启动 Next server 弹了一个控制台」。属性只在 `all(not(debug_assertions), target_os = "windows")` 下生效，所以 `cargo tauri dev` / `cargo test` 仍然有控制台，panic 输出不会消失。
 - **改成 GUI 子系统之后，子进程必须自带 `CREATE_NO_WINDOW`。** 桌面进程不再持有控制台，控制台程序（`node.exe`、`cloudflared`、`taskkill`）默认会各开一个窗口。`lib.rs` 的 `configure_process_group()`（`spawn_server` 与 `spawn_tunnel` 共用）用 `CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP`，`hidden_command()` 服务三个 `taskkill` 调用点与 `rundll32`。两个标志可以并存：窗口只是不显示，隐藏控制台与进程组照旧建立，`terminate_process()` 的整组回收不受影响。**新增任何 Windows 子进程都要带上它**，直接用裸 `Command::new` 就会重新露出黑窗。
@@ -388,6 +396,17 @@ Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `au
 
 ### Coding (apisets) discovers models from its upstream API only
 `providers/apisets` has no static model table: `apiSetsModels()` parses the upstream `/v1/models` response (`{ data: [...] }`) and must stamp `provider`/`api`/`baseUrl` onto every entry, because the parsed list is what gets persisted. `refreshModels()` restores that persisted list on cache-only refreshes, skips the upstream call while `checkedAt` is inside a 30 minute window (unless `force`), and publishes `persist: { etag: "apisets-models-api-v2" }` after a network refresh — bump that etag whenever the persisted shape changes. `createDesktopModelRuntime()` awaits a cache-only refresh for both Coding and DeepSeek, because every API request builds a fresh runtime: without persisted models the provider renders with an empty list and the chat model picker silently loses it.
+
+### Qoder CN 订阅（`qoder-cn` provider）
+- **它是唯一一个不走 OpenAI 兼容端点的订阅**。国内版的对话入口是 `POST https://gateway.qoder.com.cn/algo/api/v2/service/pro/sse/agent_chat_generation?…&Encode=1`，请求必须带一整套 COSY 头（`authorization: Bearer COSY.<payload>.<md5>`），body 是 Qoder 自定义 Base64；没有 `/v1/chat/completions` 可用（`api2-v2.qoder.*` 模型服务器在公网 DNS 里是 NXDOMAIN）。实现全部在 `lib/qoder-cn/`，逻辑与 qoder2api-hub 的国内版保持一致。
+- **签名覆盖编码后的 body 字节**：`buildQoderRequestBody()` → `encodeQoderBase64()` → `createCosySession().headers()` 这个顺序不能变，先签名再改 body、或签名后重新序列化，都会变成 401/403「Signature invalid」。COSY 会话密钥是 `uuid4().hex[:16]`（key 与 iv 同一串 ASCII），长度和字符集都不要「加固」——服务端用它解 `info`，字节一变就解不开。
+- **不要绕开 `lib/qoder-cn/transport.ts`**。注册的 `api` 是 `openai-completions`，只为了复用 SDK 的 chunk 解析；URL、body、COSY 头、SSE 信封解包都在注入的 fetch 里完成，注入点是 `createDesktopModelRuntime()` 里按 `model.provider === QODER_CN_PROVIDER_ID` 分支。上游信封 `{"headers","body","statusCodeValue"}` 里的 `body` 本身就是标准 OpenAI chunk，所以只需拆信封，不要另写一套流式解析。
+- **`refreshModels` 返回空数组会把静态目录清空**：composer 把返回值当成「新目录」发布，未登录、拉取失败、目录为空时都必须返回内置快照（`STATIC_MODEL_CONFIGS`）。
+- **模型 id 就是上游路由键**（`qmodel` / `qmodel_38max` / `dmodel` / `kmodel_latest` …）。上游对未知 key 不报错，会**静默回落到 `auto`**，所以不要拿显示名当 id；`business.model_key` 也必须带上，否则新模型在用量面板里被记到 `auto`。
+- **工具历史分两种形态**：Qwen/GLM/DeepSeek 族走结构化（保留 `role:"tool"` + `assistant.tool_calls`），其余模型（Kimi/MiniMax/`auto`）序列化成文本标记（`[assistant 请求调用工具]` / `[工具结果 (name)]`）。上游对非白名单模型不接受配对形态，判错会让模型照抄信封后静默结束。
+- **身份不在 `AuthResult` 里**：COSY 的身份体需要 uid / 昵称 / 用户类型，而 pi 只把 access token 当 `apiKey` 交出来。登录与刷新时按 token 缓存身份，缓存未命中（例如应用重启后）用 `/api/v1/userinfo` 兜底一次；凭证里同时存 `uid`/`userType`/`organization*` 扩展字段，`refreshModels` 直接复用，不必再打接口。
+- **设备指纹按账号 UID 派生**（`lib/qoder-cn/fingerprint.ts`），不要改成随机值：同一账号长期来自同一台设备是正常形态，随机化反而会被关联风控。
+- 登录链路是设备码 + PKCE S256：授权页 `https://qoder.com.cn/device/selectAccounts?…`，轮询 `GET {openapi}/api/v1/deviceToken/poll`（404/202 = 待授权），刷新 `POST /api/v1/deviceToken/refresh`。`TOKEN_EXPIRE` / `12153` 表示离线会话已被吊销，只能重新登录。
 
 ### Phone remote view (`/m`) is a separate, deliberately thin route
 - `app/m/page.tsx` renders `MobileRemoteView` inside its own `I18nProvider` (the root layout has none) and must stay free of the desktop renderers — `components/MobileRemoteView.test.mjs` asserts that `MarkdownBody`, `ChatMinimap`, `FileExplorer`, `TerminalPanel` and `MermaidBlock` are never imported there. The input keeps `fontSize: 16` so iOS does not zoom on focus. That textarea grows with its content up to `COMPOSER_MAX_HEIGHT` (88px = 3 lines at 16px/1.5, beyond that it scrolls inside the box) and its height is written imperatively, so the empty-input effect **must** reset `style.height` to `auto`: without it the box stayed at 3 lines after every multi-line send, and the keyboard leaves so little room that the taller composer eats the transcript.

@@ -30,6 +30,7 @@ import type { GitFileDiffResponse } from "@/lib/git-types";
 import { MonacoFileEditor, type MonacoEditorHandle } from "./MonacoEditor";
 import { useI18n } from "@/hooks/useI18n";
 import { darkSyntaxTheme, lightSyntaxTheme } from "@/lib/syntax-highlighter-theme";
+import { isOpenableExternalUrl, takeOverExternalLink } from "@/lib/open-external-url";
 import {
   buildLineSearchRangeMap,
   findFileSearchMatches,
@@ -2060,11 +2061,21 @@ function TextFileViewer({
                 },
                 a({ href, children, ...props }) {
                   delete props.node;
+                  const externalHref = typeof href === "string" && isOpenableExternalUrl(href) ? href : null;
                   const linkedFile = onOpenFile
                     ? resolveLocalFileTarget(href, markdownDirectory, cwd ?? markdownDirectory)
                     : null;
                   if (!linkedFile || !onOpenFile) {
-                    return <a href={href} {...props}>{children}</a>;
+                    // 桌面端点外链否则会把整个 WebView 导航走（应用界面直接丢掉）。
+                    return (
+                      <a
+                        href={href}
+                        {...props}
+                        onClick={(event) => { if (externalHref) takeOverExternalLink(event, externalHref); }}
+                      >
+                        {children}
+                      </a>
+                    );
                   }
 
                   const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {

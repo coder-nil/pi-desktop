@@ -4,6 +4,7 @@ import { useMemo, type MouseEvent } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import { resolveLocalFileTarget, type FileOpenLocation } from "@/lib/file-links";
 import { encodeFilePathForApi } from "@/lib/file-paths";
+import { isOpenableExternalUrl, takeOverExternalLink } from "@/lib/open-external-url";
 import {
   markdownRehypePlugins,
   markdownRehypePluginsWithoutRaw,
@@ -55,11 +56,17 @@ export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile
     a({ href, children, ...props }) {
       // `node` is react-markdown metadata, not a DOM attribute.
       delete props.node;
+      const externalHref = typeof href === "string" && isOpenableExternalUrl(href) ? href : null;
+      // 桌面端（Tauri WebView）不会为 target="_blank" 开窗，链接点了等于没反应；
+      // 这里拦下来交给系统浏览器（浏览器里保留原生行为）。
+      const handleExternalOpen = (event: MouseEvent<HTMLAnchorElement>) => {
+        if (externalHref) takeOverExternalLink(event, externalHref);
+      };
       const fileTarget = onOpenFile ? resolveLocalFileTarget(href, cwd) : null;
       const openFile = onOpenFile;
       if (!fileTarget || !openFile) {
         return (
-          <a href={href} {...props} target="_blank" rel="noopener noreferrer">
+          <a href={href} {...props} target="_blank" rel="noopener noreferrer" onClick={handleExternalOpen}>
             {children}
           </a>
         );

@@ -12,6 +12,7 @@
     "core:event:allow-unlisten",
     "allow-hide-startup-overlay",
     "allow-open-release-url",
+    "allow-open-external-url",
     "allow-terminal-start",
     "allow-terminal-write",
     "allow-terminal-resize",

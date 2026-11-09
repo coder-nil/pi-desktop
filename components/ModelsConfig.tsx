@@ -7,6 +7,8 @@ import { SelectPicker } from "./SelectPicker";
 import { EnabledModelsPicker } from "./EnabledModelsPicker";
 import type { ModelCatalogPreset, ModelCatalogRecommendation } from "@/lib/model-catalog";
 import type { DiscoveredModel } from "@/lib/model-discovery";
+import { copyText } from "@/lib/clipboard";
+import { openExternalUrl } from "@/lib/open-external-url";
 import {
   hasModelCostDraftValue,
   modelCostToDraft,
@@ -1501,6 +1503,8 @@ function BuiltinModelDetail({
 
 function OAuthDetail({ provider, onRefresh, onModelsChanged }: { provider: OAuthProvider; onRefresh: () => void; onModelsChanged?: () => void }) {
   const [loginState, setLoginState] = useState<OAuthLoginState>({ phase: "idle" });
+  // 打开登录链接的兜底提示：桌面端/浏览器都可能打不开，必须告诉用户「链接已经给你了」。
+  const [openHint, setOpenHint] = useState<string | null>(null);
   const { t } = useI18n();
   const [inputValue, setInputValue] = useState("");
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -1515,6 +1519,7 @@ function OAuthDetail({ provider, onRefresh, onModelsChanged }: { provider: OAuth
   // Reset state when provider changes
   useEffect(() => {
     setLoginState({ phase: "idle" });
+    setOpenHint(null);
     setInputValue("");
     eventSourceRef.current?.close();
     eventSourceRef.current = null;
@@ -1527,6 +1532,7 @@ function OAuthDetail({ provider, onRefresh, onModelsChanged }: { provider: OAuth
   const handleLogin = useCallback(() => {
     eventSourceRef.current?.close();
     setLoginState({ phase: "connecting" });
+    setOpenHint(null);
     setInputValue("");
 
     const es = new EventSource(`/api/auth/login/${encodeURIComponent(provider.id)}`);
@@ -1541,7 +1547,9 @@ function OAuthDetail({ provider, onRefresh, onModelsChanged }: { provider: OAuth
       };
       if (data.type === "auth") {
         setLoginState({ phase: "auth", url: data.url!, instructions: data.instructions ?? null, token: data.token! });
-        window.open(data.url!, "_blank", "noopener,noreferrer");
+        // 桌面端的 WebView 不会为 window.open 开窗，必须走系统浏览器；
+        // 因此下面 auth 阶段一律把 URL 以可复制文本展示出来作为兜底。
+        void openExternalUrl(data.url!);
       } else if (data.type === "device_code") {
         setLoginState({
           phase: "device_code",
@@ -1550,7 +1558,7 @@ function OAuthDetail({ provider, onRefresh, onModelsChanged }: { provider: OAuth
           intervalSeconds: data.intervalSeconds ?? null,
           expiresInSeconds: data.expiresInSeconds ?? null,
         });
-        window.open(data.verificationUri!, "_blank", "noopener,noreferrer");
+        void openExternalUrl(data.verificationUri!);
       } else if (data.type === "prompt_request") {
         setLoginState({ phase: "prompt", message: data.message!, placeholder: data.placeholder ?? null, token: data.token! });
       } else if (data.type === "select_request") {
@@ -1667,17 +1675,50 @@ function OAuthDetail({ provider, onRefresh, onModelsChanged }: { provider: OAuth
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>
               {loginState.phase === "auth"
-                ? "Complete sign-in in the browser, then copy the redirect URL from the address bar and paste it below."
+                ? "Finish signing in in the browser. Subscription sign-ins (Qoder CN, Kimi) continue on their own; providers that redirect to a callback URL need that URL pasted below."
                 : loginState.message}
             </p>
             {loginState.phase === "auth" && (
-              <p style={{ margin: 0, fontSize: 11, color: "var(--text-dim)", lineHeight: 1.5 }}>
-                If the browser window did not open,{" "}
-                <a href={loginState.url} target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)", wordBreak: "break-all" }}>
-                  click here to open the login page
-                </a>
-                .
-              </p>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {loginState.instructions && (
+                  <p style={{ margin: 0, fontSize: 11, color: "var(--text-dim)", lineHeight: 1.5 }}>
+                    {loginState.instructions}
+                  </p>
+                )}
+                {/* 桌面端 window.open 不开窗、浏览器弹窗可能被拦，所以链接要能看得见、拿得到。 */}
+                <div style={{ padding: "6px 8px", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 5, fontSize: 11, color: "var(--text-muted)", fontFamily: "var(--font-mono)", wordBreak: "break-all", userSelect: "text" }}>
+                  {loginState.url}
+                </div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button
+                    onClick={() => {
+                      void openExternalUrl(loginState.url).then((result) => {
+                        if (result === "copied") {
+                          setOpenHint("桌面端没能拉起浏览器：链接已复制，粘到浏览器里打开即可。");
+                        } else if (result === "blocked") {
+                          setOpenHint("浏览器拦住了新窗口：请复制上面的链接手动打开。");
+                        } else {
+                          setOpenHint(null);
+                        }
+                      });
+                    }}
+                    style={{ flex: 1, padding: "5px 9px", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 5, color: "var(--text)", cursor: "pointer", fontSize: 11 }}
+                  >
+                    Open in browser
+                  </button>
+                  <button
+                    onClick={() => {
+                      void copyText(loginState.url).then(() => setOpenHint("链接已复制。"));
+                    }}
+                    style={{ flex: 1, padding: "5px 9px", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 5, color: "var(--text)", cursor: "pointer", fontSize: 11 }}
+                  >
+                    Copy link
+                  </button>
+                </div>
+                {openHint && (
+                  <p style={{ margin: 0, fontSize: 11, color: "var(--accent)", lineHeight: 1.5 }}>{openHint}</p>
+                )}
+              </div>
             )}
             <div style={{ display: "flex", gap: 6 }}>
               <input

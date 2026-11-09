@@ -18,6 +18,7 @@ fn main() {
             tauri_build::AppManifest::new().commands(&[
                 "hide_startup_overlay",
                 "open_release_url",
+                "open_external_url",
                 "terminal_start",
                 "terminal_write",
                 "terminal_resize",

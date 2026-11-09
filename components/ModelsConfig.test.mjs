@@ -203,3 +203,26 @@ test("a configured API key renders an editable mask inside the input", () => {
   // 明文 Key 只能出现在保存请求体里，绝不来自响应。
   assert.doesNotMatch(detail, /d\.apiKey/);
 });
+
+test("登录链接走系统浏览器，并始终以可复制文本兜底", () => {
+  // 桌面端（Tauri/macOS WebView）不会为 window.open 开窗，所以登录必须走
+  // open_external_url；同时 URL 要能看见、能复制，否则弹窗被拦时用户无路可走。
+  assert.match(source, /import \{ openExternalUrl \} from "@\/lib\/open-external-url"/);
+  assert.match(source, /void openExternalUrl\(data\.url!\)/);
+  assert.match(source, /void openExternalUrl\(data\.verificationUri!\)/);
+  assert.doesNotMatch(source, /window\.open\(data\.(url|verificationUri)/);
+  assert.match(source, /\{loginState\.url\}/);
+  assert.match(source, /Copy link/);
+  assert.match(source, /Open in browser/);
+  assert.match(source, /copyText\(loginState\.url\)/);
+});
+
+test("打开登录链接失败时给出可操作提示，而不是静默无反应", () => {
+  // 桌面端旧二进制没有 open_external_url、浏览器又会拦弹窗，所以按钮必须
+  // 在失败时把链接复制给用户，并说明下一步怎么做。
+  assert.match(source, /result === "copied"/);
+  assert.match(source, /链接已复制/);
+  assert.match(source, /result === "blocked"/);
+  assert.match(source, /复制上面的链接手动打开/);
+  assert.match(source, /setOpenHint\(null\)/);
+});

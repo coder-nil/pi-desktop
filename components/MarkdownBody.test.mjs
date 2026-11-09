@@ -123,3 +123,12 @@ test("does not normalize escaped delimiters or link destinations", () => {
   assert.equal(normalizeDisplayMath(escaped), escaped);
   assert.equal(normalizeDisplayMath(link), link);
 });
+
+test("桌面端把 Markdown 外链交给系统浏览器", async () => {
+  const source = await readFile(new URL("./MarkdownBody.tsx", import.meta.url), "utf8");
+  // WebView 里 target="_blank" 不开窗、也不该把应用导航走，所以点击要拦下来
+  // 走 open_external_url（判定逻辑在 lib/open-external-url.ts）。
+  assert.match(source, /takeOverExternalLink/);
+  assert.match(source, /isOpenableExternalUrl\(href\)/);
+  assert.match(source, /onClick=\{handleExternalOpen\}/);
+});

@@ -10,9 +10,31 @@ import { responsesTerminalFetch } from "./responses-terminal-fetch";
 import { isModelType } from "@earendil-works/pi-ai";
 import type { AnyModel, Api, FetchFunction, Model, Provider } from "@earendil-works/pi-ai";
 import { invalidateModelsCache } from "./models-cache";
+import { QODER_CN_PROVIDER_ID } from "./qoder-cn/constants";
+import { qoderCnCatalogEntry, registerQoderCnProvider, resolveQoderCnCredential } from "./qoder-cn/provider";
+import { createQoderCnFetch } from "./qoder-cn/transport";
 
 function withResponsesFetch<T extends { fetch?: FetchFunction }>(options: T | undefined): T {
   return { ...options, fetch: responsesTerminalFetch(options?.fetch) } as T;
+}
+
+/**
+ * Qoder CN 走的是 COSY 签名的 agent 端点：请求体、鉴权头、响应信封都要改写。
+ * 这些全部集中在 fetch 里做，SDK 的 OpenAI 适配器只负责解析解包后的 chunk。
+ */
+function withQoderCnFetch<T extends { fetch?: FetchFunction }>(
+  modelRuntime: ModelRuntime,
+  options: T | undefined,
+): T {
+  return {
+    ...options,
+    fetch: createQoderCnFetch({
+      loadCredential: (renew) => resolveQoderCnCredential(modelRuntime, { renew }),
+      catalogFor: qoderCnCatalogEntry,
+      // pi 侧模型 id 就是上游路由键（目录里的 key 直接暴露），不需要再映射。
+      resolveModelKey: (modelId) => modelId,
+    }),
+  } as T;
 }
 
 export { APISETS_BASE_URL, APISETS_PROVIDER_ID } from "./desktop-provider-constants";
@@ -178,6 +200,9 @@ export function registerDesktopProviders(modelRuntime: ModelRuntime): void {
 
   const deepSeekProvider = modelRuntime.getProvider(DEEPSEEK_PROVIDER_ID);
   if (deepSeekProvider) modelRuntime.registerNativeProvider(modelsDevDeepSeekProvider(deepSeekProvider));
+
+  // Qoder 国内版订阅：设备码登录拿 token，推理走 COSY 签名的 agent 端点。
+  registerQoderCnProvider(modelRuntime);
 }
 
 /** Create a standalone runtime with Pi Desktop's built-in providers registered. */
@@ -185,14 +210,24 @@ export async function createDesktopModelRuntime(options?: CreateModelRuntimeOpti
   const modelRuntime = await ModelRuntime.create(options);
   const stream = modelRuntime.stream.bind(modelRuntime);
   const streamSimple = modelRuntime.streamSimple.bind(modelRuntime);
-  modelRuntime.stream = (model, context, requestOptions) => stream(model, context,
-    model.api === "openai-responses"
-      ? withResponsesFetch(requestOptions)
-      : requestOptions);
-  modelRuntime.streamSimple = (model, context, requestOptions) => streamSimple(model, context,
-    model.api === "openai-responses"
-      ? withResponsesFetch(requestOptions)
-      : requestOptions);
+  modelRuntime.stream = (model, context, requestOptions) => {
+    if (model.provider === QODER_CN_PROVIDER_ID) {
+      return stream(model, context, withQoderCnFetch(modelRuntime, requestOptions));
+    }
+    return stream(model, context,
+      model.api === "openai-responses"
+        ? withResponsesFetch(requestOptions)
+        : requestOptions);
+  };
+  modelRuntime.streamSimple = (model, context, requestOptions) => {
+    if (model.provider === QODER_CN_PROVIDER_ID) {
+      return streamSimple(model, context, withQoderCnFetch(modelRuntime, requestOptions));
+    }
+    return streamSimple(model, context,
+      model.api === "openai-responses"
+        ? withResponsesFetch(requestOptions)
+        : requestOptions);
+  };
   registerDesktopProviders(modelRuntime);
   // Cache-only 恢复应用自带的服务商目录：apisets 只认上游 /v1/models，没有
   // models-store.json 缓存就会一直接不到。registerProvider/registerNativeProvider
